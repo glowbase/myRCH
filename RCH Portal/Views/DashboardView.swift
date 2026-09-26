@@ -1,19 +1,34 @@
 import SwiftUI
 
-/// The six primary destinations surfaced as quick actions on the home screen.
+/// Destinations reachable from the dashboard.
 enum Feature: String, Identifiable, CaseIterable {
-    case visits, testResults, medication, healthSummary, letters, messages
+    case visits, testResults, medication, immunisations, allergies
+    case growthCharts, trackHealth, implants, letters
+    case healthSummary, messages, sharing
 
     var id: String { rawValue }
+
+    /// The tiles shown in the dashboard's quick links grid.
+    static let quickLinks: [Feature] = [
+        .visits, .testResults, .medication,
+        .immunisations, .allergies, .growthCharts,
+        .trackHealth, .implants, .letters
+    ]
 
     var title: String {
         switch self {
         case .visits: "Visits"
         case .testResults: "Test Results"
         case .medication: "Medication"
-        case .healthSummary: "Health Summary"
+        case .immunisations: "Immunisations"
+        case .allergies: "Allergies"
+        case .growthCharts: "Growth Charts"
+        case .trackHealth: "Track My Health"
+        case .implants: "Implants"
         case .letters: "Letters"
+        case .healthSummary: "Health Summary"
         case .messages: "Messages"
+        case .sharing: "Share My Record"
         }
     }
 
@@ -22,105 +37,144 @@ enum Feature: String, Identifiable, CaseIterable {
         case .visits: "calendar"
         case .testResults: "testtube.2"
         case .medication: "pills.fill"
-        case .healthSummary: "heart.text.square.fill"
+        case .immunisations: "syringe.fill"
+        case .allergies: "allergens"
+        case .growthCharts: "chart.line.uptrend.xyaxis"
+        case .trackHealth: "waveform.path.ecg"
+        case .implants: "cross.case.fill"
         case .letters: "doc.text.fill"
+        case .healthSummary: "heart.text.square.fill"
         case .messages: "envelope.fill"
+        case .sharing: "folder.badge.person.crop"
         }
     }
 
     var accent: Color {
         switch self {
-        case .visits: Theme.teal
-        case .testResults: Theme.green
+        case .visits, .growthCharts: Theme.teal
+        // Not green: green means "within normal range" on results.
+        case .testResults: Theme.blue
+        case .trackHealth: Theme.green
         case .medication: Theme.orange
-        case .healthSummary: Theme.red
-        case .letters: Theme.yellow
-        case .messages: Theme.brand
+        case .immunisations: Theme.proxy
+        case .allergies, .healthSummary: Theme.red
+        case .implants, .letters: Theme.yellow
+        case .messages, .sharing: Theme.brand
         }
     }
-}
-
-/// A unified "what's new" entry composed from results and messages.
-private struct ActivityItem: Identifiable {
-    let id: String
-    let icon: String
-    let tint: Color
-    let title: String
-    let subtitle: String
-    let date: Date
-    let isNew: Bool
 }
 
 struct DashboardView: View {
     let profile: PatientProfile
     @Environment(Session.self) private var session
 
-    @State private var upcoming: [Appointment] = []
-    @State private var activity: [ActivityItem] = []
     @State private var isLoading = true
-    @State private var showPersona = false
-    @State private var activeAccountID: String = ""
+    @State private var upcoming: [Appointment] = []
+    @State private var results: [TestResult] = []
+    @State private var medications: [Medication] = []
+    @State private var issues: [HealthIssue] = []
+    @State private var allergies: [Allergy] = []
+    @State private var immunisations: [ImmunisationGroup] = []
+    @State private var unreadCount = 0
+    @State private var mrn: String?
+    @State private var showsMRN = false
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
+    @State private var goals: [String] = []
+    @State private var showsAddGoal = false
 
-    private var activeAccount: LinkedAccount? {
-        profile.linkedAccounts.first { $0.id == activeAccountID } ?? profile.linkedAccounts.first
-    }
-
-    /// Colour tied to the active account, matching the persona switcher.
-    private var activeTint: Color {
-        guard let idx = profile.linkedAccounts.firstIndex(where: { $0.id == activeAccountID }) else {
-            return Theme.brand
-        }
-        return Theme.leaves[idx % Theme.leaves.count]
-    }
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
                 upcomingSection
-                quickActions
-                recentSection
+                resultsSection
+                medicationSection
+                immunisationSection
+                goalsCard
+                quickLinks
+                sharingCard
             }
             .padding()
         }
         .background(.background.secondary)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showPersona = true } label: {
-                    Text(activeAccount?.initials ?? profile.initials)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(activeTint)
+            ToolbarItem(placement: .topBarLeading) {
+                NavigationLink {
+                    SettingsView(profile: profile)
+                } label: {
+                    Image(systemName: "gearshape")
                 }
-                .accessibilityLabel("Switch account")
+                .accessibilityLabel("Settings")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    NotificationsView(patientID: session.patientID)
+                } label: {
+                    Image(systemName: unreadCount > 0 ? "bell.badge" : "bell")
+                        .symbolRenderingMode(.multicolor)
+                }
+                .accessibilityLabel(unreadCount > 0 ? "Notifications, \(unreadCount) unread" : "Notifications")
             }
         }
         .navigationDestination(for: Feature.self) { destination(for: $0) }
-        .sheet(isPresented: $showPersona) {
-            PersonaSwitcherSheet(accounts: profile.linkedAccounts, selectedID: $activeAccountID)
+        .sheet(isPresented: $showsAddGoal) {
+            AddGoalSheet { goals.append($0) }
         }
-        .task {
-            if activeAccountID.isEmpty { activeAccountID = profile.linkedAccounts.first?.id ?? profile.id }
-            await load()
+        .sheet(isPresented: $showsMRN) {
+            if let mrn {
+                MRNSheet(mrn: mrn, name: session.activeAccount?.name ?? profile.fullName)
+            }
         }
+        .task(id: session.patientID) { await load() }
+        // The pull-to-refresh spinner is the progress indicator, so keep the
+        // current cards on screen instead of swapping in skeletons.
+        .refreshable { await load(showsPlaceholders: false) }
     }
 
-    // MARK: - Header
+    // MARK: - Header (greeting, key facts, diagnosis + allergy pills)
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(greeting)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(activeAccount?.name ?? profile.preferredName)
-                .font(.system(.largeTitle, design: .rounded).bold())
-                .foregroundStyle(Theme.ink)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(greeting)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(session.activeAccount?.name ?? profile.preferredName)
+                    .font(.system(.largeTitle, design: .rounded).bold())
+                    .foregroundStyle(Theme.ink)
+                factsLine
+            }
+
+            if isLoading {
+                HStack(spacing: 8) {
+                    ForEach(["Placeholder", "Placeholder issue", "Allergy"], id: \.self) { text in
+                        Pill(text: text, systemImage: "heart.text.square.fill", tint: Theme.brand)
+                    }
+                }
+                .redacted(reason: .placeholder)
+            } else {
+                NavigationLink(value: Feature.healthSummary) {
+                    FlowLayout(spacing: 8) {
+                        ForEach(issues) { issue in
+                            // Neutral, so the allergy pills are the ones that stand out.
+                            Pill(text: issue.name, systemImage: "heart.text.square.fill", tint: .primary)
+                        }
+                        if allergies.isEmpty {
+                            Pill(text: "No known allergies", systemImage: "checkmark", tint: Theme.green)
+                        } else {
+                            ForEach(allergies) { allergy in
+                                Pill(text: allergy.substance, systemImage: "allergens", tint: Theme.red)
+                            }
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(pillsAccessibilityLabel)
+                .accessibilityHint("Opens the health summary")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -135,32 +189,207 @@ struct DashboardView: View {
         return part + ","
     }
 
+    /// e.g. "8 years · MRN 12345678". Tapping the MRN shows it full size.
+    @ViewBuilder
+    private var factsLine: some View {
+        let age = session.activeAccount?.dateOfBirth?.ageDescription
+        if age != nil || mrn != nil {
+            HStack(spacing: 5) {
+                if let age { Text(age) }
+                if age != nil, mrn != nil { Text("·") }
+                if let mrn {
+                    Button { showsMRN = true } label: {
+                        HStack(spacing: 4) {
+                            Text("MRN \(mrn)").fontWeight(.medium)
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.caption2.weight(.semibold))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Medical record number, \(MRNSheet.spokenDigits(mrn))")
+                    .accessibilityHint("Shows it in large print")
+                }
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var pillsAccessibilityLabel: String {
+        let issueText = issues.isEmpty ? "No health issues" : "Health issues: " + issues.map(\.name).formatted(.list(type: .and))
+        let allergyText = allergies.isEmpty ? "No known allergies" : "Allergies: " + allergies.map(\.substance).formatted(.list(type: .and))
+        return "\(issueText). \(allergyText)."
+    }
+
     // MARK: - Upcoming appointments
 
-    @ViewBuilder
     private var upcomingSection: some View {
-        sectionHeader("Upcoming", systemImage: "calendar", destination: .visits)
-
-        if isLoading {
-            AppointmentCardSkeleton()
-        } else if upcoming.isEmpty {
-            emptyCard("No upcoming appointments", systemImage: "calendar.badge.checkmark")
-        } else {
-            ForEach(upcoming) { appointment in
-                UpcomingAppointmentCard(appointment: appointment)
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Upcoming", destination: .visits)
+            if isLoading {
+                AppointmentCardSkeleton()
+            } else if upcoming.isEmpty {
+                emptyCard("No upcoming appointments", systemImage: "calendar.badge.checkmark")
+            } else {
+                ForEach(upcoming) { appointment in
+                    NavigationLink {
+                        AppointmentDetailView(appointment: appointment)
+                    } label: {
+                        UpcomingAppointmentCard(appointment: appointment)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
 
-    // MARK: - Quick actions
+    // MARK: - Test results
 
-    private var quickActions: some View {
+    private var resultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Quick actions")
+            sectionHeader("Recent Results", destination: .testResults)
+            if isLoading {
+                listSkeleton(rows: 3)
+            } else if results.isEmpty {
+                emptyCard("No test results yet", systemImage: "testtube.2")
+            } else {
+                cardList(results.prefix(4)) { result in
+                    NavigationLink {
+                        TestResultDetailView(result: result)
+                    } label: {
+                        HStack {
+                            TestResultRow(result: result)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: - Medication
+
+    private var medicationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Medication", destination: .medication)
+            if isLoading {
+                listSkeleton(rows: 2)
+            } else if medications.isEmpty {
+                emptyCard("No current medication", systemImage: "pills")
+            } else {
+                cardList(medications.prefix(3)) { medication in
+                    NavigationLink {
+                        MedicationDetailView(medication: medication)
+                    } label: {
+                        HStack {
+                            MedicationRow(medication: medication)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 6)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    // MARK: - Immunisations
+
+    private var immunisationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Immunisations", destination: .immunisations)
+            if isLoading {
+                listSkeleton(rows: 2)
+            } else if immunisations.isEmpty {
+                emptyCard("No immunisations on file", systemImage: "syringe")
+            } else {
+                cardList(immunisations.prefix(3)) { group in
+                    HStack(spacing: 14) {
+                        Image(systemName: "syringe.fill")
+                            .foregroundStyle(Theme.proxy)
+                            .frame(width: 40, height: 40)
+                            .background(Theme.proxy.opacity(0.14), in: .circle)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.name)
+                                .font(.subheadline.weight(.semibold))
+                            Text(datesOnFile(group.dates))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                }
+            }
+        }
+    }
+
+    private func datesOnFile(_ dates: [Date]) -> String {
+        guard let latest = dates.first else { return "" }
+        return dates.count > 1 ? "\(latest.mediumDate), +\(dates.count - 1) more" : latest.mediumDate
+    }
+
+    // MARK: - Health goals
+
+    private var goalsCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 14) {
+                Image(systemName: "target")
+                    .foregroundStyle(Theme.green)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.green.opacity(0.14), in: .circle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Health goals")
+                        .font(.subheadline.weight(.semibold))
+                    Text(goals.isEmpty ? "Share a goal with your care team" : "\(goals.count) shared with your care team")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Add", systemImage: "plus") { showsAddGoal = true }
+                    .labelStyle(.titleAndIcon)
+                    .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(Theme.brand)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            ForEach(goals, id: \.self) { goal in
+                Divider().padding(.leading, 68)
+                Label(goal, systemImage: "checkmark.circle")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.ink)
+                    .padding(.leading, 68)
+                    .padding(.trailing, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+    }
+
+    // MARK: - Quick links
+
+    private var quickLinks: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Quick Links")
                 .font(.headline)
                 .foregroundStyle(Theme.ink)
-            LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(Feature.allCases) { feature in
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(Feature.quickLinks) { feature in
                     NavigationLink(value: feature) {
                         QuickActionTile(feature: feature)
                     }
@@ -170,32 +399,63 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Recent activity
+    // MARK: - Share my record
 
-    @ViewBuilder
-    private var recentSection: some View {
-        Text("Recent")
-            .font(.headline)
-            .foregroundStyle(Theme.ink)
-
-        if isLoading {
-            VStack(spacing: 10) {
-                ForEach(0..<3, id: \.self) { _ in
-                    RecentRowSkeleton()
+    private var sharingCard: some View {
+        NavigationLink(value: Feature.sharing) {
+            HStack(spacing: 14) {
+                Image(systemName: Feature.sharing.systemImage)
+                    .foregroundStyle(Theme.yellow)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.yellow.opacity(0.18), in: .circle)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Share my record")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("With family, carers and other providers")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-        } else if activity.isEmpty {
-            emptyCard("Nothing new to show", systemImage: "sparkles")
-        } else {
-            VStack(spacing: 10) {
-                ForEach(activity) { RecentRow(item: $0) }
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
         }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Building blocks
 
-    private func sectionHeader(_ title: String, systemImage: String, destination: Feature) -> some View {
+    /// A single white rounded container of rows separated by inset dividers.
+    private func cardList<Items: RandomAccessCollection, Row: View>(
+        _ items: Items, @ViewBuilder row: @escaping (Items.Element) -> Row
+    ) -> some View where Items.Element: Identifiable {
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                row(item)
+                if index < items.count - 1 {
+                    Divider().padding(.leading, 68)
+                }
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+    }
+
+    private func listSkeleton(rows: Int) -> some View {
+        VStack(spacing: 0) {
+            ForEach(0..<rows, id: \.self) { index in
+                ListRowSkeleton()
+                if index < rows - 1 { Divider().padding(.leading, 68) }
+            }
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+    }
+
+    private func sectionHeader(_ title: String, destination: Feature) -> some View {
         HStack {
             Text(title)
                 .font(.headline)
@@ -218,58 +478,111 @@ struct DashboardView: View {
         }
         .padding()
         .frame(maxWidth: .infinity)
-        .background(.background, in: .rect(cornerRadius: 16))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
     }
 
     @ViewBuilder
     private func destination(for feature: Feature) -> some View {
         switch feature {
-        case .visits: AppointmentsView(patientID: profile.id)
-        case .testResults: TestResultsView(patientID: profile.id)
-        case .medication: MedicationsView(patientID: profile.id)
-        case .healthSummary: HealthSummaryView(patientID: profile.id)
-        case .letters:
-            ContentUnavailableView("No letters", systemImage: "doc.text",
-                                   description: Text("Letters from your care team will appear here."))
-                .navigationTitle("Letters")
-        case .messages: MessagesView(patientID: profile.id)
+        case .visits: AppointmentsView(patientID: session.patientID)
+        case .testResults: TestResultsView(patientID: session.patientID)
+        case .medication: MedicationsView(patientID: session.patientID)
+        case .immunisations: ImmunisationsView(patientID: session.patientID)
+        case .allergies: AllergiesView(patientID: session.patientID)
+        case .healthSummary: HealthSummaryView(patientID: session.patientID)
+        case .messages: MessagesView(patientID: session.patientID)
+        case .growthCharts: GrowthChartsView(patientID: session.patientID)
+        case .trackHealth, .implants, .letters, .sharing:
+            ContentUnavailableView(feature.title, systemImage: feature.systemImage,
+                                   description: Text("This section is coming soon."))
+                .navigationTitle(feature.title)
         }
     }
 
     // MARK: - Loading
 
-    private func load() async {
-        isLoading = true
-        async let appointments = try? session.service.appointments(for: profile.id)
-        async let results = try? session.service.testResults(for: profile.id)
-        async let messages = try? session.service.messages(for: profile.id)
+    private func load(showsPlaceholders: Bool = true) async {
+        if showsPlaceholders { isLoading = true }
+        let service = session.service
+        let id = session.patientID
+        async let appointmentsTask = try? service.appointments(for: id)
+        async let resultsTask = try? service.testResults(for: id)
+        async let messagesTask = try? service.messages(for: id)
+        async let medicationsTask = try? service.medications(for: id)
+        async let issuesTask = try? service.healthIssues(for: id)
+        async let allergiesTask = try? service.allergies(for: id)
+        async let immunisationsTask = try? service.immunisations(for: id)
+        async let mrnTask = try? service.medicalRecordNumber(for: id)
 
-        let appts = await appointments ?? []
-        let res = await results ?? []
-        let msgs = await messages ?? []
+        let appointments = await appointmentsTask ?? []
+        let messages = await messagesTask ?? []
+        results = (await resultsTask ?? []).sorted(by: TestResult.newestFirst)
+        medications = (await medicationsTask ?? []).filter(\.isActive)
+        issues = await issuesTask ?? []
+        mrn = await mrnTask ?? nil
+        allergies = await allergiesTask ?? []
+        immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])
 
-        upcoming = appts
+        upcoming = appointments
             .filter { $0.status == .scheduled }
             .sorted { $0.date < $1.date }
-
-        var items: [ActivityItem] = []
-        for m in msgs {
-            items.append(ActivityItem(
-                id: "msg-\(m.id)", icon: "envelope.fill", tint: Theme.brand,
-                title: m.subject, subtitle: m.sender, date: m.date, isNew: m.isUnread))
-        }
-        for r in res.prefix(4) {
-            items.append(ActivityItem(
-                id: "res-\(r.id)", icon: "testtube.2", tint: Theme.green,
-                title: r.name, subtitle: "Result available", date: r.date, isNew: r.isUnread))
-        }
-        activity = items.sorted { $0.date > $1.date }
+        unreadCount = messages.filter(\.isUnread).count + results.filter(\.isUnread).count
 
         isLoading = false
     }
 }
 
 // MARK: - Subviews
+
+/// The MRN in large monospaced digits, for reading out or showing to staff.
+private struct MRNSheet: View {
+    let mrn: String
+    let name: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var copied = false
+
+    /// "12345678" → "1 2 3 4 5 6 7 8", so VoiceOver reads digits, not a number.
+    static func spokenDigits(_ mrn: String) -> String {
+        mrn.map(String.init).joined(separator: " ")
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                VStack(spacing: 6) {
+                    Text("Medical Record Number")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(name)
+                        .font(.headline)
+                }
+                Text(mrn)
+                    .font(.system(size: 60, weight: .bold, design: .monospaced))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.4)
+                    .textSelection(.enabled)
+                    .accessibilityLabel(Self.spokenDigits(mrn))
+                Button {
+                    UIPasteboard.general.string = mrn
+                    copied = true
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(.bordered)
+                .sensoryFeedback(.success, trigger: copied) { _, now in now }
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+}
 
 private struct UpcomingAppointmentCard: View {
     let appointment: Appointment
@@ -279,12 +592,16 @@ private struct UpcomingAppointmentCard: View {
             VStack(spacing: 2) {
                 Text(appointment.date.formatted(.dateTime.day()))
                     .font(.title2.bold())
+                    .foregroundStyle(Feature.visits.accent)
+                // Small text in the adaptive secondary colour; teal would be
+                // too faint on the tint at caption size.
                 Text(appointment.date.formatted(.dateTime.month(.abbreviated)))
                     .font(.caption).textCase(.uppercase)
+                    .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.white)
+            // Same soft tint as the Visits quick-link tile.
             .frame(width: 56, height: 56)
-            .background(Theme.brand, in: .rect(cornerRadius: 14))
+            .background(Feature.visits.accent.opacity(0.14), in: .rect(cornerRadius: 14))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(appointment.title).font(.headline)
@@ -294,18 +611,13 @@ private struct UpcomingAppointmentCard: View {
                 Label(appointment.date.formatted(date: .omitted, time: .shortened),
                       systemImage: appointment.isTelehealth ? "phone.fill" : "mappin.and.ellipse")
                     .font(.caption)
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(.secondary)
             }
             Spacer()
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Theme.brand.opacity(0.2), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
     }
 }
 
@@ -324,7 +636,9 @@ private struct QuickActionTile: View {
                 .foregroundStyle(Theme.ink)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
+                .minimumScaleFactor(0.85)
         }
+        .padding(.horizontal, 6)
         .frame(maxWidth: .infinity)
         .frame(height: 128)
         .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
@@ -337,74 +651,74 @@ private struct AppointmentCardSkeleton: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.gray.opacity(0.25))
                 .frame(width: 56, height: 56)
-            VStack(alignment: .leading, spacing: 8) {
-                SkeletonBar(width: 160, height: 14)
-                SkeletonBar(width: 210, height: 11)
-                SkeletonBar(width: 90, height: 11)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Placeholder appointment").font(.headline)
+                Text("Placeholder department name").font(.subheadline)
+                Text("00:00 am").font(.caption)
             }
             Spacer()
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
-        .shimmering()
+        .redacted(reason: .placeholder)
     }
 }
 
-private struct RecentRowSkeleton: View {
+/// Skeleton row shown inside a card list while loading.
+private struct ListRowSkeleton: View {
     var body: some View {
         HStack(spacing: 14) {
             Circle()
                 .fill(Color.gray.opacity(0.25))
                 .frame(width: 40, height: 40)
-            VStack(alignment: .leading, spacing: 8) {
-                SkeletonBar(width: 180, height: 12)
-                SkeletonBar(width: 110, height: 10)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Placeholder row title").font(.subheadline.weight(.semibold))
+                Text("Placeholder detail").font(.caption)
             }
             Spacer()
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 16))
-        .shimmering()
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .redacted(reason: .placeholder)
     }
 }
 
-private struct RecentRow: View {
-    let item: ActivityItem
+/// Small sheet for sharing a new health goal with the care team.
+private struct AddGoalSheet: View {
+    let onAdd: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: item.icon)
-                .foregroundStyle(item.tint)
-                .frame(width: 40, height: 40)
-                .background(item.tint.opacity(0.14), in: .circle)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(item.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(item.date.mediumDate)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                if item.isNew {
-                    Text("NEW")
-                        .font(.caption2.bold())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Theme.red, in: .capsule)
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("e.g. Sleep through the night", text: $text, axis: .vertical)
+                        .lineLimit(2...4)
+                        .focused($focused)
+                } footer: {
+                    Text("Your care team can discuss this goal with you at future visits.")
                 }
             }
+            .navigationTitle("New health goal")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        onAdd(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        dismiss()
+                    }
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .onAppear { focused = true }
         }
-        .padding(12)
-        .background(.background, in: .rect(cornerRadius: 16))
+        .presentationDetents([.medium])
     }
 }
 

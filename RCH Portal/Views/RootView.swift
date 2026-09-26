@@ -8,6 +8,8 @@ struct RootView: View {
         switch session.phase {
         case .signedOut, .authenticating:
             LoginView()
+        case .verifyingCode:
+            VerificationCodeView()
         case let .signedIn(profile):
             MainTabView(profile: profile)
         }

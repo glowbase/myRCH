@@ -16,35 +16,85 @@ struct AvatarView: View {
     }
 }
 
-// MARK: - Skeleton loading
+// MARK: - Pills
 
-/// A rounded grey bar used to stand in for a line of text while loading.
-struct SkeletonBar: View {
-    var width: CGFloat? = nil
-    var height: CGFloat = 12
+/// A small tinted capsule label, e.g. for diagnoses and allergies.
+struct Pill: View {
+    let text: String
+    var systemImage: String? = nil
+    var tint: Color = Theme.brand
 
     var body: some View {
-        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
-            .fill(Color.gray.opacity(0.25))
-            .frame(width: width, height: height)
+        HStack(spacing: 5) {
+            if let systemImage {
+                Image(systemName: systemImage).font(.caption2.weight(.bold))
+            }
+            Text(text).font(.footnote.weight(.semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.14), in: .capsule)
     }
 }
 
-/// A placeholder row mirroring the shape of a typical list row.
+/// Lays subviews out left-to-right, wrapping onto new rows as needed.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxWidth = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, width: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            width = max(width, x + size.width)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return CGSize(width: width, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > bounds.minX, x + size.width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
+// MARK: - Skeleton loading
+
+/// A placeholder row mirroring the shape of a typical list row. The text is
+/// never shown — `.redacted(reason: .placeholder)` renders it as skeleton bars.
 struct SkeletonListRow: View {
     var body: some View {
         HStack(spacing: 14) {
             Circle()
                 .fill(Color.gray.opacity(0.25))
                 .frame(width: 42, height: 42)
-            VStack(alignment: .leading, spacing: 8) {
-                SkeletonBar(width: 190, height: 13)
-                SkeletonBar(width: 130, height: 11)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Placeholder row title text")
+                    .font(.subheadline.weight(.semibold))
+                Text("Placeholder detail")
+                    .font(.caption)
             }
             Spacer()
         }
         .padding(.vertical, 8)
-        .shimmering()
+        .redacted(reason: .placeholder)
     }
 }
 
@@ -64,40 +114,6 @@ struct SkeletonList: View {
     }
 }
 
-/// A soft left-to-right highlight sweep, applied to skeleton shapes.
-struct Shimmer: ViewModifier {
-    @State private var move = false
-
-    func body(content: Content) -> some View {
-        content
-            .overlay {
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    Rectangle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.clear, .white.opacity(0.75), .clear],
-                                startPoint: .leading, endPoint: .trailing))
-                        .frame(width: w * 0.45)
-                        .offset(x: move ? w * 1.3 : -w * 0.6)
-                        .blendMode(.plusLighter)
-                }
-                .allowsHitTesting(false)
-            }
-            .mask(content)
-            .onAppear {
-                withAnimation(.linear(duration: 1.3).repeatForever(autoreverses: false)) {
-                    move = true
-                }
-            }
-    }
-}
-
-extension View {
-    /// Adds an animated shimmer sweep — use on skeleton placeholder shapes.
-    func shimmering() -> some View { modifier(Shimmer()) }
-}
-
 // MARK: - Async loading wrapper
 
 /// Loading / empty / content phases for a screen backed by an async load.
@@ -108,7 +124,7 @@ enum LoadState<Value> {
 }
 
 /// Runs `load` on first appearance and renders the appropriate state, showing
-/// a shimmering skeleton while loading.
+/// a redacted skeleton while loading.
 struct AsyncSection<Value, Content: View>: View {
     let load: () async throws -> Value
     @ViewBuilder let content: (Value) -> Content

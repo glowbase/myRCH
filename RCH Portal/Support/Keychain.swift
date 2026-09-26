@@ -22,6 +22,15 @@ enum Keychain {
         delete("password")
     }
 
+    /// The portal-issued web device ID ("remember this device"). Kept across
+    /// sign-outs, like a browser's localStorage, so two-factor isn't re-prompted.
+    static var deviceID: String? {
+        get { get("deviceID") }
+        set {
+            if let newValue { set("deviceID", newValue) } else { delete("deviceID") }
+        }
+    }
+
     // MARK: - Primitive operations
 
     private static func set(_ account: String, _ value: String) {

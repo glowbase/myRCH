@@ -60,7 +60,7 @@ struct LoginView: View {
     private var card: some View {
         VStack(spacing: 20) {
             VStack(spacing: 14) {
-                fieldRow(icon: "person.fill", title: "Username") {
+                fieldRow(icon: "person.fill", title: "Username", field: .username) {
                     TextField("Enter your username", text: $username)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
@@ -70,7 +70,7 @@ struct LoginView: View {
                         .onSubmit { focus = .password }
                 }
 
-                fieldRow(icon: "lock.fill", title: "Password") {
+                fieldRow(icon: "lock.fill", title: "Password", field: .password) {
                     passwordField
                 }
             }
@@ -94,10 +94,26 @@ struct LoginView: View {
                     .transition(.opacity)
             }
 
+            #if DEBUG
+            liveToggle
+            #endif
+
             signInButton
                 .padding(.top, 12)
         }
     }
+
+    #if DEBUG
+    /// Developer switch between mock data and the real portal.
+    private var liveToggle: some View {
+        @Bindable var session = session
+        return Toggle(isOn: $session.useLivePortal) {
+            Label("Connect to live RCH portal", systemImage: "antenna.radiowaves.left.and.right")
+                .font(.subheadline)
+        }
+        .toggleStyle(.switch)
+    }
+    #endif
 
     private var passwordField: some View {
         HStack {
@@ -124,13 +140,18 @@ struct LoginView: View {
         }
     }
 
+    /// Shared height and corner radius so the inputs and Log in button line up.
+    private let controlHeight: CGFloat = 52
+    private let controlRadius: CGFloat = 14
+
     private func fieldRow<Content: View>(
-        icon: String, title: String, @ViewBuilder content: () -> Content
+        icon: String, title: String, field: Field, @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let isFocused = focus == field
+        return VStack(alignment: .leading, spacing: 6) {
             Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Theme.ink.opacity(0.75))
                 .textCase(.uppercase)
             HStack(spacing: 12) {
                 Image(systemName: icon)
@@ -138,14 +159,22 @@ struct LoginView: View {
                     .frame(width: 22)
                 content()
             }
-            .padding(.vertical, 14)
             .padding(.horizontal, 14)
-            .background(.background.secondary, in: .rect(cornerRadius: 14, style: .continuous))
+            .frame(height: controlHeight)
+            .background(.white, in: .rect(cornerRadius: controlRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: controlRadius, style: .continuous)
+                    .strokeBorder(isFocused ? Theme.brand : Color.black.opacity(0.08),
+                                  lineWidth: isFocused ? 1.5 : 1)
+            }
+            .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
+            .animation(.easeInOut(duration: 0.15), value: isFocused)
         }
     }
 
     private var signInButton: some View {
-        Button {
+        let isReady = !username.isEmpty && !password.isEmpty
+        return Button {
             submit()
         } label: {
             HStack(spacing: 8) {
@@ -156,18 +185,22 @@ struct LoginView: View {
                     Image(systemName: "arrow.right")
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .frame(maxWidth: .infinity)
+            .frame(height: controlHeight)
             .foregroundStyle(.white)
-            .padding(.vertical, 12)
-            .background(
-                LinearGradient(colors: [Theme.brand, Theme.brandDeep],
-                               startPoint: .leading, endPoint: .trailing),
-                in: .rect(cornerRadius: 16, style: .continuous))
-            .shadow(color: Theme.brand.opacity(0.4), radius: 12, y: 6)
+            .background {
+                // Solid colours in both states so the background never bleeds through.
+                RoundedRectangle(cornerRadius: controlRadius, style: .continuous)
+                    .fill(isReady
+                          ? AnyShapeStyle(LinearGradient(colors: [Theme.brand, Theme.brandDeep],
+                                                         startPoint: .leading, endPoint: .trailing))
+                          : AnyShapeStyle(Theme.brand.mix(with: .white, by: 0.45)))
+            }
+            .shadow(color: Theme.brand.opacity(isReady ? 0.4 : 0), radius: 12, y: 6)
         }
         .buttonStyle(.plain)
-        .disabled(session.isAuthenticating || username.isEmpty || password.isEmpty)
-        .opacity(username.isEmpty || password.isEmpty ? 0.6 : 1)
+        .disabled(session.isAuthenticating || !isReady)
+        .animation(.easeInOut(duration: 0.2), value: isReady)
         .animation(.easeInOut(duration: 0.2), value: session.isAuthenticating)
     }
 
@@ -209,11 +242,11 @@ private struct DecorativeBlobs: View {
     }
 
     private let blobs: [Blob] = [
-        Blob(color: Theme.yellow, size: 160, base: CGPoint(x: 0.15, y: 0.12), phase: 0.0),
-        Blob(color: Theme.teal,   size: 200, base: CGPoint(x: 0.88, y: 0.18), phase: 1.3),
-        Blob(color: Theme.red,    size: 150, base: CGPoint(x: 0.90, y: 0.80), phase: 2.6),
-        Blob(color: Theme.orange, size: 140, base: CGPoint(x: 0.22, y: 0.68), phase: 3.9),
-        Blob(color: Theme.green,  size: 180, base: CGPoint(x: 0.10, y: 0.90), phase: 5.2)
+        Blob(color: Theme.yellow, size: 200, base: CGPoint(x: 0.15, y: 0.12), phase: 0.0),
+        Blob(color: Theme.teal,   size: 240, base: CGPoint(x: 0.88, y: 0.18), phase: 1.3),
+        Blob(color: Theme.red,    size: 190, base: CGPoint(x: 0.90, y: 0.80), phase: 2.6),
+        Blob(color: Theme.orange, size: 180, base: CGPoint(x: 0.22, y: 0.68), phase: 3.9),
+        Blob(color: Theme.green,  size: 220, base: CGPoint(x: 0.10, y: 0.90), phase: 5.2)
     ]
 
     var body: some View {
@@ -227,9 +260,9 @@ private struct DecorativeBlobs: View {
                         let x = blob.base.x * w + CGFloat(sin(t * 0.45 + blob.phase)) * w * 0.22
                         let y = blob.base.y * h + CGFloat(cos(t * 0.35 + blob.phase * 1.2)) * h * 0.16
                         Circle()
-                            .fill(blob.color.opacity(0.22))
+                            .fill(blob.color.opacity(0.55))
                             .frame(width: blob.size, height: blob.size)
-                            .blur(radius: 44)
+                            .blur(radius: 36)
                             .position(x: x, y: y)
                     }
                 }

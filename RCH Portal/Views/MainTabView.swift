@@ -5,19 +5,21 @@ import SwiftUI
 struct MainTabView: View {
     let profile: PatientProfile
 
+    @Environment(Session.self) private var session
+
     var body: some View {
         TabView {
             Tab("Home", systemImage: "house.fill") {
                 NavigationStack { DashboardView(profile: profile) }
             }
             Tab("Visits", systemImage: "calendar") {
-                NavigationStack { AppointmentsView(patientID: profile.id) }
+                NavigationStack { AppointmentsView(patientID: session.patientID) }.id(session.patientID)
             }
             Tab("Results", systemImage: "testtube.2") {
-                NavigationStack { TestResultsView(patientID: profile.id) }
+                NavigationStack { TestResultsView(patientID: session.patientID) }.id(session.patientID)
             }
             Tab("Messages", systemImage: "envelope.fill") {
-                NavigationStack { MessagesView(patientID: profile.id) }
+                NavigationStack { MessagesView(patientID: session.patientID) }.id(session.patientID)
             }
         }
         .tint(Theme.brand)

@@ -21,6 +21,11 @@ enum Theme {
     static let green = Color(red: 0.49, green: 0.71, blue: 0.24)
     static let teal = Color(red: 0.13, green: 0.62, blue: 0.74)
 
+    /// Royal blue for test results. Not an RCH leaf colour: every leaf is
+    /// already taken by another section. Checked distinct from teal and
+    /// purple for colour-blind users, and >= 3:1 in light and dark mode.
+    static let blue = Color(red: 0.20, green: 0.38, blue: 0.86)
+
     /// A secondary accent for the linked "proxy" account colour treatment.
     static let proxy = Color(red: 0.56, green: 0.35, blue: 0.64)
 

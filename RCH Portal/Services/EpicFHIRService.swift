@@ -46,10 +46,16 @@ struct EpicFHIRService: PortalService {
         try notImplemented()
     }
 
+    func medicalRecordNumber(for patientID: String) async throws -> String? { try notImplemented() }
     func appointments(for patientID: String) async throws -> [Appointment] { try notImplemented() }
     func testResults(for patientID: String) async throws -> [TestResult] { try notImplemented() }
+    func testResultDetails(_ result: TestResult, for patientID: String) async throws -> TestResult { try notImplemented() }
+    func documentData(_ document: ResultDocument, for patientID: String) async throws -> Data { try notImplemented() }
     func medications(for patientID: String) async throws -> [Medication] { try notImplemented() }
     func messages(for patientID: String) async throws -> [Message] { try notImplemented() }
+    func conversations(for patientID: String) async throws -> [Conversation] { try notImplemented() }
+    func careTeam(for patientID: String) async throws -> [CareTeamMember] { try notImplemented() }
+    func growthMeasurements(for patientID: String) async throws -> [GrowthMeasurement] { try notImplemented() }
     func healthIssues(for patientID: String) async throws -> [HealthIssue] { try notImplemented() }
     func allergies(for patientID: String) async throws -> [Allergy] { try notImplemented() }
     func immunisations(for patientID: String) async throws -> [Immunisation] { try notImplemented() }
