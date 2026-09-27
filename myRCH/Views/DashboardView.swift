@@ -146,6 +146,8 @@ struct DashboardView: View {
                 } label: {
                     Image(systemName: unreadCount > 0 ? "bell.badge" : "bell")
                         .symbolRenderingMode(.multicolor)
+                        // Rings when something new arrives.
+                        .symbolEffect(.wiggle, value: unreadCount)
                 }
                 .accessibilityLabel(unreadCount > 0 ? "Notifications, \(unreadCount) unread" : "Notifications")
             }

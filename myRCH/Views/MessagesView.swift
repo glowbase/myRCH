@@ -461,6 +461,7 @@ struct ConversationRow: View {
                     Label("Bookmarked", systemImage: "bookmark.fill")
                         .font(.caption2)
                         .foregroundStyle(Theme.orange)
+                        .transition(.symbolEffect(.appear))
                 }
             }
         }
