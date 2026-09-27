@@ -113,17 +113,18 @@ struct DashboardView: View {
     @State private var goals: [String] = []
     @State private var showsAddGoal = false
 
+    /// Pinned sections, in order (see `HomeLayout`).
+    @AppStorage(HomeLayout.storageKey) private var homeSections = ""
+    @State private var showsEditHome = false
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
-                upcomingSection
-                resultsSection
-                medicationSection
-                immunisationSection
-                goalsCard
-                sharingCard
-                exploreMoreSection
+                ForEach(HomeLayout(stored: homeSections).pinned) { section in
+                    self.section(section)
+                }
+                editHomeButton
             }
             .padding()
         }
@@ -154,6 +155,7 @@ struct DashboardView: View {
             }
         }
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
+        .sheet(isPresented: $showsEditHome) { EditHomeSheet() }
         .sheet(isPresented: $showsAddGoal) {
             AddGoalSheet { goals.append($0) }
         }
@@ -174,6 +176,43 @@ struct DashboardView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await load(showsPlaceholders: false) } }
         }
+    }
+
+    // MARK: - Pinned sections
+
+    @ViewBuilder
+    private func section(_ section: HomeSection) -> some View {
+        switch section {
+        case .highlights: highlightsSection
+        case .upcoming: upcomingSection
+        case .results: resultsSection
+        case .medication: medicationSection
+        case .immunisations: immunisationSection
+        case .goals: goalsCard
+        case .sharing: sharingCard
+        case .explore: exploreMoreSection
+        }
+    }
+
+    /// Like the Health app's "Edit" for Pinned: choose and order sections.
+    private var editHomeButton: some View {
+        Button {
+            showsEditHome = true
+        } label: {
+            Label("Edit Home", systemImage: "slider.horizontal.3")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.brandText)
+    }
+
+    // Filled in by the Highlights feature.
+    @ViewBuilder
+    private var highlightsSection: some View {
+        EmptyView()
     }
 
     // MARK: - Header (greeting, key facts, diagnosis + allergy pills)
