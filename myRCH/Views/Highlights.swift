@@ -14,14 +14,15 @@ struct Highlight: Identifiable {
 extension Highlight {
     /// The most useful few, most time-sensitive first.
     static func make(upcoming: [Appointment], results: [TestResult], unreadMessages: Int,
-                     medicationDoses: (due: Int, logged: Int), immunisations: [ImmunisationGroup],
-                     now: Date = .now) -> [Highlight] {
+                     medicationDoses: (due: Int, logged: Int), now: Date = .now) -> [Highlight] {
         var items: [Highlight] = []
         let calendar = Calendar.current
 
-        if let next = upcoming.first {
-            let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now),
-                                               to: calendar.startOfDay(for: next.date)).day ?? 0
+        // Only when it's close enough to plan around: two weeks or less.
+        if let next = upcoming.first,
+           let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: now),
+                                              to: calendar.startOfDay(for: next.date)).day,
+           days <= 14 {
             let when = switch days {
             case ..<1: "today at \(next.date.formatted(date: .omitted, time: .shortened))"
             case 1: "tomorrow at \(next.date.formatted(date: .omitted, time: .shortened))"
@@ -68,14 +69,6 @@ extension Highlight {
                                    feature: .messages))
         }
 
-        if let latest = immunisations.compactMap({ group in group.dates.first.map { (group.name, $0) } })
-            .max(by: { $0.1 < $1.1 }) {
-            let ago = latest.1.formatted(.relative(presentation: .named, unitsStyle: .wide))
-            items.append(Highlight(id: "immunisation", category: "Immunisations", symbol: "syringe.fill",
-                                   color: Feature.immunisations.tileArt.color,
-                                   text: "The most recent immunisation on file is \(latest.0), \(ago).",
-                                   feature: .immunisations))
-        }
         return items
     }
 }

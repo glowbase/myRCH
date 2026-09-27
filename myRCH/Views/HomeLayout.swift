@@ -47,18 +47,32 @@ struct HomeLayout {
 
     var pinned: [HomeSection]
 
+    /// Stored as "pinned,in,order|hidden,ones". Sections in neither list
+    /// were added in a later version, so they're pinned at the end rather
+    /// than silently hidden. (Older saves had only the pinned part; Growth
+    /// is the one section added since.)
     init(stored: String) {
         if stored.isEmpty {
             pinned = HomeSection.defaultOrder
-        } else {
-            pinned = stored.split(separator: ",").compactMap { HomeSection(rawValue: String($0)) }
+            return
         }
+        let parts = stored.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        func sections(_ text: String) -> [HomeSection] {
+            text.split(separator: ",").compactMap { HomeSection(rawValue: String($0)) }
+        }
+        var pinned = sections(parts[0])
+        let hidden: Set<HomeSection> = parts.count > 1
+            ? Set(sections(parts[1]))
+            : Set(HomeSection.allCases).subtracting(pinned).subtracting([.growth])
+        pinned += HomeSection.allCases.filter { !pinned.contains($0) && !hidden.contains($0) }
+        self.pinned = pinned
     }
 
     var unpinned: [HomeSection] { HomeSection.allCases.filter { !pinned.contains($0) } }
 
-    /// `"none"` keeps an empty choice distinct from the default (all).
-    var stored: String { pinned.isEmpty ? "none" : pinned.map(\.rawValue).joined(separator: ",") }
+    var stored: String {
+        pinned.map(\.rawValue).joined(separator: ",") + "|" + unpinned.map(\.rawValue).joined(separator: ",")
+    }
 }
 
 /// Health-style editor: pinned sections can be dragged into order or
