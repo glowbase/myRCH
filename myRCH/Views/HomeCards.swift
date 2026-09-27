@@ -355,3 +355,127 @@ struct ResultsOverviewCard: View {
                   statuses.filter { $0 == nil }.count)
     }
 }
+
+/// Home's Growth section: the latest weight and height with their
+/// percentiles, and the child's weight plotted against the median curve.
+/// Loads by itself (the growth response is large) and stays hidden until
+/// there's something to show.
+struct GrowthHomeSection: View {
+    @Environment(Session.self) private var session
+    @State private var dataset: GrowthDataset?
+
+    private let color = Feature.growthCharts.tileArt.color
+
+    /// Charts against age, picked by name: the portal's kinds differ
+    /// between reference sets (WHO, CDC).
+    private func chart(_ words: [String], excluding: [String] = []) -> GrowthChart? {
+        dataset?.charts.first { chart in
+            let name = (chart.title + " " + chart.kind).lowercased()
+            return chart.isAgeBased && !chart.points.isEmpty
+                && words.contains(where: name.contains) && !excluding.contains(where: name.contains)
+        }
+    }
+
+    private var weight: GrowthChart? { chart(["weight"], excluding: ["length", "height", "stature", "bmi"]) }
+    private var height: GrowthChart? { chart(["length", "height", "stature"], excluding: ["weight", "head"]) }
+
+    var body: some View {
+        Group {
+            if weight != nil || height != nil {
+                VStack(alignment: .leading, spacing: 12) {
+                    SummarySectionHeader(title: "Growth", destination: Feature.growthCharts)
+                    NavigationLink(value: Feature.growthCharts) { card }
+                        .buttonStyle(.plain)
+                }
+            }
+        }
+        .task(id: session.patientID) {
+            dataset = (try? await session.service.growthCharts(for: session.patientID))?.first
+        }
+    }
+
+    private var card: some View {
+        SummaryCard(category: "Growth", systemImage: Feature.growthCharts.tileArt.symbol, color: color,
+                    detail: (weight?.points.last ?? height?.points.last)?.date.mediumDate) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 24) {
+                    if let weight { measure("Weight", weight) }
+                    if let height { measure("Height", height) }
+                }
+                if let weight, weight.points.count >= 2 {
+                    weightChart(weight)
+                        .frame(height: 90)
+                }
+            }
+        }
+    }
+
+    private func measure(_ label: String, _ chart: GrowthChart) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if let latest = chart.points.last {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(latest.y.formatted(.number.precision(.fractionLength(0...1))))
+                        .font(.system(.title2, design: .rounded).bold())
+                    Text(Self.unit(of: chart))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if let percentile = latest.percentile {
+                    Text("\(Self.ordinal(percentile)) percentile")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// The child's weights over the median (50th) curve for the same ages.
+    private func weightChart(_ chart: GrowthChart) -> some View {
+        let xs = chart.points.map(\.x)
+        let span = (xs.min() ?? 0)...(xs.max() ?? 0)
+        let median = chart.curves.min { abs($0.percentile - 50) < abs($1.percentile - 50) }
+        let medianPoints = median?.points.filter { span.contains($0.x) } ?? []
+        return Chart {
+            ForEach(Array(medianPoints.enumerated()), id: \.offset) { _, point in
+                LineMark(x: .value("Age", point.x), y: .value("Median", point.y), series: .value("Line", "Median"))
+                    .foregroundStyle(.secondary.opacity(0.4))
+                    .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            }
+            ForEach(chart.points) { point in
+                LineMark(x: .value("Age", point.x), y: .value("Weight", point.y), series: .value("Line", "Child"))
+                    .foregroundStyle(color)
+                    .interpolationMethod(.monotone)
+                PointMark(x: .value("Age", point.x), y: .value("Weight", point.y))
+                    .foregroundStyle(color)
+                    .symbolSize(24)
+            }
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .chartYScale(domain: .automatic(includesZero: false))
+        .accessibilityLabel("Weight over time, compared with the 50th percentile")
+    }
+
+    /// "Weight (kg)" → "kg".
+    private static func unit(of chart: GrowthChart) -> String {
+        guard let open = chart.yLabel.lastIndex(of: "("), let close = chart.yLabel.lastIndex(of: ")"),
+              open < close else { return "" }
+        return String(chart.yLabel[chart.yLabel.index(after: open)..<close])
+    }
+
+    /// 42.17 → "42nd".
+    private static func ordinal(_ value: Double) -> String {
+        let n = Int(value.rounded())
+        let suffix = switch (n % 100, n % 10) {
+        case (11...13, _): "th"
+        case (_, 1): "st"
+        case (_, 2): "nd"
+        case (_, 3): "rd"
+        default: "th"
+        }
+        return "\(n)\(suffix)"
+    }
+}
