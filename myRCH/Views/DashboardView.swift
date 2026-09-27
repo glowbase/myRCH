@@ -343,7 +343,8 @@ struct DashboardView: View {
             if isLoading {
                 AppointmentCardSkeleton()
             } else if upcoming.isEmpty {
-                emptyCard("No upcoming appointments", systemImage: "calendar.badge.checkmark")
+                emptyCard("No upcoming visits", systemImage: "calendar.badge.checkmark",
+                          detail: "Appointments booked with the hospital appear here, with the time and where to go.")
             } else {
                 ForEach(upcoming.prefix(3)) { appointment in
                     NavigationLink {
@@ -365,7 +366,8 @@ struct DashboardView: View {
             if isLoading {
                 listSkeleton(rows: 3)
             } else if results.isEmpty {
-                emptyCard("No test results yet", systemImage: "testtube.2")
+                emptyCard("No test results yet", systemImage: "testtube.2",
+                          detail: "Results appear here once the lab releases them to the portal. Some take a few days.")
             } else {
                 ForEach(results.prefix(3)) { result in
                     NavigationLink {
@@ -387,7 +389,8 @@ struct DashboardView: View {
             if isLoading {
                 listSkeleton(rows: 2)
             } else if medications.isEmpty {
-                emptyCard("No current medication", systemImage: "pills")
+                emptyCard("No current medication", systemImage: "pills",
+                          detail: "Medication prescribed by the hospital appears here, with reminders you can set.")
             } else {
                 cardList(medications.prefix(3)) { medication in
                     NavigationLink {
@@ -417,7 +420,8 @@ struct DashboardView: View {
             if isLoading {
                 listSkeleton(rows: 2)
             } else if immunisations.isEmpty {
-                emptyCard("No immunisations on file", systemImage: "syringe")
+                emptyCard("No immunisations on file", systemImage: "syringe",
+                          detail: "Vaccines recorded by the hospital appear here. Ones given elsewhere may not be listed.")
             } else {
                 cardList(immunisations.prefix(3)) { group in
                     NavigationLink {
@@ -597,13 +601,21 @@ struct DashboardView: View {
         .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
-    private func emptyCard(_ text: String, systemImage: String) -> some View {
-        HStack(spacing: 12) {
+    /// Health-style empty state: what's missing, and what will appear here.
+    private func emptyCard(_ text: String, systemImage: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: systemImage)
+                .font(.title3)
                 .foregroundStyle(Theme.brand)
-            Text(text)
-                .foregroundStyle(.secondary)
-            Spacer()
+            VStack(alignment: .leading, spacing: 2) {
+                Text(text)
+                    .font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
         }
         .padding()
         .frame(maxWidth: .infinity)

@@ -88,7 +88,8 @@ struct AllergiesView: View {
             }
             .overlay {
                 if allergies.isEmpty {
-                    ContentUnavailableView("No allergies on file", systemImage: "allergens")
+                    ContentUnavailableView("No allergies on file", systemImage: "allergens",
+                                           description: Text("Allergies the hospital has recorded appear here. Tell the care team about any that are missing."))
                 }
             }
         }
@@ -121,7 +122,8 @@ struct ImmunisationsView: View {
             }
             .overlay {
                 if shots.isEmpty {
-                    ContentUnavailableView("No immunisations on file", systemImage: "syringe")
+                    ContentUnavailableView("No immunisations on file", systemImage: "syringe",
+                                           description: Text("Vaccines recorded by the hospital appear here. Ones given by a GP or school program may not be listed."))
                 }
             }
         }

@@ -222,6 +222,16 @@ struct FeatureDestination: View {
     let feature: Feature
     @Environment(Session.self) private var session
 
+    /// What the section will do, so "coming soon" still tells you something.
+    private var comingSoonText: String {
+        switch feature {
+        case .trackHealth: "Record symptoms, measurements and notes to share with the care team. Coming in a future update."
+        case .implants: "Devices and implants on the hospital record, with their details. Coming in a future update."
+        case .sharing: "Share your child's record with family, carers or other doctors. Coming in a future update."
+        default: "This section is coming soon."
+        }
+    }
+
     var body: some View {
         switch feature {
         case .visits: AppointmentsView(patientID: session.patientID)
@@ -236,7 +246,7 @@ struct FeatureDestination: View {
         case .medicalID: MedicalIDView(patientID: session.patientID)
         case .trackHealth, .implants, .sharing:
             ContentUnavailableView(feature.title, systemImage: feature.systemImage,
-                                   description: Text("This section is coming soon."))
+                                   description: Text(comingSoonText))
                 .navigationTitle(feature.title)
         }
     }
