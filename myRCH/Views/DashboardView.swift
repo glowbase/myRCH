@@ -394,22 +394,10 @@ struct DashboardView: View {
                 emptyCard("No current medication", systemImage: "pills",
                           detail: "Medication prescribed by the hospital appears here, with reminders you can set.")
             } else {
-                cardList(medications.prefix(3)) { medication in
-                    NavigationLink {
-                        MedicationDetailView(medication: medication)
-                    } label: {
-                        HStack {
-                            MedicationRow(medication: medication)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
+                NavigationLink(value: Feature.medication) {
+                    MedicationSummaryCard(medications: medications)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -425,40 +413,12 @@ struct DashboardView: View {
                 emptyCard("No immunisations on file", systemImage: "syringe",
                           detail: "Vaccines recorded by the hospital appear here. Ones given elsewhere may not be listed.")
             } else {
-                cardList(immunisations.prefix(3)) { group in
-                    NavigationLink {
-                        ImmunisationDetailView(group: group, patientID: session.patientID)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "syringe.fill")
-                                .foregroundStyle(Feature.immunisations.tileArt.color)
-                                .frame(width: 40, height: 40)
-                                .background(Feature.immunisations.tileArt.color.opacity(0.14), in: .circle)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(group.name)
-                                    .font(.subheadline.weight(.semibold))
-                                Text(datesOnFile(group.dates))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
+                NavigationLink(value: Feature.immunisations) {
+                    ImmunisationSummaryCard(groups: immunisations)
                 }
+                .buttonStyle(.plain)
             }
         }
-    }
-
-    private func datesOnFile(_ dates: [Date]) -> String {
-        guard let latest = dates.first else { return "" }
-        return dates.count > 1 ? "\(latest.mediumDate), +\(dates.count - 1) more" : latest.mediumDate
     }
 
     // MARK: - Health goals
@@ -577,21 +537,6 @@ struct DashboardView: View {
     }
 
     // MARK: - Building blocks
-
-    /// A single white rounded container of rows separated by inset dividers.
-    private func cardList<Items: RandomAccessCollection, Row: View>(
-        _ items: Items, @ViewBuilder row: @escaping (Items.Element) -> Row
-    ) -> some View where Items.Element: Identifiable {
-        VStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                row(item)
-                if index < items.count - 1 {
-                    Divider().padding(.leading, 68)
-                }
-            }
-        }
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
-    }
 
     private func listSkeleton(rows: Int) -> some View {
         VStack(spacing: 0) {
