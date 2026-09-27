@@ -196,3 +196,76 @@ struct ImmunisationSummaryCard: View {
         }
     }
 }
+
+/// A countdown to the next visit and a timeline of the next few months'
+/// appointments, so Home shows at a glance how busy the coming weeks are.
+struct VisitTimelineCard: View {
+    let upcoming: [Appointment]
+
+    private let color = Feature.visits.tileArt.color
+
+    private var window: ClosedRange<Date> {
+        let start = Calendar.current.startOfDay(for: .now)
+        let latest = upcoming.map(\.date).max() ?? start
+        // At least three months, stretched to fit the last booked visit (up to a year).
+        let threeMonths = Calendar.current.date(byAdding: .month, value: 3, to: start) ?? start
+        let year = Calendar.current.date(byAdding: .year, value: 1, to: start) ?? start
+        return start...min(max(latest, threeMonths), year)
+    }
+
+    private var shown: [Appointment] { upcoming.filter { window.contains($0.date) } }
+
+    private var daysUntilNext: Int? {
+        guard let next = upcoming.first else { return nil }
+        let calendar = Calendar.current
+        return calendar.dateComponents([.day], from: calendar.startOfDay(for: .now),
+                                       to: calendar.startOfDay(for: next.date)).day
+    }
+
+    var body: some View {
+        SummaryCard(category: "Coming Up", systemImage: "calendar", color: color,
+                    detail: "\(shown.count) visit\(shown.count == 1 ? "" : "s")") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let days = daysUntilNext, let next = upcoming.first {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(days <= 0 ? "Today" : days == 1 ? "Tomorrow" : "\(days)")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                        if days > 1 {
+                            Text("days").font(.headline).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("until \(next.title)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Chart {
+                    RuleMark(x: .value("Today", Date.now))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                    ForEach(shown) { visit in
+                        PointMark(x: .value("Date", visit.date), y: .value("Row", 0))
+                            .symbol(visit.isTelehealth ? .square : .circle)
+                            .symbolSize(visit.id == upcoming.first?.id ? 160 : 90)
+                            .foregroundStyle(color)
+                    }
+                }
+                .chartXScale(domain: window)
+                .chartYAxis(.hidden)
+                .chartYScale(domain: -1...1)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .month)) { _ in
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.month(.abbreviated))
+                    }
+                }
+                .frame(height: 64)
+                .accessibilityLabel("Timeline of \(shown.count) upcoming visits")
+                if shown.contains(where: \.isTelehealth) {
+                    Label("Squares are telehealth", systemImage: "square.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}

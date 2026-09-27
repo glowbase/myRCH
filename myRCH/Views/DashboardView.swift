@@ -348,7 +348,11 @@ struct DashboardView: View {
                 emptyCard("No upcoming visits", systemImage: "calendar.badge.checkmark",
                           detail: "Appointments booked with the hospital appear here, with the time and where to go.")
             } else {
-                ForEach(upcoming.prefix(3)) { appointment in
+                NavigationLink(value: Feature.visits) {
+                    VisitTimelineCard(upcoming: upcoming)
+                }
+                .buttonStyle(.plain)
+                ForEach(upcoming.prefix(2)) { appointment in
                     NavigationLink {
                         AppointmentDetailView(appointment: appointment)
                     } label: {
