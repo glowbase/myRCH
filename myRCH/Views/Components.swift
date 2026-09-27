@@ -227,3 +227,47 @@ struct SummarySectionHeader<Destination: Hashable>: View {
         .padding(.horizontal, 4)
     }
 }
+
+/// Turns the screen to full brightness while the view is on screen, like a
+/// Wallet pass, and puts it back on leaving or when the app goes to the
+/// background.
+private struct FullBrightness: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var saved: CGFloat?
+
+    private var screen: UIScreen? {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }?.screen
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear(perform: brighten)
+            .onDisappear(perform: restore)
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { brighten() } else { restore() }
+            }
+    }
+
+    private func brighten() {
+        guard saved == nil, let screen else { return }
+        saved = screen.brightness
+        screen.brightness = 1
+    }
+
+    private func restore() {
+        guard let saved else { return }
+        screen?.brightness = saved
+        self.saved = nil
+    }
+}
+
+extension View {
+    func fullBrightness() -> some View { modifier(FullBrightness()) }
+}
+
+/// "12345678" → "1 2 3 4 5 6 7 8", so VoiceOver reads digits, not a number.
+func spokenDigits(_ number: String) -> String {
+    number.map(String.init).joined(separator: " ")
+}

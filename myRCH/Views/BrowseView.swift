@@ -81,6 +81,7 @@ struct FeatureDestination: View {
         case .messages: MessagesView(patientID: session.patientID)
         case .growthCharts: GrowthChartsView(patientID: session.patientID)
         case .letters: LettersView(patientID: session.patientID)
+        case .medicalID: MedicalIDView(patientID: session.patientID)
         case .trackHealth, .implants, .sharing:
             ContentUnavailableView(feature.title, systemImage: feature.systemImage,
                                    description: Text("This section is coming soon."))

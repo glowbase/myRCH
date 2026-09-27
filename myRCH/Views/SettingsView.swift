@@ -29,6 +29,15 @@ struct SettingsView: View {
 
     private var profileSection: some View {
         Section {
+            NavigationLink {
+                MedicalIDView(patientID: session.patientID)
+            } label: {
+                Label {
+                    Text("Medical ID")
+                } icon: {
+                    Image(systemName: "staroflife.fill").foregroundStyle(.red)
+                }
+            }
             HStack(spacing: 16) {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
                            tint: session.activeTint, size: 56)

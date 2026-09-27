@@ -4,7 +4,7 @@ import SwiftUI
 enum Feature: String, Identifiable, CaseIterable {
     case visits, testResults, medication, immunisations, allergies
     case growthCharts, trackHealth, implants, letters
-    case healthSummary, messages, sharing
+    case healthSummary, messages, sharing, medicalID
 
     var id: String { rawValue }
 
@@ -27,6 +27,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .healthSummary: "Health Summary"
         case .messages: "Messages"
         case .sharing: "Share My Record"
+        case .medicalID: "Medical ID"
         }
     }
 
@@ -44,6 +45,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .healthSummary: "heart.text.square.fill"
         case .messages: "envelope.fill"
         case .sharing: "folder.badge.person.crop"
+        case .medicalID: "staroflife.fill"
         }
     }
 
@@ -64,6 +66,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .healthSummary: ("heart.text.clipboard.fill", .pink)
         case .messages: ("bubble.left.and.bubble.right.fill", .blue)
         case .sharing: ("person.2.fill", .mint)
+        case .medicalID: ("staroflife.fill", .red)
         }
     }
 
@@ -81,6 +84,7 @@ enum Feature: String, Identifiable, CaseIterable {
         // of letter rows.
         case .letters: Theme.ink
         case .messages, .sharing: Theme.brand
+        case .medicalID: Theme.red
         }
     }
 }
@@ -314,7 +318,7 @@ struct DashboardView: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("UR number, \(MRNSheet.spokenDigits(mrn))")
+                    .accessibilityLabel("UR number, \(spokenDigits(mrn))")
                     .accessibilityHint("Shows it in large print")
                 }
             }
@@ -651,33 +655,7 @@ private struct MRNSheet: View {
     let mrn: String
     let name: String
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @State private var copied = false
-    /// The brightness before the sheet opened, to restore.
-    @State private var savedBrightness: CGFloat?
-
-    private var screen: UIScreen? {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first { $0.activationState == .foregroundActive }?.screen
-    }
-
-    private func brighten() {
-        guard savedBrightness == nil, let screen else { return }
-        savedBrightness = screen.brightness
-        screen.brightness = 1
-    }
-
-    private func restoreBrightness() {
-        guard let saved = savedBrightness else { return }
-        screen?.brightness = saved
-        savedBrightness = nil
-    }
-
-    /// "12345678" → "1 2 3 4 5 6 7 8", so VoiceOver reads digits, not a number.
-    static func spokenDigits(_ mrn: String) -> String {
-        mrn.map(String.init).joined(separator: " ")
-    }
 
     var body: some View {
         NavigationStack {
@@ -694,7 +672,7 @@ private struct MRNSheet: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.4)
                     .textSelection(.enabled)
-                    .accessibilityLabel(Self.spokenDigits(mrn))
+                    .accessibilityLabel(spokenDigits(mrn))
                 Button {
                     UIPasteboard.general.string = mrn
                     copied = true
@@ -714,12 +692,7 @@ private struct MRNSheet: View {
             }
         }
         .presentationDetents([.height(330)])
-        .onAppear { brighten() }
-        .onDisappear { restoreBrightness() }
-        // Leaving the app restores it (as Wallet does); coming back re-brightens.
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { brighten() } else { restoreBrightness() }
-        }
+        .fullBrightness()
     }
 }
 
