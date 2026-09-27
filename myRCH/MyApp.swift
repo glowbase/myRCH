@@ -4,6 +4,7 @@ import SwiftUI
     @State private var session = Session()
     @State private var medicationStore: MedicationStore
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
 
     init() {
         let store = MedicationStore()
@@ -20,6 +21,7 @@ import SwiftUI
                 .tint(Theme.brand)
                 .environment(session)
                 .environment(medicationStore)
+                .preferredColorScheme(AppAppearance(rawValue: appearance)?.colorScheme)
                 .task { await session.restoreSession() }
         }
         // Reminders are scheduled a window ahead; top it up on each return.

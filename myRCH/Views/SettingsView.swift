@@ -1,113 +1,163 @@
 import SwiftUI
 
-/// App settings. Also the home for account / persona switching, which used to
-/// live on the dashboard.
+/// Chosen in Settings; applied at the app's root.
+enum AppAppearance: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    static let storageKey = "appearance"
+
+    var title: String {
+        switch self {
+        case .system: "Automatic"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+}
+
+/// Profile and settings, laid out like the Health app's profile: the person
+/// at the top, then grouped rows with coloured icons. Also where you switch
+/// between children.
 struct SettingsView: View {
     let profile: PatientProfile
     @Environment(Session.self) private var session
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
-    @State private var notificationsEnabled = true
-    @State private var faceIDEnabled = true
     /// Explore More cards closed on Home (shared with the dashboard).
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
+    @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
+    @State private var showsEditHome = false
+    @State private var confirmsSignOut = false
 
     var body: some View {
         List {
-            profileSection
+            profileHeader
+            healthSection
             accountsSection
+            homeSection
             preferencesSection
             dataSection
-            supportSection
+            aboutSection
             signOutSection
         }
-        .navigationTitle("Settings")
+        .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showsEditHome) { EditHomeSheet() }
     }
 
     // MARK: - Profile
 
-    private var profileSection: some View {
+    private var profileHeader: some View {
+        Section {
+            VStack(spacing: 10) {
+                AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
+                           tint: session.activeTint, size: 88)
+                Text(session.activeAccount?.name ?? profile.fullName)
+                    .font(.system(.title, design: .rounded).bold())
+                Text(session.useLivePortal ? "My RCH Portal" : "Demo mode")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .listRowBackground(Color.clear)
+        }
+    }
+
+    private var healthSection: some View {
         Section {
             NavigationLink {
                 MedicalIDView(patientID: session.patientID)
             } label: {
-                Label {
-                    Text("Medical ID")
-                } icon: {
-                    Image(systemName: "staroflife.fill").foregroundStyle(.red)
-                }
+                SettingsRow("Medical ID", symbol: "staroflife.fill", color: .red)
             }
-            HStack(spacing: 16) {
-                AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                           tint: session.activeTint, size: 56)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.activeAccount?.name ?? profile.fullName)
-                        .font(.title3.bold())
-                    Text("Patient & Family Portal")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
+            NavigationLink {
+                HealthSummaryView(patientID: session.patientID)
+            } label: {
+                SettingsRow("Health Summary", symbol: "heart.text.clipboard.fill", color: .pink)
             }
-            .padding(.vertical, 6)
         }
     }
 
     // MARK: - Accounts
 
+    @ViewBuilder
     private var accountsSection: some View {
-        Section {
-            ForEach(Array(profile.linkedAccounts.enumerated()), id: \.element.id) { index, account in
-                Button {
-                    session.activeAccountID = account.id
-                } label: {
-                    HStack(spacing: 14) {
-                        AvatarView(initials: account.initials,
-                                   tint: Theme.leaves[index % Theme.leaves.count],
-                                   size: 34)
-                        Text(account.name).foregroundStyle(.primary)
-                        Spacer()
-                        if account.id == session.activeAccountID {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Theme.brand)
-                                .fontWeight(.semibold)
+        if profile.linkedAccounts.count > 1 {
+            Section {
+                ForEach(Array(profile.linkedAccounts.enumerated()), id: \.element.id) { index, account in
+                    Button {
+                        session.activeAccountID = account.id
+                    } label: {
+                        HStack(spacing: 14) {
+                            AvatarView(initials: account.initials,
+                                       tint: Theme.leaves[index % Theme.leaves.count],
+                                       size: 34)
+                            Text(account.name).foregroundStyle(.primary)
+                            Spacer()
+                            if account.id == session.activeAccountID {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Theme.brand)
+                                    .fontWeight(.semibold)
+                            }
                         }
                     }
                 }
+            } header: {
+                Text("Records")
+            } footer: {
+                Text("Switch between the children whose records you manage.")
             }
+        }
+    }
+
+    // MARK: - Home
+
+    private var homeSection: some View {
+        Section("Home") {
             Button {
+                showsEditHome = true
             } label: {
-                Label("Manage linked accounts", systemImage: "person.2.badge.gearshape")
+                SettingsRow("Edit Home", symbol: "square.grid.2x2.fill", color: Theme.brand)
             }
-        } header: {
-            Text("Accounts")
-        } footer: {
-            Text("Switch between the people whose records you manage.")
+            .foregroundStyle(.primary)
+            Button {
+                dismissedExplore = ""
+            } label: {
+                SettingsRow("Show Hidden Explore Cards", symbol: "rectangle.stack.fill", color: .yellow)
+            }
+            .foregroundStyle(.primary)
+            .disabled(dismissedExplore.isEmpty)
         }
     }
 
     // MARK: - Preferences
 
     private var preferencesSection: some View {
-        Section("Preferences") {
-            Toggle(isOn: $notificationsEnabled) {
-                Label("Notifications", systemImage: "bell.badge")
-            }
-            Toggle(isOn: $faceIDEnabled) {
-                Label("Unlock with Face ID", systemImage: "faceid")
+        Section {
+            Picker(selection: $appearance) {
+                ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
+            } label: {
+                SettingsRow("Appearance", symbol: "circle.lefthalf.filled", color: .indigo)
             }
             Button {
-                dismissedExplore = ""
+                if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
             } label: {
-                Label("Show Hidden Explore Cards", systemImage: "rectangle.stack.badge.plus")
+                SettingsRow("Notifications", symbol: "bell.badge.fill", color: .red, showsChevron: true)
             }
-            .disabled(dismissedExplore.isEmpty)
-            NavigationLink {
-                ContentUnavailableView("Appearance", systemImage: "paintbrush",
-                                       description: Text("Theme options would go here."))
-            } label: {
-                Label("Appearance", systemImage: "paintbrush")
-            }
+            .foregroundStyle(.primary)
+        } header: {
+            Text("Preferences")
+        } footer: {
+            Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
         }
     }
 
@@ -117,7 +167,7 @@ struct SettingsView: View {
         @Bindable var session = session
         return Section {
             Toggle(isOn: $session.cachesDataOnDevice) {
-                Label("Save Data on This iPhone", systemImage: "internaldrive")
+                SettingsRow("Save Data on This iPhone", symbol: "internaldrive.fill", color: .gray)
             }
         } header: {
             Text("Data & Privacy")
@@ -126,21 +176,39 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Support
+    // MARK: - About
 
-    private var supportSection: some View {
-        Section("Support") {
-            Link(destination: URL(string: "https://www.rch.org.au")!) {
-                Label("Help & FAQs", systemImage: "questionmark.circle")
+    private var version: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "1"
+        return "\(short) (\(build))"
+    }
+
+    private var aboutSection: some View {
+        Section {
+            if let site = URL(string: "https://www.rch.org.au") {
+                Link(destination: site) {
+                    SettingsRow("RCH Website", symbol: "safari.fill", color: .blue, showsChevron: true)
+                }
+                .foregroundStyle(.primary)
             }
-            Link(destination: URL(string: "https://www.rch.org.au")!) {
-                Label("Contact the hospital", systemImage: "phone")
+            // The hospital's main switchboard.
+            if let phone = URL(string: "tel:+61393455522") {
+                Link(destination: phone) {
+                    SettingsRow("Call the Hospital", symbol: "phone.fill", color: .green, showsChevron: true)
+                }
+                .foregroundStyle(.primary)
             }
             LabeledContent {
-                Text("1.0.0")
+                Text(version).foregroundStyle(.secondary)
             } label: {
-                Label("Version", systemImage: "info.circle")
+                SettingsRow("Version", symbol: "info.circle.fill", color: .gray)
             }
+        } header: {
+            Text("About")
+        } footer: {
+            Text("myRCH is an independent app. It isn't made, endorsed or supported by The Royal Children's Hospital. In an emergency, call 000.")
         }
     }
 
@@ -148,11 +216,47 @@ struct SettingsView: View {
 
     private var signOutSection: some View {
         Section {
-            Button(role: .destructive) {
-                session.signOut()
-            } label: {
-                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                    .frame(maxWidth: .infinity)
+            Button("Sign Out", role: .destructive) {
+                confirmsSignOut = true
+            }
+            .frame(maxWidth: .infinity)
+            .confirmationDialog("Sign out of myRCH?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+                Button("Sign Out", role: .destructive) { session.signOut() }
+            } message: {
+                Text("Saved data and widgets on this iPhone are removed. Medication notes and reminders stay.")
+            }
+        }
+    }
+}
+
+/// An iOS Settings-style row: a white symbol on a small coloured rounded
+/// square, then the title.
+struct SettingsRow: View {
+    let title: String
+    let symbol: String
+    let color: Color
+    var showsChevron = false
+
+    init(_ title: String, symbol: String, color: Color, showsChevron: Bool = false) {
+        self.title = title
+        self.symbol = symbol
+        self.color = color
+        self.showsChevron = showsChevron
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(color.gradient, in: .rect(cornerRadius: 7))
+            Text(title)
+            if showsChevron {
+                Spacer()
+                Image(systemName: "arrow.up.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
         }
     }
