@@ -361,6 +361,11 @@ private struct ScheduledDoseRow: View {
             }
             Spacer()
             status
+                // A little bounce and tap when a dose is logged, like Health.
+                .symbolEffect(.bounce, value: item.dose.status)
+                .sensoryFeedback(trigger: item.dose.status) { _, new in
+                    new == nil ? nil : .success
+                }
         }
         .controlSize(.small)
     }
