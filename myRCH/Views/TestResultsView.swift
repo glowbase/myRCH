@@ -255,6 +255,7 @@ struct TestResultDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 resultsSection
+                ResultTrendsSection(result: result)
                 if !result.comments.isEmpty { commentsSection }
                 if !result.documents.isEmpty { documentsSection }
                 additionalInfoSection
