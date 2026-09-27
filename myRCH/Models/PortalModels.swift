@@ -17,6 +17,14 @@ struct PatientProfile: Identifiable, Hashable {
     var linkedAccounts: [LinkedAccount]
 }
 
+/// A health goal on the portal, which the care team can see.
+nonisolated struct PortalGoal: Identifiable, Hashable, Sendable {
+    var text: String
+    /// As the portal writes it, e.g. "28 Sep, 2026".
+    var lastUpdated: String?
+    var id: String { text }
+}
+
 /// The portal's "Explore More" cards: hospital announcements and links.
 nonisolated struct ExploreMoreFeed: Hashable, Sendable {
     /// e.g. "Explore More for You".

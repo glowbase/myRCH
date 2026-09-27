@@ -981,6 +981,41 @@ actor MyChartWebService: PortalService {
         return decodeImmunisations(json)
     }
 
+    /// Captured from the health summary's Goals panel: `{PageNonce}` →
+    /// `{patientGoals: [{text, goalId, lastUpdatedDate: "28 Sep, 2026", …}]}`.
+    func patientGoals(for patientID: String) async throws -> [PortalGoal] {
+        let json = try await postJSON(for: patientID, action: "api/goals/LoadPatientGoals", body: [
+            "PageNonce": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        ], savesCopy: false)
+        let goals = (json as? [String: Any])?["patientGoals"] as? [[String: Any]] ?? []
+        return goals.compactMap { goal in
+            Self.string(goal, "text").map { PortalGoal(text: $0, lastUpdated: Self.string(goal, "lastUpdatedDate")) }
+        }
+    }
+
+    /// Captured adding the first goal: `{"key": 0, "goal": {"lastUpdatedDate":
+    /// "28 Sep 2026", "text": "…"}}`. Whether `key` means "new" or is the
+    /// goal's position hasn't been seen with goals already there, and a wrong
+    /// guess could overwrite one, so this only adds when there are none.
+    func addPatientGoal(_ text: String, for patientID: String) async throws {
+        guard try await patientGoals(for: patientID).isEmpty else {
+            throw MyChartError.actionFailed("SavePatientGoal (only the first goal can be shared so far)")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_AU")
+        formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
+        formatter.dateFormat = "d MMM yyyy"
+        let json = try await postJSON(for: patientID, action: "api/goals/SavePatientGoal", body: [
+            "key": 0,
+            "goal": ["lastUpdatedDate": formatter.string(from: .now), "text": text]
+        ], savesCopy: false)
+        // The reply hasn't been captured, so only an explicit failure counts.
+        let reply = json as? [String: Any] ?? [:]
+        if reply["isSuccess"] as? Bool == false || !(reply["errors"] as? [Any] ?? []).isEmpty {
+            throw MyChartError.actionFailed("SavePatientGoal")
+        }
+    }
+
     /// Captured from Home's "Explore More" panel: an empty POST (legacy
     /// style, `noCache` in the query). Answers `{Title, ExploreMoreItems[]}`;
     /// each item has TitleDisplayText, BodyDisplayText, IconKey (an image URL,
