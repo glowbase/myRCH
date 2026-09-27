@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A goal the family is working towards, kept on this iPhone per child.
-/// Not sent to the hospital: the portal's goal requests haven't been mapped.
+/// (Goals shared with the care team live on the portal; see `PortalGoal`.)
 struct HealthGoal: Identifiable, Codable, Hashable {
     var id = UUID()
     var text: String
@@ -53,12 +53,19 @@ final class GoalStore {
     }
 }
 
-/// Home's Health Goals, Health-style: a progress bar of goals done, each goal
-/// with a tick circle, and an Add Goal button.
+/// Home's Health Goals, Health-style: goals shared with the care team on
+/// the portal, then the family's own goals with tick circles and a progress
+/// bar, and an Add Goal button.
 struct HealthGoalsSection: View {
     @Environment(Session.self) private var session
     @State private var store = GoalStore()
     @State private var showsAdd = false
+    @State private var portalGoals: [PortalGoal] = []
+    @State private var portalLoaded = false
+    @State private var shareError: String?
+
+    /// Only the first goal's request has been captured (see the service).
+    private var canShare: Bool { session.useLivePortal && portalLoaded && portalGoals.isEmpty }
 
     private let color = Color.green
 
@@ -80,7 +87,31 @@ struct HealthGoalsSection: View {
                     }
                 }
 
-                if goals.isEmpty {
+                if !portalGoals.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Shared with the care team")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        ForEach(portalGoals) { goal in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Image(systemName: "person.2.fill")
+                                    .foregroundStyle(color)
+                                    .frame(width: 24)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(goal.text)
+                                    if let updated = goal.lastUpdated {
+                                        Text("Updated \(updated)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if !goals.isEmpty { Divider() }
+                }
+
+                if goals.isEmpty && portalGoals.isEmpty {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Set a goal")
                             .font(.system(.title3, design: .rounded).bold())
@@ -89,7 +120,12 @@ struct HealthGoalsSection: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                } else {
+                } else if !goals.isEmpty {
+                    if !portalGoals.isEmpty {
+                        Text("On this iPhone")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
                     ProgressView(value: Double(done), total: Double(goals.count))
                         .tint(color)
                     VStack(spacing: 0) {
@@ -110,7 +146,9 @@ struct HealthGoalsSection: View {
                 .buttonBorderShape(.capsule)
                 .tint(color)
 
-                Text("Kept on this iPhone only. They aren't sent to the hospital.")
+                Text(session.useLivePortal
+                     ? "Shared goals are on your child's portal record. Others are kept on this iPhone only."
+                     : "Kept on this iPhone only. They aren't sent to the hospital.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -118,7 +156,39 @@ struct HealthGoalsSection: View {
             .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
         }
         .sheet(isPresented: $showsAdd) {
-            AddGoalSheet { store.add($0, for: session.patientID) }
+            AddGoalSheet(canShare: canShare) { text, share in
+                if share {
+                    Task { await shareGoal(text) }
+                } else {
+                    store.add(text, for: session.patientID)
+                }
+            }
+        }
+        .alert("Couldn't share the goal", isPresented: .constant(shareError != nil)) {
+            Button("OK") { shareError = nil }
+        } message: {
+            Text(shareError ?? "")
+        }
+        .task(id: session.patientID) { await loadPortalGoals() }
+    }
+
+    private func loadPortalGoals() async {
+        portalGoals = (try? await session.service.patientGoals(for: session.patientID)) ?? []
+        portalLoaded = true
+    }
+
+    /// If the portal refuses, or its reply can't be read, check whether the
+    /// goal arrived anyway before falling back to keeping it on the iPhone.
+    private func shareGoal(_ text: String) async {
+        do {
+            try await session.service.addPatientGoal(text, for: session.patientID)
+            await loadPortalGoals()
+        } catch {
+            await loadPortalGoals()
+            if !portalGoals.contains(where: { $0.text == text }) {
+                store.add(text, for: session.patientID)
+                shareError = "It's been saved on this iPhone instead. \(error.localizedDescription)"
+            }
         }
     }
 
@@ -156,9 +226,11 @@ struct HealthGoalsSection: View {
 }
 
 private struct AddGoalSheet: View {
-    let onAdd: (String) -> Void
+    let canShare: Bool
+    let onAdd: (_ text: String, _ share: Bool) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var share = true
     @FocusState private var focused: Bool
 
     private static let suggestions = [
@@ -174,7 +246,17 @@ private struct AddGoalSheet: View {
                         .lineLimit(2...4)
                         .focused($focused)
                 } footer: {
-                    Text("Kept on this iPhone. Bring it up with the care team at the next visit.")
+                    if !canShare {
+                        Text("Kept on this iPhone. Bring it up with the care team at the next visit.")
+                    }
+                }
+                if canShare {
+                    Section {
+                        Toggle("Share with the care team", isOn: $share)
+                    } footer: {
+                        Text(share ? "Added to your child's record in My RCH Portal, where the care team can see it."
+                                   : "Kept on this iPhone only.")
+                    }
                 }
                 Section("Suggestions") {
                     ForEach(Self.suggestions, id: \.self) { suggestion in
@@ -190,7 +272,7 @@ private struct AddGoalSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        onAdd(text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        onAdd(text.trimmingCharacters(in: .whitespacesAndNewlines), canShare && share)
                         dismiss()
                     }
                     .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)

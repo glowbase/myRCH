@@ -210,6 +210,7 @@ Legacy MVC calls instead send `X-Requested-With: XMLHttpRequest`, a jQuery-style
 | Reply | `POST api/conversations/GetComposeId`, `SaveReplyDraft`, `SendReply`, `RemoveComposeId`, `DeleteReplyDraft` | Verified (multi-line format unconfirmed) |
 | Attachment upload | `POST DocumentUpload/UploadFile` (multipart) | Verified |
 | Explore More | `POST ExploreMoreFeed` | Verified |
+| Health goals | `POST api/goals/LoadPatientGoals`, `SavePatientGoal` | Load verified; save for the first goal only |
 | Bulk unread / remove bookmark / trash | `POST api/conversations/BulkConversationAction` | Verified |
 | Bookmark / Trash / Restore | `POST api/conversations/Bookmark`, `RemoveBookmark`, `MoveToTrash`, `RestoreFromTrash` | Verified |
 | Reply, new message, archive, bookmark | Unknown | Not yet captured |
@@ -692,6 +693,28 @@ The portal's "archive" is its Trash folder, and RestoreFromTrash undoes it. A bo
 Each `DocumentId` goes in the reply's `documentIds`.
 
 *Not yet mapped:* SaveReplyDraft's reply, and starting a new conversation.
+
+### Health goals
+
+**Load:** `POST api/goals/LoadPatientGoals`, `Referer: …/app/health-summary`
+
+```json
+{ "PageNonce": "<32 hex characters>" }
+```
+
+```json
+{ "patientGoals": [{ "text": "…", "goalId": "", "goalType": 0, "readings": [], "complianceType": 0,
+    "lastUpdatedDate": "28 Sep, 2026", "creationDate": "", "isSharingNotesEnabled": false }],
+  "hasChartGraphSecurity": false, "isSharingNotesEnabled": false, "quickLinkDictionary": { … } }
+```
+
+**Add:** `POST api/goals/SavePatientGoal`
+
+```json
+{ "key": 0, "goal": { "lastUpdatedDate": "28 Sep 2026", "text": "…" } }
+```
+
+This was captured adding the **first** goal. With goals already there, it's unknown whether `key` means "new" or is a goal's position, and guessing wrong could overwrite a goal. So the app only adds a goal when there are none. Editing, deleting and the reply to SavePatientGoal are also not yet mapped.
 
 ### Explore More
 
