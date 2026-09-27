@@ -67,6 +67,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 - Health summary: health issues, allergies and immunisations
 - Growth charts against WHO/CDC reference percentiles
 - Messages with the care team
+- Letters from the hospital (clinic letters, referrals, absence letters)
 - Proxy access: switch between children linked to one parent account
 - Sign in with the portal's two-step verification code, and optionally remember the device
 
@@ -82,7 +83,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 
 ## Getting started
 
-1. Clone the repo and open `RCH Portal.xcodeproj`.
+1. Clone the repo and open `myRCH.xcodeproj`.
 2. In **Signing & Capabilities**, choose your **Team** and set a real **Bundle Identifier** (e.g. `au.yourname.myrch`). The placeholder `devplaceholder.…` ID can only use a wildcard profile, which can't carry the Time Sensitive capability.
    - No paid membership? Remove the Time Sensitive capability and change `content.interruptionLevel` in `MedicationStore.swift` to `.active`. Reminders still work, but a Focus mode will silence them.
 3. Build and run on a device or simulator.
@@ -93,7 +94,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 ## Project structure
 
 ```
-RCH Portal/
+myRCH/
 ├── MyApp.swift                    App entry; injects Session and MedicationStore
 ├── Models/PortalModels.swift      Value types: TestResult, Medication, Appointment…
 ├── Services/
@@ -179,17 +180,29 @@ Legacy MVC calls instead send `X-Requested-With: XMLHttpRequest`, a jQuery-style
 | Proxy context | `GET ProxySwitch`, `GET <LinkUrl>` | Verified |
 | MRN | `GET Home` (print header) | Verified |
 | Visits | `POST Visits/VisitsList/LoadUpcoming`, `…/LoadPast` | Working; past-visit layout partly mapped |
+| Visit notes | `POST api/visit-notes/GetVisitNotes` | Verified |
+| Visit notes and After Visit Summary content | `POST api/report-content/LoadReportContent` | Verified |
+| Past-visit details (After Visit Summary IDs) | `POST api/visits/past-details/GetVisitDetailsPast` | Verified |
 | Test results list | `POST api/test-results/GetList` | Verified |
 | Test result details | `POST api/test-results/GetDetails` | Verified |
 | Imaging report | `POST api/report-content/LoadReportContent` | Verified |
 | Scans | `GET Clinical/TestResults/BlobScans/BlobScansDownloadOrStream` | Link format verified; file type not yet confirmed |
 | Medications | `POST api/medications/LoadMedicationsPage` | Verified |
 | Health issues | `POST api/HealthIssues/LoadHealthIssuesData` | Verified |
-| Messages | `POST api/conversations/GetConversationList` | Unverified |
+| Messages list | `POST api/conversations/GetConversationList` | Verified |
+| Conversation | `POST api/conversations/GetConversationDetails` | Verified |
+| Reply | `POST api/conversations/GetComposeId`, `SaveReplyDraft`, `SendReply`, `RemoveComposeId`, `DeleteReplyDraft` | Verified (multi-line format unconfirmed) |
+| Attachment upload | `POST DocumentUpload/UploadFile` (multipart) | Verified |
+| Bulk unread / remove bookmark / trash | `POST api/conversations/BulkConversationAction` | Verified |
+| Bookmark / Trash / Restore | `POST api/conversations/Bookmark`, `RemoveBookmark`, `MoveToTrash`, `RestoreFromTrash` | Verified |
+| Reply, new message, archive, bookmark | Unknown | Not yet captured |
 | Care team | `POST api/conversations/GetRecipients` | Unverified |
-| Growth | `POST api/growth-charts/GetGrowthData` | Unverified |
+| Growth charts | `POST api/growth-charts/GetGrowthCharts` | Verified |
 | Allergies | `POST api/allergies/LoadAllergies` | Unverified |
-| Immunisations | `POST api/immunizations/LoadImmunizations` | Unverified |
+| Immunisations | `POST api/immunizations/LoadImmunizations` | Verified |
+| Immunisation details | `POST api/immunization-details/GetImmunizationDetails` | Verified |
+| Letters list | `POST api/letters/GetLettersList` | Verified |
+| Letter | `POST api/letters/GetLetterDetails` | Verified |
 
 ### Authentication
 
@@ -456,6 +469,213 @@ Quirks:
 
 `reportContent` is HTML: a heading table ("Study Result", "Narrative & Impression"), then one `<div>` per paragraph, with `&nbsp;` for blank lines. It includes an embedded `<style>` block and `<!--RTF Start-->`-style comments.
 
+### Visit documents
+
+Past visits use the same `POST api/report-content/LoadReportContent`, with `Referer: …/app/visits/past-details?csn=<csn>`. The context fields differ by document type:
+
+| Document | Extra body fields | `reportContent` looks like |
+|---|---|---|
+| **After Visit Summary** | `"contextLang": "<id>"` | `<h1>After Visit Summary</h1>`, then `pgSection` blocks, each with an `<h2>` section title: Today's Visit (vitals as `vitalsLabel`/`vitalsValue`), What's Next, Medication You Will Be Given, Allergies, Your Medication List and so on. Uses many inline SVG icons. |
+| **Notes from the Care Team** (progress note) | `"contextID": "<id>", "contextDAT": "<id>", "contextINI": "HNO"` | `<h1>Progress Notes by <clinician> at <date></h1>`, then RTF-converted paragraphs, as in imaging reports |
+
+Both also send `"reportID"`, `"csn"` (the visit's `Csn`), `"isFullReportPage": false`, `"uniqueClass"` and `"nonce"`. The response has the same shape as for imaging. `reportCss` is nested under `.<uniqueClass>{…}`, so wrap the content in an element with that class. The stylesheet paths are host-relative.
+
+**Listing a visit's notes:** `POST api/visit-notes/GetVisitNotes`
+
+```json
+{ "CSN": "<visit Csn>", "FromPvdPage": true }
+```
+
+```json
+{
+  "lrpID": "<notes reportID>",
+  "depPhoneNumber": "…",
+  "isAtLeastOneNoteSensitive": false,
+  "noteList": [
+    {
+      "hnoID": "<id>", "hnoDAT": "<id>",
+      "displayName": "Progress Notes",
+      "iso": "2026-03-28T19:03:25+11:00",
+      "isAddendum": false,
+      "provider": { "name": "<clinician>", "hasPhotoOnBlob": false },
+      "isNoteSensitive": false,
+      "attachments": []
+    }
+  ]
+}
+```
+
+To load a note, send `reportID` = `lrpID`, `contextID` = `hnoID`, `contextDAT` = `hnoDAT` and `contextINI` = `"HNO"`.
+
+**Past-visit details:** `POST api/visits/past-details/GetVisitDetailsPast`
+
+```json
+{ "csn": "<visit Csn>", "eorgID": "" }
+```
+
+```json
+{
+  "encounterType": "ambulatory",
+  "csn": "<csn>", "dat": "<id>",
+  "notesInfo": {
+    "isAtLeastOneNoteShareable": true,
+    "notesReport": { "reportMnemonic": "OPEN_NOTES", "reportID": "<same as lrpID>" }
+  },
+  "avsInfo": {
+    "hasShareableAvs": true,
+    "primaryAvs": { "reportID": "<id>", "reportName": "After Visit Summary", "isEmbeddedPdfReport": false, "url": "" },
+    "additionalDocuments": [],
+    "languages": [ { "languageID": "<id>", "languageName": "English", "suggested": true } ]
+  },
+  "visitSummaryInfo": { "department": "…", "provider": "…", "encounterDate": "18 Sep, 2026", "visitType": "Clinic/Practice Visit" }
+}
+```
+
+To load the After Visit Summary, send `reportID` = `avsInfo.primaryAvs.reportID`, `contextLang` = the `languageID` of the language with `suggested: true`, and the visit's `csn`. Those two IDs have been identical across different visits and sessions: they identify the AVS *report* and the English language, and the `csn` selects the visit. The app still reads them from this response, which also says whether a summary exists (`hasShareableAvs`) and whether any notes do (`isAtLeastOneNoteShareable`). PDF-only summaries (`isEmbeddedPdfReport: true`) and `additionalDocuments` haven't been seen yet.
+
+### Growth charts
+
+`POST api/growth-charts/GetGrowthCharts`, `Referer: …/app/growth-charts`, body `{}`. One response (about 135 KB) holds every reference set, its curves, and the child's measurements.
+
+```json
+{
+  "datasetIDArray": ["<set id>", "<set id>"],
+  "defaultShowImperial": false,
+  "datasetDictionary": {
+    "<set id>": {
+      "displayName": "WHO GIRLS (0-2 YEARS)",
+      "dataSource": "WHO Child Growth Standards",
+      "growthCharts": {
+        "3": {
+          "chartTypeId": 3, "chartTypeName": "Weight for Age", "chartType": "weightForAge",
+          "xAxisInfo": { "label": "Age (months)", "minVal": 0, "maxVal": 24 },
+          "yAxisInfo": { "label": "Weight (kg)", "minVal": 0, "maxVal": 16 },
+          "ageInfo": { "type": "chronological", "unit": "months", "min": 0, "max": 24 },
+          "curves": [ { "label": "50th percentile", "style": "solid", "points": [ { "xValue": 0, "yValue": 3.2 } ] } ]
+        }
+      }
+    }
+  },
+  "patientData": {
+    "measurementsInfo": {
+      "3": {
+        "points": [ { "xValue": 4.6, "yValue": 6.1, "date": "28 Jan, 2026", "ageInDays": 140, "ageInMonths": 4.6, "entryType": "Clinic" } ],
+        "percentileMap": { "<set id>": ["42.17"] }
+      }
+    }
+  },
+  "chartTypeFilterDictionary": { "<set id>": { "3": { "name": "Weight for Age" } } },
+  "heightVelocityMap": {}
+}
+```
+
+- `datasetIDArray` gives the order; the first set is the default. Seen so far: WHO Girls (0–2 years) and CDC Girls (0–36 months), which is sex-specific to the child.
+- Chart ids and `chartType`: 1 `headCircForAge`, 2 `lengthForAge`, 3 `weightForAge`, 4 `weightForLength`, 6 `bmiForAge` (WHO only). Weight for Length has length, not age, on the x axis.
+- Curves: nine per chart (2nd–98th for WHO, 3rd–97th for CDC). The labels contain typos ("3nd percentile"), so read the number instead.
+- Measurements are keyed by chart id and shared by every set. `percentileMap[setID][i]` is the percentile of point `i` against that set, as a string. `chartTypeFilterDictionary` lists the charts that have measurements.
+- Dates are `dd MMM, yyyy`.
+
+### Messages
+
+**List:** `POST api/conversations/GetConversationList`, `Referer: …/app/communication-center`
+
+```json
+{ "tag": 1, "localLoadParams": { "loadStartInstantISO": "", "loadEndInstantISO": "", "pagingInfo": 1 },
+  "externalLoadParams": {}, "searchQuery": "", "PageNonce": "<32 hex characters>" }
+```
+
+`tag` picks the folder: `1` inbox, `2` Trash, `3` Bookmarked. The response has `conversations[]`, plus the `users` (care team) and `viewers` (family) they refer to:
+
+```json
+{
+  "conversations": [
+    {
+      "hthId": "<conversation id>", "subject": "…", "previewText": "…",
+      "hasUrgentMsgs": false, "hasAttachments": false, "tags": { "Messages": true },
+      "userKeys": ["<empKey>"], "viewerKeys": ["<wprKey>"], "userOverrideNames": { "<empKey>": "<name>" },
+      "messages": [
+        { "wmgId": "<id>", "isUnread": false, "deliveryInstantISO": "2026-01-01T00:00:00Z",
+          "body": "<div>…</div>", "author": { "displayName": "", "empKey": "<empKey>" }, "attachments": [] }
+      ],
+      "hasMoreMessages": false
+    }
+  ],
+  "users":   { "<empKey>": { "empId": "<id>", "name": "<clinician>", "providerId": "<id>" } },
+  "viewers": { "<wprKey>": { "wprId": "<id>", "name": "<family member>", "isSelf": true } },
+  "localSummary": { "hasMoreConversations": false, "numberLoaded": 1 }
+}
+```
+
+- **Authors:** a care-team message has `author.empKey`, looked up in `users`. `users` keys are sometimes prefixed `ser_`. A family message has `author.wprKey`, looked up in `viewers`, where `isSelf` marks the signed-in account.
+- **Bodies** are HTML (`div`, `span`, embedded `style`) with CRLF line endings. Messages are oldest first, with UTC ISO 8601 times.
+
+**Conversation:** `POST api/conversations/GetConversationDetails`, `Referer: …/app/communication-center/conversation?id=<hthId>`
+
+```json
+{ "id": "<hthId>", "messageId": "", "organizationId": "", "PageNonce": "<32 hex characters>" }
+```
+
+Returns the same conversation fields at the top level, with its own `users` and `viewers`, plus `lastViewedByStaffInstantISO`, `numUnread`, `totalMessages` and `replyFlags.canReply`. Loading it is what the portal's conversation page does, and that marks the thread read.
+
+**Bookmark, Remove Bookmark, Move to Trash, Restore:** `POST api/conversations/Bookmark`, `api/conversations/RemoveBookmark`, `api/conversations/MoveToTrash`, `api/conversations/RestoreFromTrash`, with `Referer: …/app/communication-center/conversation?id=<hthId>`. All four take the same body and reply the same way:
+
+```json
+{ "conversationId": "<hthId>", "organizationId": "" }
+```
+
+```json
+{ "conversationId": "<hthId>", "isSuccess": true, "errors": [], "warnings": [] }
+```
+
+The portal's "archive" is its Trash folder, and RestoreFromTrash undoes it. A bookmarked conversation has `"Bookmark": true` in its `tags`.
+
+**Bulk actions** (the list's multi-select): `POST api/conversations/BulkConversationAction`, `Referer: …/app/communication-center`
+
+```json
+{ "Conversations": [{ "conversationId": "<hthId>", "organizationId": "" }], "actionType": "BulkUnread" }
+```
+
+`actionType` values seen so far: `BulkUnread`, `BulkRemoveBookmark` and `BulkMoveToTrash`. The reply hasn't been captured. There's no bulk bookmark or restore yet, so the app sends one single request per conversation for those. There's also no "mark as read" request: the portal marks a thread read when GetConversationDetails loads it, so the app does the same.
+
+**Reply:** the conversation page's reply box sends these requests, all with `Referer: …/app/communication-center/conversation?id=<hthId>`:
+
+1. `POST api/conversations/GetComposeId` with `{}`. Returns a bare JSON string: the draft's `WP-…` id.
+2. `POST api/conversations/SaveReplyDraft`
+3. `POST api/conversations/SendReply`, with the same body as the draft. Returns a bare JSON string, the conversation's `hthId`, not an object.
+4. `POST api/conversations/RemoveComposeId` with `{ "composeId": "<composeId>" }`. Releases the id and returns a string.
+
+```json
+{ "conversationId": "<hthId>", "organizationId": "",
+  "viewers": [{ "wprId": "<signed-in family member's wprId>" }],
+  "messageBody": ["<text>"], "documentIds": ["<DocumentId>"],
+  "includeOtherViewers": true, "composeId": "<composeId>" }
+```
+
+- `viewers[].wprId` is the `viewers` entry with `isSelf: true`.
+- `messageBody` is an array. Only one-line replies have been captured, so the app sending one entry per line is its best reading of the array, not a verified format.
+- **Discarding a draft:** `POST api/conversations/DeleteReplyDraft` with `{ "conversationId": "<hthId>", "organizationId": "" }`, then RemoveComposeId. The app sends both if a reply fails partway through.
+- **Closed threads:** `replyFlags.canReply` in GetConversationDetails is false when a conversation can't be replied to.
+
+**Attachments:** `POST /MyRCHPortal/DocumentUpload/UploadFile`, as `multipart/form-data`:
+
+| Field | Value |
+|---|---|
+| `__file__[]` | the file, with its filename and content type |
+| `AddDCSToCache` | `true` |
+| `IsPending` | `true` |
+| `DCSSource` | `820` |
+| `TargetPatientID`, `OrganizationId`, `EncryptDCSOnRemote` | empty |
+| `__RequestVerificationToken` | the CSRF token, repeated as a field |
+
+```json
+{ "Success": true, "Data": [{ "DocumentId": "WP-…", "FileDisplayName": "photo.png", "FileExtension": ".png",
+  "FileReference": "WP-…", "DownloadUrl": null, "AllowPreview": true }] }
+```
+
+Each `DocumentId` goes in the reply's `documentIds`.
+
+*Not yet mapped:* SaveReplyDraft's reply, and starting a new conversation.
+
 ### Scans and attachments
 
 ```
@@ -541,6 +761,87 @@ Notes:
 
 `healthIssueItem` merges the hospital's record with any external ones; `localItem` is the hospital's own.
 
+### Letters
+
+**List:** `POST api/letters/GetLettersList`, `Referer: …/app/letters`, body `{}`
+
+```json
+{
+  "letters": [
+    { "dateISO": "2026-09-22", "viewed": true, "hnoId": "<id>", "csn": "<visit csn>",
+      "reason": "Referral Letter", "empId": "<author id>" }
+  ],
+  "users": { "<empId>": { "empId": "<empId>", "name": "<clinician>", "photoUrl": "" } },
+  "departments": {}
+}
+```
+
+Look up each letter's author in `users` by `empId`. `reason` is the letter type. Some values are staff template names, not topics ("Send Notes", "Paste Notes", "Blank"); others are real types ("Referral Letter", "Parent Absence"). Authors can be systems too (e.g. "Batch P" for batch-printed referrals).
+
+**Letter:** `POST api/letters/GetLetterDetails`, `Referer: …/app/letters/details?letterId=<hnoId>&csn=<csn>`
+
+```json
+{ "hnoId": "<hnoId>", "csn": "<csn>", "PageNonce": "<32 hex characters>" }
+```
+
+Returns just `{ "bodyHTML": "…" }`: the letter as Word-converted HTML, with generated paragraph and span classes (`p0_…`, `s0_…`), tables and links, like progress notes. There's no separate CSS field.
+
+### Immunisations
+
+`POST api/immunizations/LoadImmunizations`, `Referer: …/app/health-summary`, body `{}`
+
+**Response**
+
+```json
+{
+  "organizationImmunizationList": [
+    {
+      "organization": { "organizationId": "<org>", "organizationName": "…", "isLocal": true },
+      "orgImmunizations": [
+        {
+          "id": "<id>",
+          "name": "Influenza Trivalent (egg-based) >= 6 months",
+          "formattedAdministeredDates": ["22 Jun, 2026", "11 May, 2026"]
+        }
+      ],
+      "showViewDetailsLink": true
+    }
+  ],
+  "showPersonalNotes": true,
+  "immunizationsUrl": "Clinical/Immunizations"
+}
+```
+
+There's one entry per vaccine, with **every dose date** in `formattedAdministeredDates`, newest first, in the form `dd MMM, yyyy`. Parse these with a POSIX locale: Australian English abbreviates September as "Sept", so an en-AU parser fails on September dates.
+
+### Immunisation details
+
+`POST api/immunization-details/GetImmunizationDetails`, `Referer: …/app/immunization-details?id=<id>&from=1`
+
+```json
+{ "id": "<orgImmunizations[].id>", "name": "", "orgId": "" }
+```
+
+The site sends `name` and `orgId` empty.
+
+**Response**
+
+```json
+{
+  "name": "Influenza Trivalent (egg-based) >= 6 months",
+  "immunizationDoses": [
+    {
+      "administeredDateISO": "2026-06-22",
+      "productName": "Vaxigrip",
+      "dose": "", "route": "", "site": "", "location": "",
+      "manufacturer": "", "lotNumber": "", "ndc": "", "fullName": ""
+    }
+  ]
+}
+```
+
+`administeredDateISO` is a date only, with no time. Most fields are often empty, and `productName` is typed by hand, so its capitalisation varies ("Vaxigrip" and "vaxigrip" for the same product). What `fullName` holds hasn't been seen yet.
+
 ## Mapping a new endpoint
 
 Every endpoint above was written from a real capture, not a guess. To add one:
@@ -559,7 +860,7 @@ Every endpoint above was written from a real capture, not a guess. To add one:
 
 ## Roadmap
 
-- Map the unverified endpoints: messages, care team, growth, allergies, immunisations.
+- Map the unverified endpoints: care team, allergies; and messaging actions (reply, new message, archive, bookmark).
 - Repeat prescription requests, once the portal's request is captured.
 - Reminders on specific weekdays, "as needed" medications, and dose history beyond today.
 - **SMART on FHIR** (`EpicFHIRService`): the supported, OAuth-based route for third-party apps. It needs a client registered with RCH/Epic (client ID, redirect URI, scopes) and the hospital's FHIR R4 endpoints.
