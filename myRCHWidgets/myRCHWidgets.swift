@@ -40,6 +40,8 @@ extension WidgetSnapshot {
 }
 
 private let teal = Color(red: 0.13, green: 0.62, blue: 0.74)
+/// Matches the app's `Theme.medication`.
+private let medicationColor = Color(red: 0.0, green: 0.52, blue: 0.74)
 
 // MARK: - Next visit
 
@@ -125,11 +127,11 @@ struct MedicationView: View {
                     HStack {
                         Label("Medication", systemImage: "pills.fill")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.cyan)
+                            .foregroundStyle(medicationColor)
                         Spacer()
                         Gauge(value: progress) { EmptyView() }
                             .gaugeStyle(.accessoryCircularCapacity)
-                            .tint(.cyan)
+                            .tint(medicationColor)
                             .scaleEffect(0.6)
                             .frame(width: 30, height: 30)
                     }

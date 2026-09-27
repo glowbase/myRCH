@@ -49,6 +49,11 @@ enum Theme {
     /// purple for colour-blind users, and >= 3:1 in light and dark mode.
     static let blue = Color(red: 0.20, green: 0.38, blue: 0.86)
 
+    /// Medication, as in the Health app: a cyan-blue, deep enough in light
+    /// mode for white button text and small icons to read.
+    static let medication = Color(light: Color(red: 0.0, green: 0.52, blue: 0.74),
+                                  dark: Color(red: 0.35, green: 0.78, blue: 0.98))
+
     /// A secondary accent for the linked "proxy" account colour treatment.
     static let proxy = Color(red: 0.56, green: 0.35, blue: 0.64)
 
