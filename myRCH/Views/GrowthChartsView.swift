@@ -166,7 +166,7 @@ struct GrowthChartsView: View {
             Text("Placeholder chart caption text").font(.subheadline)
         }
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
         .redacted(reason: .placeholder)
     }
 
@@ -176,7 +176,7 @@ struct GrowthChartsView: View {
             .foregroundStyle(.secondary)
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     private func disclaimer(_ dataset: GrowthDataset) -> some View {
@@ -292,7 +292,7 @@ private struct GrowthChartCard: View {
             table
         }
         .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     private var chartView: some View {

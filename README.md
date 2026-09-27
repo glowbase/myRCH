@@ -193,6 +193,7 @@ Legacy MVC calls instead send `X-Requested-With: XMLHttpRequest`, a jQuery-style
 | Conversation | `POST api/conversations/GetConversationDetails` | Verified |
 | Reply | `POST api/conversations/GetComposeId`, `SaveReplyDraft`, `SendReply`, `RemoveComposeId`, `DeleteReplyDraft` | Verified (multi-line format unconfirmed) |
 | Attachment upload | `POST DocumentUpload/UploadFile` (multipart) | Verified |
+| Explore More | `POST ExploreMoreFeed` | Verified |
 | Bulk unread / remove bookmark / trash | `POST api/conversations/BulkConversationAction` | Verified |
 | Bookmark / Trash / Restore | `POST api/conversations/Bookmark`, `RemoveBookmark`, `MoveToTrash`, `RestoreFromTrash` | Verified |
 | Reply, new message, archive, bookmark | Unknown | Not yet captured |
@@ -675,6 +676,27 @@ The portal's "archive" is its Trash folder, and RestoreFromTrash undoes it. A bo
 Each `DocumentId` goes in the reply's `documentIds`.
 
 *Not yet mapped:* SaveReplyDraft's reply, and starting a new conversation.
+
+### Explore More
+
+`POST /MyRCHPortal/ExploreMoreFeed?noCache=<random>` with an empty body, `X-Requested-With: XMLHttpRequest` and `Referer: …/Home`. These are the hospital's announcement cards on Home.
+
+```json
+{
+  "Title": "Explore More for You",
+  "ExploreMoreItems": [
+    { "EncryptedCctId": "WP-…", "TitleDisplayText": "Kids Health Info",
+      "BodyDisplayText": "Check out our Kids Health Info resources…",
+      "IconKey": "announcements_information",
+      "PrimaryUriDisplayText": "Take me there", "PrimaryUri": "https://www.rch.org.au/kidsinfo/",
+      "SecondaryUriDisplayText": "", "SecondaryUri": "" }
+  ],
+  "Subjects": { "<account id>": "Explore More for <name>", "": "Explore More for You" }
+}
+```
+
+- `IconKey` is either an image URL on the portal, or a keyword such as `announcements_information`.
+- `Subjects` gives each account on the login its own panel title.
 
 ### Scans and attachments
 

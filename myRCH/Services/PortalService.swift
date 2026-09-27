@@ -9,7 +9,8 @@ protocol PortalService: Sendable {
     func signIn(username: String, password: String) async throws -> PatientProfile
 
     /// The hospital's medical record number (MRN) for the patient, if known.
-    func medicalRecordNumber(for patientID: String) async throws -> String?
+    /// The patient's full name and UR (unit record) number.
+    func recordHeader(for patientID: String) async throws -> RecordHeader
 
     func appointments(for patientID: String) async throws -> [Appointment]
     /// The documents available for a past visit (care-team notes, After
@@ -59,6 +60,8 @@ protocol PortalService: Sendable {
     func healthIssues(for patientID: String) async throws -> [HealthIssue]
     func allergies(for patientID: String) async throws -> [Allergy]
     func immunisations(for patientID: String) async throws -> [Immunisation]
+    /// Hospital announcements and links for the bottom of Home.
+    func exploreMore(for patientID: String) async throws -> ExploreMoreFeed
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
 }

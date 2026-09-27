@@ -405,7 +405,7 @@ struct AppointmentDetailView: View {
                     }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
         }
     }
 
@@ -496,7 +496,7 @@ struct AppointmentDetailView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
         }
     }
 
@@ -541,7 +541,7 @@ struct AppointmentDetailView: View {
                     }
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
         }
     }
 
@@ -624,7 +624,7 @@ struct AppointmentDetailView: View {
         content()
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 20))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     private func circleIcon(_ systemImage: String, tint: Color) -> some View {

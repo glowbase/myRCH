@@ -77,8 +77,8 @@ struct CachedPortalService: PortalService {
         try await base.signIn(username: username, password: password)
     }
 
-    func medicalRecordNumber(for patientID: String) async throws -> String? {
-        try await cached("mrn|\(patientID)") { try await base.medicalRecordNumber(for: patientID) }
+    func recordHeader(for patientID: String) async throws -> RecordHeader {
+        try await cached("recordHeader|\(patientID)") { try await base.recordHeader(for: patientID) }
     }
 
     func appointments(for patientID: String) async throws -> [Appointment] {
@@ -212,6 +212,10 @@ struct CachedPortalService: PortalService {
 
     func immunisations(for patientID: String) async throws -> [Immunisation] {
         try await cached("immunisations|\(patientID)") { try await base.immunisations(for: patientID) }
+    }
+
+    func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
+        try await cached("exploreMore|\(patientID)") { try await base.exploreMore(for: patientID) }
     }
 
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose] {

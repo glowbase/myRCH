@@ -378,29 +378,47 @@ actor MyChartWebService: PortalService {
     // MARK: - Data endpoints
 
     /// MRNs never change, so each is fetched once per session.
-    private var mrnCache: [String: String] = [:]
+    private var headerCache: [String: RecordHeader] = [:]
 
-    func medicalRecordNumber(for patientID: String) async throws -> String? {
-        if let cached = mrnCache[patientID] { return cached }
+    func recordHeader(for patientID: String) async throws -> RecordHeader {
+        if let cached = headerCache[patientID] { return cached }
         // Home's print header names the patient whose context we're in:
         // <div class="printheader">Name: … | DOB: … | MRN: 12345678 | …</div>
+        // (RCH calls the MRN a UR number.)
         await ensureContext(patientID)
         let (data, _) = try await session.data(from: config.url("Home"))
         let html = String(decoding: data, as: UTF8.self)
         if html.contains("Authentication/Login") { throw MyChartError.sessionExpired }
-        guard let mrn = Self.medicalRecordNumber(in: html) else {
-            if debugLogResponses { print("↩︎ MRN: not found on Home") }
-            return nil
-        }
-        mrnCache[patientID] = mrn
-        return mrn
+        let header = Self.recordHeader(in: html)
+        if debugLogResponses, header.urNumber == nil { print("↩︎ UR number: not found on Home") }
+        if header.urNumber != nil || header.fullName != nil { headerCache[patientID] = header }
+        return header
     }
 
-    /// Reads only the MRN field from the print header, not the rest of it.
-    nonisolated static func medicalRecordNumber(in html: String) -> String? {
-        guard let header = html.range(of: #"class="printheader"[^>]*>[^<]*"#, options: .regularExpression),
-              let field = html[header].range(of: #"MRN:\s*[A-Za-z0-9]+"#, options: .regularExpression) else { return nil }
-        return html[field].split(separator: ":").last.map { $0.trimmingCharacters(in: .whitespaces) }
+    /// Reads only the Name and MRN fields from the print header, not the rest.
+    nonisolated static func recordHeader(in html: String) -> RecordHeader {
+        guard let range = html.range(of: #"class="printheader"[^>]*>[^<]*"#, options: .regularExpression) else {
+            return RecordHeader()
+        }
+        let header = html[range]
+        func field(_ name: String) -> String? {
+            guard let match = header.range(of: name + #":\s*[^|<]+"#, options: .regularExpression) else { return nil }
+            let value = header[match].dropFirst(name.count + 1).trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+        return RecordHeader(fullName: field("Name").map(displayName), urNumber: field("MRN"))
+    }
+
+    /// "ANDERSON, Sallie" → "Sallie Anderson"; "Sallie Anderson" is kept.
+    /// The header's exact format hasn't been seen, so handle both.
+    nonisolated static func displayName(_ raw: String) -> String {
+        var name = raw.trimmingCharacters(in: .whitespaces)
+        let parts = name.split(separator: ",", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        if parts.count == 2, !parts[1].isEmpty { name = parts[1] + " " + parts[0] }
+        // All-caps words become title case; mixed case (e.g. "McKenzie") stays.
+        return name.split(separator: " ").map { word in
+            word == word.uppercased() && word.count > 1 ? word.prefix(1) + word.dropFirst().lowercased() : word
+        }.joined(separator: " ")
     }
 
     func appointments(for patientID: String) async throws -> [Appointment] {
@@ -961,6 +979,36 @@ actor MyChartWebService: PortalService {
     func immunisations(for patientID: String) async throws -> [Immunisation] {
         let json = try await postJSON(for: patientID, action: "api/immunizations/LoadImmunizations")
         return decodeImmunisations(json)
+    }
+
+    /// Captured from Home's "Explore More" panel: an empty POST (legacy
+    /// style, `noCache` in the query). Answers `{Title, ExploreMoreItems[]}`;
+    /// each item has TitleDisplayText, BodyDisplayText, IconKey (an image URL,
+    /// or a keyword like "announcements_information"), and primary/secondary
+    /// link text and URIs. `Subjects` maps each child to their own title.
+    func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
+        let json = try await postLegacy(for: patientID, path: "ExploreMoreFeed", query: [:])
+        guard let root = json as? [String: Any] else { return ExploreMoreFeed(title: "Explore More", items: []) }
+        func link(_ item: [String: Any], _ text: String, _ uri: String) -> (title: String, url: URL)? {
+            guard let title = Self.string(item, text), let url = Self.string(item, uri).flatMap(URL.init(string:)),
+                  url.scheme == "https" || url.scheme == "http" else { return nil }
+            return (title, url)
+        }
+        let items = (root["ExploreMoreItems"] as? [[String: Any]] ?? []).enumerated().compactMap { index, item -> ExploreItem? in
+            guard let title = Self.string(item, "TitleDisplayText") else { return nil }
+            let icon = Self.string(item, "IconKey").flatMap { key -> URL? in
+                if key.hasPrefix("https://") { return URL(string: key) }
+                if key.hasPrefix("/") { return URL(string: "https://\(config.host)\(key)") }
+                return nil
+            }
+            return ExploreItem(id: Self.string(item, "EncryptedCctId") ?? "explore-\(index)",
+                               title: title,
+                               body: Self.string(item, "BodyDisplayText") ?? "",
+                               iconURL: icon,
+                               primary: link(item, "PrimaryUriDisplayText", "PrimaryUri"),
+                               secondary: link(item, "SecondaryUriDisplayText", "SecondaryUri"))
+        }
+        return ExploreMoreFeed(title: Self.string(root, "Title") ?? "Explore More", items: items)
     }
 
     /// Captured from the site's immunisation-details page. `id` is the vaccine

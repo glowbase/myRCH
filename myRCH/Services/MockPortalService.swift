@@ -34,9 +34,9 @@ struct MockPortalService: PortalService {
         )
     }
 
-    /// A made-up MRN so the dashboard chip shows in demo mode.
-    func medicalRecordNumber(for patientID: String) async throws -> String? {
-        "10000001"
+    /// A made-up UR number so the dashboard chip shows in demo mode.
+    func recordHeader(for patientID: String) async throws -> RecordHeader {
+        RecordHeader(fullName: patientID == "acct-sal" ? "Sal Anderson" : "Sallie Anderson", urNumber: "10000001")
     }
 
     func appointments(for patientID: String) async throws -> [Appointment] {
@@ -531,6 +531,24 @@ struct MockPortalService: PortalService {
             Allergy(id: "al1", substance: "Penicillins", reaction: "Hives", severity: "High"),
             Allergy(id: "al2", substance: "Peanut", reaction: "Anaphylaxis", severity: "High")
         ]
+    }
+
+    /// The portal's real Explore More cards: public hospital links.
+    func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
+        func link(_ title: String, _ url: String) -> (title: String, url: URL)? {
+            URL(string: url).map { (title, $0) }
+        }
+        return ExploreMoreFeed(title: "Explore More for You", items: [
+            ExploreItem(id: "support", title: "Support Us",
+                        body: "There are many ways you can support Great Care at The Royal Children's Hospital. Please visit our website to find out more.",
+                        primary: link("Take me there", "https://www.rchfoundation.org.au/")),
+            ExploreItem(id: "kidsinfo", title: "Kids Health Info",
+                        body: "Check out our Kids Health Info resources to learn more about a wide range of health topics and medical conditions.",
+                        primary: link("Take me there", "https://www.rch.org.au/kidsinfo/")),
+            ExploreItem(id: "telehealth", title: "RCH Telehealth",
+                        body: "Do you have a telehealth video call appointment? Click the Telehealth Appointment button to find out more.",
+                        primary: link("Telehealth Appointment", "https://www.rch.org.au/telehealth/"))
+        ])
     }
 
     func immunisations(for patientID: String) async throws -> [Immunisation] {
