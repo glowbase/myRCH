@@ -341,14 +341,14 @@ struct ResultsOverviewCard: View {
     private func count(_ recent: [TestResult]) async {
         let service = session.service, patientID = session.patientID
         var statuses: [TestResult.RangeStatus?] = []
-        await withTaskGroup(of: TestResult.RangeStatus?.self) { group in
+        await withTaskGroup(of: TestResult.self) { group in
             for result in recent {
                 group.addTask {
-                    let detailed = try? await service.testResultDetails(result, for: patientID)
-                    return (detailed ?? result).rangeStatus
+                    (try? await service.testResultDetails(result, for: patientID)) ?? result
                 }
             }
-            for await status in group { statuses.append(status) }
+            // Worked out here, on the main actor, where `rangeStatus` lives.
+            for await detailed in group { statuses.append(detailed.rangeStatus) }
         }
         counts = (statuses.filter { $0 == .within }.count,
                   statuses.filter { $0 == .outside }.count,
