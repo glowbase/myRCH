@@ -9,6 +9,8 @@ struct SettingsView: View {
 
     @State private var notificationsEnabled = true
     @State private var faceIDEnabled = true
+    /// Explore More cards closed on Home (shared with the dashboard).
+    @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
 
     var body: some View {
         List {
@@ -85,6 +87,12 @@ struct SettingsView: View {
             Toggle(isOn: $faceIDEnabled) {
                 Label("Unlock with Face ID", systemImage: "faceid")
             }
+            Button {
+                dismissedExplore = ""
+            } label: {
+                Label("Show Hidden Explore Cards", systemImage: "rectangle.stack.badge.plus")
+            }
+            .disabled(dismissedExplore.isEmpty)
             NavigationLink {
                 ContentUnavailableView("Appearance", systemImage: "paintbrush",
                                        description: Text("Theme options would go here."))

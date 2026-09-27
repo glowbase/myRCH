@@ -30,6 +30,10 @@ enum Theme {
     /// grey on the dark one.
     static let fieldBackground = Color(light: .white, dark: Color(white: 0.17))
 
+    /// Corner radius for every card, like the Health app's uniform, generous
+    /// rounding.
+    static let cardRadius: CGFloat = 24
+
     /// Hairline border for fields and controls, tuned per appearance.
     static let hairline = Color(light: .black.opacity(0.08), dark: .white.opacity(0.14))
 
@@ -70,6 +74,10 @@ extension ShapeStyle where Self == Color {
 }
 
 extension Color {
+    /// A paler shade of the same colour, for the second layer of two-tone
+    /// icons. Mixed with white, so it stays bright on dark backgrounds too.
+    var lighter: Color { mix(with: .white, by: 0.45) }
+
     /// A colour that follows the system appearance.
     init(light: Color, dark: Color) {
         self.init(uiColor: UIColor { traits in

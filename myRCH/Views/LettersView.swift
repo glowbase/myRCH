@@ -1,19 +1,24 @@
 import SwiftUI
 
 /// Letters the hospital has shared (clinic letters, referrals, absence
-/// letters), newest first and grouped by year. Each opens in the document
-/// viewer, laid out as the hospital wrote it.
+/// letters), newest first and grouped by month. The filter in the top right
+/// narrows the list to one kind of letter. Each opens in the document viewer,
+/// laid out as the hospital wrote it.
 struct LettersView: View {
     let patientID: String
     @Environment(Session.self) private var session
+    /// A letter title to show only, or nil for all.
+    @State private var titleFilter: String?
+    @State private var searchText = ""
 
     var body: some View {
         AsyncSection {
             try await session.service.letters(for: patientID)
         } content: { letters in
+            let shown = letters.filter { (titleFilter == nil || $0.title == titleFilter) && matches($0) }
             List {
-                ForEach(byYear(letters), id: \.year) { group in
-                    Section(String(group.year)) {
+                ForEach(byMonth(shown), id: \.month) { group in
+                    Section(group.month.formatted(.dateTime.month(.wide).year())) {
                         ForEach(group.letters) { letter in
                             NavigationLink {
                                 PortalDocumentView(title: letter.title, id: letter.id,
@@ -31,17 +36,58 @@ struct LettersView: View {
                 if letters.isEmpty {
                     ContentUnavailableView("No letters yet", systemImage: "envelope.open",
                                            description: Text("Letters the hospital shares with you will appear here."))
+                } else if shown.isEmpty, !searchText.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                } else if shown.isEmpty, let titleFilter {
+                    ContentUnavailableView {
+                        Label("No \(titleFilter) letters", systemImage: "line.3.horizontal.decrease.circle")
+                    } actions: {
+                        Button("Show All Letters") { self.titleFilter = nil }
+                    }
+                }
+            }
+            .toolbar {
+                if !letters.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) { filterMenu(letters) }
                 }
             }
         }
-        .navigationTitle("Letters")
+        .navigationTitle(titleFilter ?? "Letters")
+        .searchable(text: $searchText, prompt: "Search letters")
     }
 
-    private func byYear(_ letters: [Letter]) -> [(year: Int, letters: [Letter])] {
+    /// Title, author, or the date as shown (e.g. "12 Aug 2026", "August").
+    private func matches(_ letter: Letter) -> Bool {
+        guard !searchText.isEmpty else { return true }
+        let fields = [letter.title, letter.author ?? "", letter.date.mediumDate,
+                      letter.date.formatted(.dateTime.month(.wide).year())]
+        return fields.contains { $0.localizedCaseInsensitiveContains(searchText) }
+    }
+
+    /// One option per letter title, with how many there are.
+    private func filterMenu(_ letters: [Letter]) -> some View {
+        let counts = Dictionary(grouping: letters, by: \.title).mapValues(\.count)
+        let titles = counts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        return Menu {
+            Picker("Show", selection: $titleFilter) {
+                Text("All Letters (\(letters.count))").tag(String?.none)
+                ForEach(titles, id: \.self) { title in
+                    Text("\(title) (\(counts[title] ?? 0))").tag(Optional(title))
+                }
+            }
+        } label: {
+            Label("Filter", systemImage: titleFilter == nil
+                  ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+        }
+    }
+
+    private func byMonth(_ letters: [Letter]) -> [(month: Date, letters: [Letter])] {
         let calendar = Calendar.current
-        return Dictionary(grouping: letters) { calendar.component(.year, from: $0.date) }
-            .map { (year: $0.key, letters: $0.value.sorted { $0.date > $1.date }) }
-            .sorted { $0.year > $1.year }
+        return Dictionary(grouping: letters) {
+            calendar.dateInterval(of: .month, for: $0.date)?.start ?? $0.date
+        }
+        .map { (month: $0.key, letters: $0.value.sorted { $0.date > $1.date }) }
+        .sorted { $0.month > $1.month }
     }
 }
 

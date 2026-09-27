@@ -169,3 +169,61 @@ struct AsyncSection<Value, Content: View>: View {
         }
     }
 }
+
+/// A Health app–style summary card: the category's icon and name in its
+/// colour at the top left, a date and chevron at the top right, and the main
+/// content (a bold title or value) underneath.
+struct SummaryCard<Content: View>: View {
+    let category: String
+    let systemImage: String
+    let color: Color
+    var detail: String? = nil
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Label(category, systemImage: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(color)
+                Spacer(minLength: 8)
+                if let detail {
+                    Text(detail)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
+    }
+}
+
+/// A Health-style section heading: large and bold, with an optional
+/// "Show All" link.
+struct SummarySectionHeader<Destination: Hashable>: View {
+    let title: String
+    var destination: Destination?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.title2.bold())
+                .foregroundStyle(Theme.ink)
+            Spacer()
+            if let destination {
+                NavigationLink(value: destination) {
+                    Text("Show All")
+                        .font(.subheadline.weight(.medium))
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+}

@@ -46,10 +46,10 @@ private struct BrowseTile: View {
     let feature: Feature
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: feature.systemImage)
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: feature.tileArt.symbol)
+                .foregroundStyle(feature.tileArt.color)
                 .font(.system(size: 30))
-                .foregroundStyle(feature.accent)
                 .frame(height: 36, alignment: .leading)
             Text(feature.title)
                 .font(.headline)
@@ -60,8 +60,8 @@ private struct BrowseTile: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 26))
-        .contentShape(.rect(cornerRadius: 26))
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
     }
 }
 

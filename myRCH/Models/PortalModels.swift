@@ -17,6 +17,32 @@ struct PatientProfile: Identifiable, Hashable {
     var linkedAccounts: [LinkedAccount]
 }
 
+/// The portal's "Explore More" cards: hospital announcements and links.
+nonisolated struct ExploreMoreFeed: Hashable, Sendable {
+    /// e.g. "Explore More for You".
+    var title: String
+    var items: [ExploreItem]
+}
+
+nonisolated struct ExploreItem: Identifiable, Hashable, Sendable {
+    let id: String
+    var title: String
+    var body: String
+    /// A picture from the portal, when `IconKey` is an image URL.
+    var iconURL: URL?
+    var primary: (title: String, url: URL)?
+    var secondary: (title: String, url: URL)?
+
+    static func == (a: ExploreItem, b: ExploreItem) -> Bool { a.id == b.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+/// From the portal's print header: whose record is open, and its UR number.
+nonisolated struct RecordHeader: Hashable, Sendable {
+    var fullName: String?
+    var urNumber: String?
+}
+
 struct LinkedAccount: Identifiable, Hashable {
     let id: String
     var name: String

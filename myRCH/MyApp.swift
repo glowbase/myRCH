@@ -15,6 +15,9 @@ import SwiftUI
     var body: some Scene {
         WindowGroup {
             RootView()
+                // The RCH blue-teal everywhere, including sign-in and sheets.
+                // (The AccentColor asset matches, for alerts and system UI.)
+                .tint(Theme.brand)
                 .environment(session)
                 .environment(medicationStore)
                 .task { await session.restoreSession() }

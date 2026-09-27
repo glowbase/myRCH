@@ -159,7 +159,7 @@ struct MessagesView: View {
                                 } label: {
                                     Label("Archive", systemImage: "archivebox")
                                 }
-                                .tint(Theme.blue)
+                                .tint(Theme.brand)
                                 Button {
                                     let id = conversation.id, on = !conversation.isBookmarked
                                     Task { await setBookmarked([id], on) }
