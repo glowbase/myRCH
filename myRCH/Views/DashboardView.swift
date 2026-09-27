@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// Sections of the app, reachable from Browse and the dashboard.
 enum Feature: String, Identifiable, CaseIterable {
@@ -173,6 +174,7 @@ struct DashboardView: View {
             }
         }
         .task(id: session.patientID) { await load() }
+        .onChange(of: loggedDoseCount) { if !isLoading { updateWidgets() } }
         // The pull-to-refresh spinner is the progress indicator, so keep the
         // current cards on screen instead of swapping in skeletons.
         .refreshable {
@@ -657,6 +659,39 @@ struct DashboardView: View {
         unreadCount = unreadMessages + results.filter(\.isUnread).count
 
         isLoading = false
+        updateWidgets()
+    }
+
+    // MARK: - Widgets
+
+    /// Hands the Home Screen widgets what they show: the next visit and
+    /// today's doses, for the child whose record is open.
+    private func updateWidgets() {
+        let calendar = Calendar.current
+        let doses = medications.flatMap { medication in
+            let key = MedicationStore.key(patientID: session.patientID, medicationID: medication.id)
+            return medicationStore.doses(for: key).map { (medication, $0) }
+        }
+        let remaining = doses
+            .filter { $0.1.status == nil && calendar.isDateInToday($0.1.scheduled) }
+            .sorted { $0.1.scheduled < $1.1.scheduled }
+            .map { WidgetSnapshot.Dose(medicine: $0.0.commonName ?? $0.0.displayName, time: $0.1.scheduled) }
+        let visit = upcoming.first.map {
+            WidgetSnapshot.Visit(title: $0.title, department: $0.department, date: $0.date, isTelehealth: $0.isTelehealth)
+        }
+        WidgetSnapshot(childName: session.activeAccount?.name ?? profile.preferredName,
+                       nextVisit: visit, upcomingDoses: remaining,
+                       dosesDue: doses.count, dosesLogged: doses.filter { $0.1.status != nil }.count,
+                       updated: .now).save()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Changes whenever any of today's doses is logged or undone.
+    private var loggedDoseCount: Int {
+        medications.reduce(0) { total, medication in
+            let key = MedicationStore.key(patientID: session.patientID, medicationID: medication.id)
+            return total + medicationStore.doses(for: key).filter { $0.status != nil }.count
+        }
     }
 }
 
