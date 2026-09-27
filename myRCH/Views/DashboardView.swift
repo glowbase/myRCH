@@ -224,8 +224,7 @@ struct DashboardView: View {
         let keys = medications.map { MedicationStore.key(patientID: session.patientID, medicationID: $0.id) }
         let doses = keys.flatMap { medicationStore.doses(for: $0) }
         return Highlight.make(upcoming: upcoming, results: results, unreadMessages: unreadMessages,
-                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count),
-                              immunisations: immunisations)
+                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count))
     }
 
     @ViewBuilder
@@ -349,11 +348,7 @@ struct DashboardView: View {
                 emptyCard("No upcoming visits", systemImage: "calendar.badge.checkmark",
                           detail: "Appointments booked with the hospital appear here, with the time and where to go.")
             } else {
-                NavigationLink(value: Feature.visits) {
-                    VisitTimelineCard(upcoming: upcoming)
-                }
-                .buttonStyle(.plain)
-                ForEach(upcoming.prefix(2)) { appointment in
+                ForEach(upcoming.prefix(3)) { appointment in
                     NavigationLink {
                         AppointmentDetailView(appointment: appointment)
                     } label: {
@@ -757,12 +752,28 @@ private struct ResultSummaryCard: View {
                             .accessibilityLabel("Unread")
                     }
                 }
-                HStack(alignment: .bottom) {
-                    if let status = (detailed ?? result).rangeStatus {
-                        RangeStatusPill(status: status)
+                let organisms = (detailed ?? result).components.compactMap(\.organism)
+                if !organisms.isEmpty {
+                    // A culture: what grew, with the colony-count meter.
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(organisms.prefix(3).enumerated()), id: \.offset) { _, organism in
+                            OrganismRow(organism: organism)
+                        }
+                        if organisms.count > 3 {
+                            Text("+\(organisms.count - 3) more")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer(minLength: 8)
-                    TrendSparkline(result: result)
+                    .padding(.top, 2)
+                } else {
+                    HStack(alignment: .bottom) {
+                        if let status = (detailed ?? result).rangeStatus {
+                            RangeStatusPill(status: status)
+                        }
+                        Spacer(minLength: 8)
+                        TrendSparkline(result: result)
+                    }
                 }
             }
         }

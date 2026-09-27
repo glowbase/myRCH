@@ -564,7 +564,7 @@ private struct CultureView: View {
     }
 }
 
-private struct OrganismRow: View {
+struct OrganismRow: View {
     let organism: CultureOrganism
 
     var body: some View {
@@ -601,7 +601,7 @@ private struct OrganismRow: View {
 
 /// Four segments, scant → heavy, filled up to the level. One hue deepening
 /// with each step, since colony count is an amount, not a good/bad status.
-private struct GrowthMeter: View {
+struct GrowthMeter: View {
     let growth: CultureOrganism.Growth
 
     /// Brand-teal strength per step; reads as "more" in light and dark mode.
