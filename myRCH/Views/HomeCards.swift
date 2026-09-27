@@ -269,3 +269,89 @@ struct VisitTimelineCard: View {
         }
     }
 }
+
+/// The last three months of results as a donut: within range, outside it,
+/// and results with no range to compare (cultures, imaging reports).
+struct ResultsOverviewCard: View {
+    let results: [TestResult]
+    @Environment(Session.self) private var session
+    @State private var counts: (within: Int, outside: Int, other: Int)?
+
+    /// Enough to be representative without fetching every result's details.
+    private static let maxResults = 20
+
+    private var recent: [TestResult] {
+        let start = Calendar.current.date(byAdding: .month, value: -3, to: .now) ?? .now
+        return Array(results.filter { $0.date >= start }.prefix(Self.maxResults))
+    }
+
+    private struct Slice: Identifiable {
+        let label: String
+        let count: Int
+        let color: Color
+        var id: String { label }
+    }
+
+    var body: some View {
+        let recent = recent
+        SummaryCard(category: "Last 3 Months", systemImage: "chart.pie.fill",
+                    color: Feature.testResults.tileArt.color,
+                    detail: "\(recent.count) result\(recent.count == 1 ? "" : "s")") {
+            if let counts {
+                let slices = [
+                    Slice(label: "Within range", count: counts.within, color: Theme.green),
+                    Slice(label: "Outside range", count: counts.outside, color: .orange),
+                    Slice(label: "No range", count: counts.other, color: Color.gray.opacity(0.45))
+                ].filter { $0.count > 0 }
+                HStack(spacing: 18) {
+                    Chart(slices) { slice in
+                        SectorMark(angle: .value("Results", slice.count), innerRadius: .ratio(0.62),
+                                   angularInset: 2)
+                            .foregroundStyle(slice.color)
+                            .cornerRadius(3)
+                    }
+                    .frame(width: 84, height: 84)
+                    .overlay {
+                        Text("\(recent.count)")
+                            .font(.system(.title3, design: .rounded).bold())
+                    }
+                    .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(slices) { slice in
+                            HStack(spacing: 8) {
+                                Circle().fill(slice.color).frame(width: 9, height: 9)
+                                Text("\(slice.count)")
+                                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                                Text(slice.label)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, minHeight: 84)
+            }
+        }
+        .task(id: recent.map(\.id)) { await count(recent) }
+    }
+
+    private func count(_ recent: [TestResult]) async {
+        let service = session.service, patientID = session.patientID
+        var statuses: [TestResult.RangeStatus?] = []
+        await withTaskGroup(of: TestResult.RangeStatus?.self) { group in
+            for result in recent {
+                group.addTask {
+                    let detailed = try? await service.testResultDetails(result, for: patientID)
+                    return (detailed ?? result).rangeStatus
+                }
+            }
+            for await status in group { statuses.append(status) }
+        }
+        counts = (statuses.filter { $0 == .within }.count,
+                  statuses.filter { $0 == .outside }.count,
+                  statuses.filter { $0 == nil }.count)
+    }
+}

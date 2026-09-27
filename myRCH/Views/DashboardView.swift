@@ -375,6 +375,13 @@ struct DashboardView: View {
                 emptyCard("No test results yet", systemImage: "testtube.2",
                           detail: "Results appear here once the lab releases them to the portal. Some take a few days.")
             } else {
+                // Only once there's enough for a breakdown to mean something.
+                if results.filter({ $0.date >= Calendar.current.date(byAdding: .month, value: -3, to: .now) ?? .now }).count >= 3 {
+                    NavigationLink(value: Feature.testResults) {
+                        ResultsOverviewCard(results: results)
+                    }
+                    .buttonStyle(.plain)
+                }
                 ForEach(results.prefix(3)) { result in
                     NavigationLink {
                         TestResultDetailView(result: result)
