@@ -3,7 +3,7 @@ import SwiftUI
 /// The sections Home can show. The order and which are pinned are chosen in
 /// `EditHomeSheet`, like the Health app's Pinned list.
 enum HomeSection: String, CaseIterable, Identifiable {
-    case highlights, upcoming, results, medication, immunisations, goals, sharing, explore
+    case highlights, upcoming, results, medication, immunisations, growth, goals, sharing, explore
 
     var id: String { rawValue }
 
@@ -14,6 +14,7 @@ enum HomeSection: String, CaseIterable, Identifiable {
         case .results: "Recent Results"
         case .medication: "Medication"
         case .immunisations: "Immunisations"
+        case .growth: "Growth"
         case .goals: "Health Goals"
         case .sharing: "Share My Record"
         case .explore: "Explore More"
@@ -27,6 +28,7 @@ enum HomeSection: String, CaseIterable, Identifiable {
         case .results: Feature.testResults.tileArt
         case .medication: Feature.medication.tileArt
         case .immunisations: ("syringe.fill", Feature.immunisations.tileArt.color)
+        case .growth: Feature.growthCharts.tileArt
         case .goals: ("target", .green)
         case .sharing: Feature.sharing.tileArt
         case .explore: ("lightbulb.max.fill", .yellow)

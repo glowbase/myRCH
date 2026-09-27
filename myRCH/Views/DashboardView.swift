@@ -198,6 +198,7 @@ struct DashboardView: View {
         case .results: resultsSection
         case .medication: medicationSection
         case .immunisations: immunisationSection
+        case .growth: GrowthHomeSection()
         case .goals: goalsCard
         case .sharing: sharingCard
         case .explore: exploreMoreSection
