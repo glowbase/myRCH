@@ -751,8 +751,12 @@ private struct ResultSummaryCard: View {
                             .accessibilityLabel("Unread")
                     }
                 }
-                if let status = (detailed ?? result).rangeStatus {
-                    RangeStatusPill(status: status)
+                HStack(alignment: .bottom) {
+                    if let status = (detailed ?? result).rangeStatus {
+                        RangeStatusPill(status: status)
+                    }
+                    Spacer(minLength: 8)
+                    TrendSparkline(result: result)
                 }
             }
         }
