@@ -98,6 +98,8 @@ struct DashboardView: View {
     @State private var allergies: [Allergy] = []
     @State private var immunisations: [ImmunisationGroup] = []
     @State private var unreadCount = 0
+    @State private var unreadMessages = 0
+    @Environment(MedicationStore.self) private var medicationStore
     @State private var mrn: String?
     @State private var showsMRN = false
     /// From the record's print header; the account switcher has first names
@@ -209,10 +211,30 @@ struct DashboardView: View {
         .foregroundStyle(Theme.brandText)
     }
 
-    // Filled in by the Highlights feature.
+    private var highlights: [Highlight] {
+        let keys = medications.map { MedicationStore.key(patientID: session.patientID, medicationID: $0.id) }
+        let doses = keys.flatMap { medicationStore.doses(for: $0) }
+        return Highlight.make(upcoming: upcoming, results: results, unreadMessages: unreadMessages,
+                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count),
+                              immunisations: immunisations)
+    }
+
     @ViewBuilder
     private var highlightsSection: some View {
-        EmptyView()
+        let items = highlights
+        if !isLoading, !items.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SummarySectionHeader<Feature>(title: "Highlights")
+                ForEach(items.prefix(4)) { highlight in
+                    if let feature = highlight.feature {
+                        NavigationLink(value: feature) { HighlightCard(highlight: highlight) }
+                            .buttonStyle(.plain)
+                    } else {
+                        HighlightCard(highlight: highlight)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Header (greeting, key facts, diagnosis + allergy pills)
@@ -613,7 +635,8 @@ struct DashboardView: View {
         upcoming = appointments
             .filter { $0.status == .scheduled }
             .sorted { $0.date < $1.date }
-        unreadCount = messages.filter(\.isUnread).count + results.filter(\.isUnread).count
+        unreadMessages = messages.filter(\.isUnread).count
+        unreadCount = unreadMessages + results.filter(\.isUnread).count
 
         isLoading = false
     }
