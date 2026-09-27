@@ -57,7 +57,7 @@ enum Feature: String, Identifiable, CaseIterable {
         switch self {
         case .visits: ("calendar.badge.clock", .red)
         case .testResults: ("cross.vial.fill", .indigo)
-        case .medication: ("pills.fill", .cyan)
+        case .medication: ("pills.fill", Theme.medication)
         case .immunisations: ("bandage.fill", .purple)
         case .allergies: ("allergens.fill", .orange)
         case .growthCharts: ("figure.and.child.holdinghands", .green)
@@ -77,8 +77,8 @@ enum Feature: String, Identifiable, CaseIterable {
         // Not green: green means "within normal range" on results.
         case .testResults: Theme.blue
         case .trackHealth: Theme.green
-        case .medication: Theme.orange
-        case .immunisations: Theme.proxy
+        case .medication: Theme.medication
+        case .immunisations: .purple
         case .allergies, .healthSummary: Theme.red
         case .implants: Theme.yellow
         // Navy, not yellow: yellow icons are too faint on white for a screen
