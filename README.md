@@ -36,11 +36,24 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 
 ## Features
 
-**Dashboard**
-- Greeting, age and **MRN**. Tap the MRN for a large-print sheet to show hospital staff, with a copy button.
+**Home** (styled after the Health app's Summary)
+- The child's first name, age and **UR number**. Tap the UR number for a large-print sheet at full brightness, like a Wallet pass.
 - Diagnosis and allergy pills linking to the health summary
-- Upcoming appointments, recent results, current medications and immunisations
-- Quick links to every section, and pull to refresh
+- **Pinned sections** you can reorder or hide with **Edit Home**: Highlights, Upcoming Visits, Recent Results (with trend sparklines), Medication, Immunisations, Health Goals, Share My Record and Explore More
+- **Highlights**: plain-language notes worked out on the device, such as the next visit, doses still to log, new or flagged results and unread messages
+- **Explore More** cards from the hospital, which can be dismissed and restored
+- Pull to refresh
+
+**Browse**
+- Every section as a Health-style tile grid
+- Search that finds sections and individual records: results, letters, medication, visits, immunisations
+
+**Medical ID**
+- Name, date of birth, UR number, allergies, conditions and current medication on one page, at full brightness for triage
+
+**Widgets**
+- **Next Visit** (small, medium, Lock Screen) and **Medication** (next dose and today's progress; small, Lock Screen ring)
+- The app shares a small snapshot through an App Group. It's deleted on sign-out, and hidden on the Lock Screen until the phone is unlocked.
 
 **Test results**
 - Results grouped by month, with search and filters (type, unread, outside normal range)
@@ -48,6 +61,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 - Per-test icons: microbe for cultures, blood drop for blood counts, lungs for chest imaging, and more
 - Result detail:
   - each value with a **range graph**, including one-sided ranges such as `<5` or `>200`, and qualified values such as `>500`
+  - **trends**: each value's history across earlier results of the same test, with 6M / Y / All ranges and the normal range shaded
   - **culture results** listed per organism, with a colour-scaled colony-count meter
   - **imaging reports** as text, in a monospaced font like the portal's
   - clinician comments, and attached scans (PDF or image viewer)
@@ -66,8 +80,8 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 - Appointments with preparation steps and visit summaries
 - Health summary: health issues, allergies and immunisations
 - Growth charts against WHO/CDC reference percentiles
-- Messages with the care team
-- Letters from the hospital (clinic letters, referrals, absence letters)
+- Messages with the care team: Inbox, Bookmarked and Archived; bookmark, read/unread and archive (also in bulk); replies with photo and file attachments
+- Letters from the hospital (clinic letters, referrals, absence letters), by month, with a type filter and search
 - Proxy access: switch between children linked to one parent account
 - Sign in with the portal's two-step verification code, and optionally remember the device
 
@@ -79,6 +93,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 | iOS deployment target | 27.0 |
 | Swift | 5 language mode |
 | Apple Developer Program | **Paid membership required** for the *Time Sensitive Notifications* capability, which lets reminders break through Focus modes. A free team can't sign the app with this capability; see below. |
+| App Groups | `group.com.cooperbeltrami.myRCH`, shared by the app and widgets. Change it in both targets' entitlements and in `WidgetSnapshot.swift` (two copies) if you use your own bundle ID. |
 | Portal account | A My RCH Portal login, only for live mode. Demo mode needs none. |
 
 ## Getting started
@@ -106,6 +121,7 @@ myRCH/
 │   └── MedicationStore.swift      Notes, reminders and dose log (on-device)
 ├── Support/                       Theme, formatting, Keychain, growth references
 └── Views/                         SwiftUI screens, one file per feature
+myRCHWidgets/                      Widget extension (Next Visit, Medication)
 Tools/
 └── probe_portal_request.py        Finds which headers a portal request needs
 ```
