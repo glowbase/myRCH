@@ -106,6 +106,30 @@ struct ImmunisationsView: View {
             try await session.service.immunisations(for: patientID)
         } content: { shots in
             List {
+                if let latest = shots.max(by: { $0.date < $1.date }),
+                   let latestGroup = ImmunisationGroup.group(shots).first(where: { $0.name == latest.name }) {
+                    Section {
+                        SummaryCard(category: "Most Recent", systemImage: "syringe.fill",
+                                    color: Feature.immunisations.tileArt.color,
+                                    detail: latest.date.mediumDate) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(latest.name)
+                                    .font(.system(.title3, design: .rounded).bold())
+                                Text("\(ImmunisationGroup.group(shots).count) vaccines on file")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        // Hidden link: a visible one would add a second chevron.
+                        .background {
+                            NavigationLink {
+                                ImmunisationDetailView(group: latestGroup, patientID: patientID)
+                            } label: { EmptyView() }
+                                .opacity(0)
+                        }
+                        .summaryCardRow()
+                    }
+                }
                 ForEach(ImmunisationGroup.group(shots)) { group in
                     NavigationLink {
                         ImmunisationDetailView(group: group, patientID: patientID)

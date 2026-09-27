@@ -46,6 +46,18 @@ struct AppointmentsView: View {
             let past = appointments.filter { $0.status != .scheduled }.sorted { $0.date > $1.date }
 
             List {
+                // The next visit up top, as on Home.
+                if let next = upcoming.first {
+                    Section {
+                        // Hidden link: a visible one would add a second chevron.
+                        UpcomingAppointmentCard(appointment: next)
+                            .background {
+                                NavigationLink { AppointmentDetailView(appointment: next) } label: { EmptyView() }
+                                    .opacity(0)
+                            }
+                            .summaryCardRow()
+                    }
+                }
                 Section("Upcoming") {
                     if upcoming.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {

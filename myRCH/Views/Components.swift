@@ -271,3 +271,12 @@ extension View {
 func spokenDigits(_ number: String) -> String {
     number.map(String.init).joined(separator: " ")
 }
+
+extension View {
+    /// Shows a `SummaryCard` as a list row: no row background or insets, so
+    /// the card's own rounded background sits on the grouped list.
+    func summaryCardRow() -> some View {
+        listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            .listRowBackground(Color.clear)
+    }
+}

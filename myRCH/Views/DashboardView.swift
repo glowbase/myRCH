@@ -712,7 +712,7 @@ private struct MRNSheet: View {
 
 /// The next visit, Health-style: "Visit" in the Visits colour with the day
 /// at the top, then what it is, where, and when.
-private struct UpcomingAppointmentCard: View {
+struct UpcomingAppointmentCard: View {
     let appointment: Appointment
 
     private var dayText: String {
