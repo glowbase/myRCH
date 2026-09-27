@@ -227,7 +227,6 @@ struct FeatureDestination: View {
         switch feature {
         case .trackHealth: "Record symptoms, measurements and notes to share with the care team. Coming in a future update."
         case .implants: "Devices and implants on the hospital record, with their details. Coming in a future update."
-        case .sharing: "Share your child's record with family, carers or other doctors. Coming in a future update."
         default: "This section is coming soon."
         }
     }
@@ -244,7 +243,8 @@ struct FeatureDestination: View {
         case .growthCharts: GrowthChartsView(patientID: session.patientID)
         case .letters: LettersView(patientID: session.patientID)
         case .medicalID: MedicalIDView(patientID: session.patientID)
-        case .trackHealth, .implants, .sharing:
+        case .sharing: ShareSummaryView(patientID: session.patientID)
+        case .trackHealth, .implants:
             ContentUnavailableView(feature.title, systemImage: feature.systemImage,
                                    description: Text(comingSoonText))
                 .navigationTitle(feature.title)

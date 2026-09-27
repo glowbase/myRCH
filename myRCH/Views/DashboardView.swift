@@ -117,8 +117,6 @@ struct DashboardView: View {
     /// Explore More cards closed with ✕, remembered across launches.
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
 
-    @State private var goals: [String] = []
-    @State private var showsAddGoal = false
 
     /// Pinned sections, in order (see `HomeLayout`).
     @AppStorage(HomeLayout.storageKey) private var homeSections = ""
@@ -165,9 +163,6 @@ struct DashboardView: View {
         }
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
         .sheet(isPresented: $showsEditHome) { EditHomeSheet() }
-        .sheet(isPresented: $showsAddGoal) {
-            AddGoalSheet { goals.append($0) }
-        }
         .sheet(isPresented: $showsMRN) {
             if let mrn {
                 MRNSheet(mrn: mrn, name: displayName)
@@ -199,7 +194,7 @@ struct DashboardView: View {
         case .medication: medicationSection
         case .immunisations: immunisationSection
         case .growth: GrowthHomeSection()
-        case .goals: goalsCard
+        case .goals: HealthGoalsSection()
         case .sharing: sharingCard
         case .explore: exploreMoreSection
         }
@@ -428,47 +423,6 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Health goals
-
-    private var goalsCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
-                Image(systemName: "target")
-                    .foregroundStyle(Theme.green)
-                    .frame(width: 40, height: 40)
-                    .background(Theme.green.opacity(0.14), in: .circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Health goals")
-                        .font(.subheadline.weight(.semibold))
-                    Text(goals.isEmpty ? "Share a goal with your care team" : "\(goals.count) shared with your care team")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Add", systemImage: "plus") { showsAddGoal = true }
-                    .labelStyle(.titleAndIcon)
-                    .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .tint(Theme.brand)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-
-            ForEach(goals, id: \.self) { goal in
-                Divider().padding(.leading, 68)
-                Label(goal, systemImage: "checkmark.circle")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.ink)
-                    .padding(.leading, 68)
-                    .padding(.trailing, 14)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
-    }
-
     // MARK: - Explore more
 
     private var visibleExplore: [ExploreItem] {
@@ -516,31 +470,31 @@ struct DashboardView: View {
 
     // MARK: - Share my record
 
+    /// Health-style sharing card: picture, what it does, and a button.
     private var sharingCard: some View {
-        NavigationLink(value: Feature.sharing) {
-            HStack(spacing: 14) {
-                Image(systemName: Feature.sharing.systemImage)
-                    .foregroundStyle(Theme.yellow)
-                    .frame(width: 40, height: 40)
-                    .background(Theme.yellow.opacity(0.18), in: .circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Share my record")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("With family, carers and other providers")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+        let art = Feature.sharing.tileArt
+        return VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "person.2.wave.2.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(art.color, art.color.lighter)
+                .font(.system(size: 36))
+            Text("Share a Health Summary")
+                .font(.headline)
+            Text("Make a PDF of allergies, conditions and medication for a GP, school or carer. You choose what goes in.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+            NavigationLink(value: Feature.sharing) {
+                Text("Create Summary")
+                    .font(.subheadline.weight(.semibold))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(Theme.brand)
+            .padding(.top, 4)
         }
-        .buttonStyle(.plain)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     // MARK: - Building blocks
@@ -911,43 +865,6 @@ private struct ListRowSkeleton: View {
 }
 
 /// Small sheet for sharing a new health goal with the care team.
-private struct AddGoalSheet: View {
-    let onAdd: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("e.g. Sleep through the night", text: $text, axis: .vertical)
-                        .lineLimit(2...4)
-                        .focused($focused)
-                } footer: {
-                    Text("Your care team can discuss this goal with you at future visits.")
-                }
-            }
-            .navigationTitle("New health goal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        onAdd(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
-                    }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .onAppear { focused = true }
-        }
-        .presentationDetents([.medium])
-    }
-}
-
 #Preview {
     NavigationStack {
         DashboardView(profile: PatientProfile(
