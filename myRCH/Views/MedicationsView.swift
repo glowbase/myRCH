@@ -56,7 +56,13 @@ struct MedicationsView: View {
             List {
                 MedicationLogSections(medications: meds)
                 Section("Your Medications") {
-                    ForEach(meds.filter(\.isActive)) { link(to: $0) }
+                    if meds.contains(where: \.isActive) {
+                        ForEach(meds.filter(\.isActive)) { link(to: $0) }
+                    } else {
+                        Text("Medication prescribed by the hospital appears here, with reminders you can set.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 let inactive = meds.filter { !$0.isActive }
                 if !inactive.isEmpty {

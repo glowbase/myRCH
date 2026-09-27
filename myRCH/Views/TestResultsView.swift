@@ -104,7 +104,10 @@ struct TestResultsView: View {
             }
             .searchable(text: $searchText, prompt: "Search tests, values or clinicians")
             .overlay {
-                if filtered.isEmpty {
+                if results.isEmpty {
+                    ContentUnavailableView("No test results yet", systemImage: "testtube.2",
+                                           description: Text("Results appear here once the lab releases them to the portal. Some take a few days."))
+                } else if filtered.isEmpty {
                     if searchText.isEmpty {
                         ContentUnavailableView("No matching results", systemImage: "line.3.horizontal.decrease.circle",
                                                description: Text("Try changing your filters."))

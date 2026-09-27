@@ -48,8 +48,14 @@ struct AppointmentsView: View {
             List {
                 Section("Upcoming") {
                     if upcoming.isEmpty {
-                        Text("You have no upcoming appointments")
-                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("No upcoming visits")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Appointments booked with the hospital appear here, with the time and where to go.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
                     } else {
                         ForEach(upcoming) { appointmentLink($0) }
                     }
