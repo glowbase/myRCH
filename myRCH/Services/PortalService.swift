@@ -62,6 +62,11 @@ protocol PortalService: Sendable {
     func immunisations(for patientID: String) async throws -> [Immunisation]
     /// Hospital announcements and links for the bottom of Home.
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed
+    /// The health goal shared with the care team. The portal holds one
+    /// free-text goal; the list has at most one entry.
+    func patientGoals(for patientID: String) async throws -> [PortalGoal]
+    /// Sets the shared goal, replacing any that's there.
+    func setPatientGoal(_ text: String, for patientID: String) async throws
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
 }

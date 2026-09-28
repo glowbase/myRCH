@@ -1,5 +1,4 @@
 import SwiftUI
-import WidgetKit
 
 /// Sections of the app, reachable from Browse and the dashboard.
 enum Feature: String, Identifiable, CaseIterable {
@@ -57,7 +56,7 @@ enum Feature: String, Identifiable, CaseIterable {
         switch self {
         case .visits: ("calendar.badge.clock", .red)
         case .testResults: ("cross.vial.fill", .indigo)
-        case .medication: ("pills.fill", .cyan)
+        case .medication: ("pills.fill", Theme.medication)
         case .immunisations: ("bandage.fill", .purple)
         case .allergies: ("allergens.fill", .orange)
         case .growthCharts: ("figure.and.child.holdinghands", .green)
@@ -77,8 +76,8 @@ enum Feature: String, Identifiable, CaseIterable {
         // Not green: green means "within normal range" on results.
         case .testResults: Theme.blue
         case .trackHealth: Theme.green
-        case .medication: Theme.orange
-        case .immunisations: Theme.proxy
+        case .medication: Theme.medication
+        case .immunisations: .purple
         case .allergies, .healthSummary: Theme.red
         case .implants: Theme.yellow
         // Navy, not yellow: yellow icons are too faint on white for a screen
@@ -117,8 +116,6 @@ struct DashboardView: View {
     /// Explore More cards closed with ✕, remembered across launches.
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
 
-    @State private var goals: [String] = []
-    @State private var showsAddGoal = false
 
     /// Pinned sections, in order (see `HomeLayout`).
     @AppStorage(HomeLayout.storageKey) private var homeSections = ""
@@ -165,16 +162,12 @@ struct DashboardView: View {
         }
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
         .sheet(isPresented: $showsEditHome) { EditHomeSheet() }
-        .sheet(isPresented: $showsAddGoal) {
-            AddGoalSheet { goals.append($0) }
-        }
         .sheet(isPresented: $showsMRN) {
             if let mrn {
                 MRNSheet(mrn: mrn, name: displayName)
             }
         }
         .task(id: session.patientID) { await load() }
-        .onChange(of: loggedDoseCount) { if !isLoading { updateWidgets() } }
         // The pull-to-refresh spinner is the progress indicator, so keep the
         // current cards on screen instead of swapping in skeletons.
         .refreshable {
@@ -198,7 +191,8 @@ struct DashboardView: View {
         case .results: resultsSection
         case .medication: medicationSection
         case .immunisations: immunisationSection
-        case .goals: goalsCard
+        case .growth: GrowthHomeSection()
+        case .goals: HealthGoalsSection()
         case .sharing: sharingCard
         case .explore: exploreMoreSection
         }
@@ -223,8 +217,7 @@ struct DashboardView: View {
         let keys = medications.map { MedicationStore.key(patientID: session.patientID, medicationID: $0.id) }
         let doses = keys.flatMap { medicationStore.doses(for: $0) }
         return Highlight.make(upcoming: upcoming, results: results, unreadMessages: unreadMessages,
-                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count),
-                              immunisations: immunisations)
+                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count))
     }
 
     @ViewBuilder
@@ -371,6 +364,13 @@ struct DashboardView: View {
                 emptyCard("No test results yet", systemImage: "testtube.2",
                           detail: "Results appear here once the lab releases them to the portal. Some take a few days.")
             } else {
+                // Only once there's enough for a breakdown to mean something.
+                if results.filter({ $0.date >= Calendar.current.date(byAdding: .month, value: -3, to: .now) ?? .now }).count >= 3 {
+                    NavigationLink(value: Feature.testResults) {
+                        ResultsOverviewCard(results: results)
+                    }
+                    .buttonStyle(.plain)
+                }
                 ForEach(results.prefix(3)) { result in
                     NavigationLink {
                         TestResultDetailView(result: result)
@@ -394,22 +394,10 @@ struct DashboardView: View {
                 emptyCard("No current medication", systemImage: "pills",
                           detail: "Medication prescribed by the hospital appears here, with reminders you can set.")
             } else {
-                cardList(medications.prefix(3)) { medication in
-                    NavigationLink {
-                        MedicationDetailView(medication: medication)
-                    } label: {
-                        HStack {
-                            MedicationRow(medication: medication)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
+                NavigationLink(value: Feature.medication) {
+                    MedicationSummaryCard(medications: medications)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -425,81 +413,12 @@ struct DashboardView: View {
                 emptyCard("No immunisations on file", systemImage: "syringe",
                           detail: "Vaccines recorded by the hospital appear here. Ones given elsewhere may not be listed.")
             } else {
-                cardList(immunisations.prefix(3)) { group in
-                    NavigationLink {
-                        ImmunisationDetailView(group: group, patientID: session.patientID)
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: "syringe.fill")
-                                .foregroundStyle(Feature.immunisations.tileArt.color)
-                                .frame(width: 40, height: 40)
-                                .background(Feature.immunisations.tileArt.color.opacity(0.14), in: .circle)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(group.name)
-                                    .font(.subheadline.weight(.semibold))
-                                Text(datesOnFile(group.dates))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
+                NavigationLink(value: Feature.immunisations) {
+                    ImmunisationSummaryCard(groups: immunisations)
                 }
+                .buttonStyle(.plain)
             }
         }
-    }
-
-    private func datesOnFile(_ dates: [Date]) -> String {
-        guard let latest = dates.first else { return "" }
-        return dates.count > 1 ? "\(latest.mediumDate), +\(dates.count - 1) more" : latest.mediumDate
-    }
-
-    // MARK: - Health goals
-
-    private var goalsCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 14) {
-                Image(systemName: "target")
-                    .foregroundStyle(Theme.green)
-                    .frame(width: 40, height: 40)
-                    .background(Theme.green.opacity(0.14), in: .circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Health goals")
-                        .font(.subheadline.weight(.semibold))
-                    Text(goals.isEmpty ? "Share a goal with your care team" : "\(goals.count) shared with your care team")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Add", systemImage: "plus") { showsAddGoal = true }
-                    .labelStyle(.titleAndIcon)
-                    .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.capsule)
-                    .tint(Theme.brand)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-
-            ForEach(goals, id: \.self) { goal in
-                Divider().padding(.leading, 68)
-                Label(goal, systemImage: "checkmark.circle")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.ink)
-                    .padding(.leading, 68)
-                    .padding(.trailing, 14)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     // MARK: - Explore more
@@ -549,49 +468,34 @@ struct DashboardView: View {
 
     // MARK: - Share my record
 
+    /// Health-style sharing card: picture, what it does, and a button.
     private var sharingCard: some View {
-        NavigationLink(value: Feature.sharing) {
-            HStack(spacing: 14) {
-                Image(systemName: Feature.sharing.systemImage)
-                    .foregroundStyle(Theme.yellow)
-                    .frame(width: 40, height: 40)
-                    .background(Theme.yellow.opacity(0.18), in: .circle)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Share my record")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("With family, carers and other providers")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+        let art = Feature.sharing.tileArt
+        return VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: "person.2.wave.2.fill")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(art.color, art.color.lighter)
+                .font(.system(size: 36))
+            Text("Share a Health Summary")
+                .font(.headline)
+            Text("Make a PDF of allergies, conditions and medication for a GP, school or carer. You choose what goes in.")
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+            NavigationLink(value: Feature.sharing) {
+                Text("Create Summary")
+                    .font(.subheadline.weight(.semibold))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .tint(Theme.brand)
+            .padding(.top, 4)
         }
-        .buttonStyle(.plain)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     // MARK: - Building blocks
-
-    /// A single white rounded container of rows separated by inset dividers.
-    private func cardList<Items: RandomAccessCollection, Row: View>(
-        _ items: Items, @ViewBuilder row: @escaping (Items.Element) -> Row
-    ) -> some View where Items.Element: Identifiable {
-        VStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                row(item)
-                if index < items.count - 1 {
-                    Divider().padding(.leading, 68)
-                }
-            }
-        }
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
-    }
 
     private func listSkeleton(rows: Int) -> some View {
         VStack(spacing: 0) {
@@ -643,11 +547,18 @@ struct DashboardView: View {
         let appointments = await appointmentsTask ?? []
         let messages = await messagesTask ?? []
         results = (await resultsTask ?? []).sorted(by: TestResult.newestFirst)
-        medications = (await medicationsTask ?? []).filter(\.isActive)
+        let allMedications = await medicationsTask ?? []
+        medications = allMedications.filter(\.isActive)
         issues = await issuesTask ?? []
         let header = await headerTask
         mrn = header?.urNumber
         fullName = header?.fullName
+        // Matches this child and their medications with another parent's
+        // phone (by UR number and medicine name) for shared reminders.
+        if let ur = header?.urNumber {
+            medicationStore.linkForSharing(patientID: id, urNumber: ur,
+                                           medications: allMedications.map { ($0.id, $0.displayName) })
+        }
         allergies = await allergiesTask ?? []
         immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])
         explore = await exploreTask
@@ -664,34 +575,18 @@ struct DashboardView: View {
 
     // MARK: - Widgets
 
-    /// Hands the Home Screen widgets what they show: the next visit and
-    /// today's doses, for the child whose record is open.
+    /// Hands the widgets, controls and Live Activities this child's portal
+    /// details. Doses come from the medication store directly.
     private func updateWidgets() {
-        let calendar = Calendar.current
-        let doses = medications.flatMap { medication in
-            let key = MedicationStore.key(patientID: session.patientID, medicationID: medication.id)
-            return medicationStore.doses(for: key).map { (medication, $0) }
-        }
-        let remaining = doses
-            .filter { $0.1.status == nil && calendar.isDateInToday($0.1.scheduled) }
-            .sorted { $0.1.scheduled < $1.1.scheduled }
-            .map { WidgetSnapshot.Dose(medicine: $0.0.commonName ?? $0.0.displayName, time: $0.1.scheduled) }
         let visit = upcoming.first.map {
-            WidgetSnapshot.Visit(title: $0.title, department: $0.department, date: $0.date, isTelehealth: $0.isTelehealth)
+            WidgetSnapshot.Visit(id: $0.id, title: $0.title, department: $0.department, date: $0.date,
+                                 isTelehealth: $0.isTelehealth, location: $0.checkInLocation ?? $0.address)
         }
-        WidgetSnapshot(childName: session.activeAccount?.name ?? profile.preferredName,
-                       nextVisit: visit, upcomingDoses: remaining,
-                       dosesDue: doses.count, dosesLogged: doses.filter { $0.1.status != nil }.count,
-                       updated: .now).save()
-        WidgetCenter.shared.reloadAllTimelines()
-    }
-
-    /// Changes whenever any of today's doses is logged or undone.
-    private var loggedDoseCount: Int {
-        medications.reduce(0) { total, medication in
-            let key = MedicationStore.key(patientID: session.patientID, medicationID: medication.id)
-            return total + medicationStore.doses(for: key).filter { $0.status != nil }.count
-        }
+        WidgetPublisher.shared.updateChild(
+            id: session.patientID, name: session.activeAccount?.name ?? profile.preferredName,
+            urNumber: mrn, nextVisit: visit,
+            allergies: allergies.map { WidgetSnapshot.Allergy(substance: $0.substance, reaction: $0.reaction) },
+            unreadMessages: unreadMessages, newResults: results.filter(\.isUnread).count)
     }
 }
 
@@ -800,12 +695,28 @@ private struct ResultSummaryCard: View {
                             .accessibilityLabel("Unread")
                     }
                 }
-                HStack(alignment: .bottom) {
-                    if let status = (detailed ?? result).rangeStatus {
-                        RangeStatusPill(status: status)
+                let organisms = (detailed ?? result).components.compactMap(\.organism)
+                if !organisms.isEmpty {
+                    // A culture: what grew, with the colony-count meter.
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(organisms.prefix(3).enumerated()), id: \.offset) { _, organism in
+                            OrganismRow(organism: organism)
+                        }
+                        if organisms.count > 3 {
+                            Text("+\(organisms.count - 3) more")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer(minLength: 8)
-                    TrendSparkline(result: result)
+                    .padding(.top, 2)
+                } else {
+                    HStack(alignment: .bottom) {
+                        if let status = (detailed ?? result).rangeStatus {
+                            RangeStatusPill(status: status)
+                        }
+                        Spacer(minLength: 8)
+                        TrendSparkline(result: result)
+                    }
                 }
             }
         }
@@ -943,43 +854,6 @@ private struct ListRowSkeleton: View {
 }
 
 /// Small sheet for sharing a new health goal with the care team.
-private struct AddGoalSheet: View {
-    let onAdd: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("e.g. Sleep through the night", text: $text, axis: .vertical)
-                        .lineLimit(2...4)
-                        .focused($focused)
-                } footer: {
-                    Text("Your care team can discuss this goal with you at future visits.")
-                }
-            }
-            .navigationTitle("New health goal")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        onAdd(text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        dismiss()
-                    }
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-            .onAppear { focused = true }
-        }
-        .presentationDetents([.medium])
-    }
-}
-
 #Preview {
     NavigationStack {
         DashboardView(profile: PatientProfile(

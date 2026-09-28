@@ -1,6 +1,5 @@
 import Observation
 import SwiftUI
-import WidgetKit
 
 /// Owns authentication state and the active service for the whole app.
 /// Injected into the environment by `MyApp`.
@@ -212,8 +211,7 @@ final class Session {
         // Don't leave health data in memory after signing out, or on the
         // Home Screen.
         clearCache()
-        WidgetSnapshot.remove()
-        WidgetCenter.shared.reloadAllTimelines()
+        WidgetPublisher.shared.clear()
         phase = .signedOut
     }
 }

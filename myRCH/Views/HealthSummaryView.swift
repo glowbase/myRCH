@@ -134,11 +134,20 @@ struct ImmunisationsView: View {
                     NavigationLink {
                         ImmunisationDetailView(group: group, patientID: patientID)
                     } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(group.name).font(.headline)
-                            Text(group.dates.map(\.mediumDate).formatted(.list(type: .and)))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        HStack(spacing: 14) {
+                            Image(systemName: "syringe.fill")
+                                .font(.title3)
+                                .foregroundStyle(Feature.immunisations.accent)
+                                .frame(width: 40, height: 40)
+                                .background(Feature.immunisations.accent.opacity(0.14), in: .circle)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(group.name).font(.headline)
+                                Text(group.dates.count == 1
+                                     ? group.dates[0].mediumDate
+                                     : "\(group.dates.count) doses · latest \(group.dates.first?.mediumDate ?? "")")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.vertical, 2)
                     }

@@ -51,9 +51,23 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 **Medical ID**
 - Name, date of birth, UR number, allergies, conditions and current medication on one page, at full brightness for triage
 
-**Widgets**
-- **Next Visit** (small, medium, Lock Screen) and **Medication** (next dose and today's progress; small, Lock Screen ring)
-- The app shares a small snapshot through an App Group. It's deleted on sign-out, and hidden on the Lock Screen until the phone is unlocked.
+**Widgets, controls and Live Activities**
+- **Next Dose:** Taken and Skip buttons that log straight from the Home Screen. Also a one-line Lock Screen version ("Hypersal · 8:00 pm") and a Lock Screen card.
+- **Medication:** today's progress, including a Lock Screen ring and a large ring for StandBy.
+- **Next Visit**
+- **UR Number:** large, for check-in. Tap it for the Medical ID at full brightness.
+- **Allergy Alert:** opt-in in Settings, because it's readable without unlocking.
+- **What's New:** new results and unread messages, as of the last time the app was opened.
+- **Choosing a child:** each widget can be set to a child in Edit Widget.
+- **Control Centre:** **Show UR Number** and **Log Next Dose**.
+- **Live Activities:**
+  - a dose that's due, with Taken and Skip, on the Lock Screen and in the Dynamic Island
+  - the day of a visit: a countdown and where to check in
+- **How it works:**
+  - The app shares a per-child snapshot through an App Group. It's republished whenever a dose changes, from anywhere, including the other parent's phone.
+  - Widget and Live Activity buttons are App Intents that run in the app (`LiveActivityIntent` with `allowedExecutionTargets = .main`). If they can't run there, taps are queued and applied when the app next opens.
+  - iOS only lets an app start a Live Activity while it's open, so activities appear when myRCH is next opened. Updating and ending them works any time.
+  - Most content is hidden on the Lock Screen until the phone is unlocked. The snapshot is deleted on sign-out.
 
 **Test results**
 - Results grouped by month, with search and filters (type, unread, outside normal range)
@@ -74,7 +88,8 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
   - a notification at each dose time, with **Mark as Taken**, **Skip** and **Remind Me in 10 Minutes** actions
   - a **follow-up after 30 minutes** if the dose isn't logged
   - a log of today's doses in the app
-- **Personal notes** per medication, kept only on the device
+- **Personal notes** per medication
+- **Shared reminders:** invite another parent through iCloud, from Medication or Settings. They get the same reminders, and doses and notes either of you log show on both phones (see *Sharing reminders between parents* below).
 
 **Also**
 - Appointments with preparation steps and visit summaries
@@ -127,6 +142,24 @@ Tools/
 ```
 
 Views depend only on the `PortalService` protocol, so the demo, live and future FHIR backends are interchangeable. `Session.service` picks the backend.
+
+## Sharing reminders between parents
+
+Reminders, the dose log and medication notes have no portal API, so they live on the device. They can also be shared with another parent through **CloudKit sharing**. This works between different Apple IDs, and each parent uses their own My RCH Portal login.
+
+- **One zone per child.** The zone is named from a hash of the child's UR number, which is the same in every parent's login. The portal's own patient and medication ids differ between logins, so they can't be used to match.
+- **Matching medications.** A medication is matched by a hash of its name, and this phone remembers which local medication each one corresponds to. Shared data for a medication this phone hasn't loaded yet is held until it does.
+- **Records:**
+  - `Schedule`: a medication's dose times
+  - `Dose`: one per logged scheduled or as-needed dose
+  - `Note`: one per note
+
+  Medicine and child names, times and note text are stored in `encryptedValues`.
+- **Owner and participant.** Whoever shares first owns the zone, in their private database, with a zone-wide `CKShare`. The invited parent sees it in their shared database. Two `CKSyncEngine`s (private and shared) handle fetch, send, retry and push. When both change the same record, the most recent change wins.
+- **Reminders.** Each phone schedules its own reminders from the shared times. Changes arrive by silent push or when the app opens, so a follow-up can occasionally still fire for a dose the other parent has just logged.
+- **Setup.** Sharing needs the iCloud (CloudKit, container `iCloud.com.cooperbeltrami.myRCH`) and Push Notifications capabilities, `CKSharingSupported` in Info.plist, and the remote-notification background mode.
+  - Builds from Xcode use the CloudKit **development** environment. Both phones need a development build to share with each other.
+  - Deploy the schema to production in CloudKit Console before TestFlight or App Store builds.
 
 ## Privacy and security
 
@@ -210,6 +243,7 @@ Legacy MVC calls instead send `X-Requested-With: XMLHttpRequest`, a jQuery-style
 | Reply | `POST api/conversations/GetComposeId`, `SaveReplyDraft`, `SendReply`, `RemoveComposeId`, `DeleteReplyDraft` | Verified (multi-line format unconfirmed) |
 | Attachment upload | `POST DocumentUpload/UploadFile` (multipart) | Verified |
 | Explore More | `POST ExploreMoreFeed` | Verified |
+| Health goal | `POST api/goals/LoadPatientGoals`, `SavePatientGoal` | Verified (single goal) |
 | Bulk unread / remove bookmark / trash | `POST api/conversations/BulkConversationAction` | Verified |
 | Bookmark / Trash / Restore | `POST api/conversations/Bookmark`, `RemoveBookmark`, `MoveToTrash`, `RestoreFromTrash` | Verified |
 | Reply, new message, archive, bookmark | Unknown | Not yet captured |
@@ -692,6 +726,28 @@ The portal's "archive" is its Trash folder, and RestoreFromTrash undoes it. A bo
 Each `DocumentId` goes in the reply's `documentIds`.
 
 *Not yet mapped:* SaveReplyDraft's reply, and starting a new conversation.
+
+### Health goals
+
+**Load:** `POST api/goals/LoadPatientGoals`, `Referer: …/app/health-summary`
+
+```json
+{ "PageNonce": "<32 hex characters>" }
+```
+
+```json
+{ "patientGoals": [{ "text": "…", "goalId": "", "goalType": 0, "readings": [], "complianceType": 0,
+    "lastUpdatedDate": "28 Sep, 2026", "creationDate": "", "isSharingNotesEnabled": false }],
+  "hasChartGraphSecurity": false, "isSharingNotesEnabled": false, "quickLinkDictionary": { … } }
+```
+
+**Add:** `POST api/goals/SavePatientGoal`
+
+```json
+{ "key": 0, "goal": { "lastUpdatedDate": "28 Sep 2026", "text": "…" } }
+```
+
+The portal has a **single free-text goal**, so `key` 0 is that goal, and saving replaces it. The app uses this for both setting and editing the goal. Saving empty text clears the goal. The reply to SavePatientGoal hasn't been captured.
 
 ### Explore More
 

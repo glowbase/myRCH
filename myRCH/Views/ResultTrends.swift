@@ -73,12 +73,11 @@ struct ResultTrendsSection: View {
     @State private var trends: [ComponentTrend] = []
 
     var body: some View {
-        Group {
+        // A stack, not a Group, so `.task` runs while it's still empty.
+        VStack(alignment: .leading, spacing: 12) {
             if !trends.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    SummarySectionHeader<Feature>(title: "Trends")
-                    ForEach(trends) { TrendCard(trend: $0) }
-                }
+                SummarySectionHeader<Feature>(title: "Trends")
+                ForEach(trends) { TrendCard(trend: $0) }
             }
         }
         .task(id: result.id) {
@@ -189,7 +188,8 @@ struct TrendSparkline: View {
     @State private var trend: ComponentTrend?
 
     var body: some View {
-        Group {
+        // A stack, not a Group, so `.task` runs while it's still empty.
+        ZStack {
             if let trend {
                 Chart(trend.points) { point in
                     LineMark(x: .value("Date", point.date), y: .value(trend.name, point.value))

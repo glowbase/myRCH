@@ -1,10 +1,12 @@
+import CloudKit
 import Foundation
 import Observation
 import UserNotifications
 
 /// The family's own notes, reminder times and dose log for each medication.
-/// Kept only on this device, never sent to the portal. Keyed by patient and
-/// medication, so each child's data stays separate.
+/// Never sent to the portal. Kept on this device, and shared with another
+/// parent through iCloud when they're invited (see `CareSync`). Keyed by
+/// patient and medication, so each child's data stays separate.
 ///
 /// Reminders work like the Health app's: one notification per child per dose
 /// time, covering every medication due then ("Time for Sam's 8:00 am
@@ -16,6 +18,10 @@ import UserNotifications
 @MainActor
 @Observable
 final class MedicationStore {
+    /// The one store, so widget and Live Activity buttons (which iOS runs in
+    /// the app, sometimes without any screen) can reach it.
+    static let shared = MedicationStore()
+
     /// A daily dose time.
     struct Reminder: Identifiable, Hashable, Codable {
         var id = UUID()
@@ -104,6 +110,16 @@ final class MedicationStore {
     private var entries: [String: Entry] = [:]
     @ObservationIgnored private var rescheduleTask: Task<Void, Never>?
 
+    /// Which shared record each local medication matches, and shared data
+    /// for medications this phone hasn't loaded yet.
+    private struct SharingState: Codable {
+        /// Local key → shared identity.
+        var links: [String: SyncRef] = [:]
+        /// Keyed by `SyncRef.id`; merged in once the medication is linked.
+        var orphans: [String: Entry] = [:]
+    }
+    private var sharing = SharingState()
+
     /// Set when a reminder is tapped; the app shows the logging sheet for it.
     var openSlot: Slot?
 
@@ -116,10 +132,18 @@ final class MedicationStore {
         return folder.appending(path: "medication-notes.json")
     }()
 
+    @ObservationIgnored private let sharingURL: URL = {
+        URL.applicationSupportDirectory.appending(path: "medication-sharing.json")
+    }()
+
     init() {
         if let data = try? Data(contentsOf: fileURL),
            let saved = try? JSONDecoder().decode([String: Entry].self, from: data) {
             entries = saved
+        }
+        if let data = try? Data(contentsOf: sharingURL),
+           let saved = try? JSONDecoder().decode(SharingState.self, from: data) {
+            sharing = saved
         }
     }
 
@@ -141,13 +165,16 @@ final class MedicationStore {
     func addNote(_ text: String, for key: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        entries[key, default: Entry()].notes.append(MedicationNote(id: UUID(), text: trimmed, date: .now))
+        let note = MedicationNote(id: UUID(), text: trimmed, date: .now)
+        entries[key, default: Entry()].notes.append(note)
         save()
+        share(key) { _ in (.note, note.id.uuidString) }
     }
 
     func deleteNote(_ note: MedicationNote, for key: String) {
         entries[key]?.notes.removeAll { $0.id == note.id }
         save()
+        share(key, deleted: true) { _ in (.note, note.id.uuidString) }
     }
 
     // MARK: Reminders
@@ -163,6 +190,7 @@ final class MedicationStore {
         entries[key]?.medicineName = medicineName
         entries[key]?.childName = childName
         save()
+        share(key) { (.schedule, $0.med) }
         refreshNotifications()
     }
 
@@ -226,11 +254,17 @@ final class MedicationStore {
         let cutoff = Date.now.addingTimeInterval(-90 * 24 * 3600)
         entries[key, default: Entry()].doses = logs.filter { $0.scheduled > cutoff }
         save()
+        share(key, deleted: status == nil) { (.dose, Self.doseName($0, scheduled: scheduled)) }
 
-        // Once everything in the slot is logged, its reminder, follow-up and
-        // snooze are done with, and can leave Notification Centre, as in the
-        // Health app. (A partly logged slot keeps a follow-up for the rest;
-        // the reschedule below rebuilds it with only those names.)
+        clearDeliveredIfLogged(key: key, scheduled: scheduled)
+        refreshNotifications()
+    }
+
+    /// Once everything in the slot is logged, its reminder, follow-up and
+    /// snooze are done with, and can leave Notification Centre, as in the
+    /// Health app. (A partly logged slot keeps a follow-up for the rest; the
+    /// reschedule rebuilds it with only those names.)
+    private func clearDeliveredIfLogged(key: String, scheduled: Date) {
         let slot = Slot(patientID: Self.patientID(of: key), scheduled: scheduled)
         if items(in: slot).allSatisfy({ $0.status != nil }) {
             let prefix = Self.identifierPrefix(slot)
@@ -242,7 +276,6 @@ final class MedicationStore {
                 center.removeDeliveredNotifications(withIdentifiers: delivered.filter { $0.hasPrefix(prefix) })
             }
         }
-        refreshNotifications()
     }
 
     /// Doses taken outside the schedule on `day`, earliest first.
@@ -255,15 +288,17 @@ final class MedicationStore {
 
     /// Records an as-needed dose taken at `date`.
     func logAsNeeded(for key: String, at date: Date = .now) {
-        entries[key, default: Entry()].doses.append(
-            DoseLog(scheduled: date, status: .taken, loggedAt: .now, isAsNeeded: true))
+        let log = DoseLog(scheduled: date, status: .taken, loggedAt: .now, isAsNeeded: true)
+        entries[key, default: Entry()].doses.append(log)
         save()
+        share(key) { (.asNeeded, Self.asNeededName($0, log)) }
     }
 
     /// Undoes an as-needed dose logged by mistake.
     func removeAsNeeded(_ log: DoseLog, for key: String) {
         entries[key]?.doses.removeAll { !$0.isScheduled && $0.loggedAt == log.loggedAt }
         save()
+        share(key, deleted: true) { (.asNeeded, Self.asNeededName($0, log)) }
     }
 
     /// "Remind Me in 10 Minutes": a one-off repeat for what's still unlogged.
@@ -394,9 +429,255 @@ final class MedicationStore {
         }
     }
 
+
+    // MARK: Widgets
+
+    /// Today's scheduled doses for a child, across every medication with
+    /// reminders, earliest first.
+    func todayDoses(patientID: String) -> [(name: String, time: Date, status: DoseLog.Status?)] {
+        entries
+            .filter { Self.patientID(of: $0.key) == patientID && !$0.value.reminders.isEmpty }
+            .flatMap { key, entry in
+                doses(for: key).map { (name: entry.medicineName ?? "Medication", time: $0.scheduled, status: $0.status) }
+            }
+            .sorted { $0.time < $1.time }
+    }
+
+    /// Doses logged from a widget while the app couldn't be reached.
+    func applyPendingDoseLogs() {
+        let pending = PendingDoseLogs.load()
+        guard !pending.entries.isEmpty else { return }
+        for entry in pending.entries {
+            let slot = Slot(patientID: entry.patientID, scheduled: entry.scheduled)
+            logAll(entry.taken ? .taken : .skipped, in: slot)
+        }
+        PendingDoseLogs().save()
+    }
+
+    // MARK: Sharing between parents
+
+    /// Links this phone's medications for a child to their shared identity
+    /// (UR number + medicine name). Call once the UR number is known.
+    func linkForSharing(patientID: String, urNumber: String, medications: [(id: String, name: String)]) {
+        let zone = SyncRef.zoneName(urNumber: urNumber)
+        CareSync.shared.noteChild(patientID: patientID, zone: zone)
+        var changed = false
+        for medication in medications {
+            let key = Self.key(patientID: patientID, medicationID: medication.id)
+            let ref = SyncRef(zone: zone, med: SyncRef.medKey(name: medication.name))
+            if sharing.links[key] != ref {
+                sharing.links[key] = ref
+                changed = true
+                // Newly matched to a shared child: send what this phone has.
+                for (kind, name) in recordNames(key: key, ref: ref) {
+                    CareSync.shared.changed(kind, name: name, zone: zone)
+                }
+            }
+            if let orphan = sharing.orphans.removeValue(forKey: ref.id) {
+                merge(orphan, into: key)
+                changed = true
+            }
+        }
+        if changed {
+            save()
+            saveSharing()
+            refreshNotifications()
+        }
+    }
+
+    /// Everything this phone holds for a child's zone, as record names.
+    func recordNames(inZone zone: String) -> [(CareSync.Kind, String)] {
+        sharing.links.filter { $0.value.zone == zone }.flatMap { recordNames(key: $0.key, ref: $0.value) }
+    }
+
+    private func recordNames(key: String, ref: SyncRef) -> [(CareSync.Kind, String)] {
+        guard let entry = entries[key] else { return [] }
+        var names: [(CareSync.Kind, String)] = []
+        if !entry.reminders.isEmpty { names.append((.schedule, ref.med)) }
+        for log in entry.doses {
+            names.append(log.isScheduled ? (.dose, Self.doseName(ref, scheduled: log.scheduled))
+                                         : (.asNeeded, Self.asNeededName(ref, log)))
+        }
+        names += entry.notes.map { (.note, $0.id.uuidString) }
+        return names
+    }
+
+    private static func doseName(_ ref: SyncRef, scheduled: Date) -> String {
+        "\(ref.med).\(Int((scheduled.timeIntervalSince1970 / 60).rounded()))"
+    }
+
+    private static func asNeededName(_ ref: SyncRef, _ log: DoseLog) -> String {
+        "\(ref.med).\(Int(log.loggedAt.timeIntervalSince1970))"
+    }
+
+    /// Tells CareSync a record changed, if this medication is shared.
+    private func share(_ key: String, deleted: Bool = false, _ name: (SyncRef) -> (CareSync.Kind, String)) {
+        guard let ref = sharing.links[key] else { return }
+        let (kind, recordName) = name(ref)
+        CareSync.shared.changed(kind, name: recordName, zone: ref.zone, deleted: deleted)
+    }
+
+    /// Local keys for a shared medication (normally one).
+    private func keys(for ref: SyncRef) -> [String] {
+        sharing.links.filter { $0.value == ref }.map(\.key)
+    }
+
+    private func entry(for ref: SyncRef) -> Entry? {
+        keys(for: ref).lazy.compactMap { self.entries[$0] }.first ?? sharing.orphans[ref.id]
+    }
+
+    /// Changes a shared medication's data wherever it's held: the linked
+    /// local entry, or an orphan until the medication loads on this phone.
+    private func mutate(_ ref: SyncRef, _ change: (inout Entry) -> Void) {
+        let keys = keys(for: ref)
+        if keys.isEmpty {
+            change(&sharing.orphans[ref.id, default: Entry()])
+        } else {
+            for key in keys { change(&entries[key, default: Entry()]) }
+        }
+    }
+
+    private func merge(_ other: Entry, into key: String) {
+        var entry = entries[key] ?? Entry()
+        if entry.reminders.isEmpty { entry.reminders = other.reminders }
+        entry.medicineName = entry.medicineName ?? other.medicineName
+        entry.childName = entry.childName ?? other.childName
+        for log in other.doses where !entry.doses.contains(where: { Self.sameDose($0, log) }) {
+            entry.doses.append(log)
+        }
+        for note in other.notes where !entry.notes.contains(where: { $0.id == note.id }) {
+            entry.notes.append(note)
+        }
+        entries[key] = entry
+    }
+
+    private static func sameDose(_ a: DoseLog, _ b: DoseLog) -> Bool {
+        a.isScheduled == b.isScheduled && (a.isScheduled
+            ? abs(a.scheduled.timeIntervalSince(b.scheduled)) < 60
+            : Int(a.loggedAt.timeIntervalSince1970) == Int(b.loggedAt.timeIntervalSince1970))
+    }
+
+    /// Fills a record from this phone's data. False if the item's gone.
+    func fill(_ record: CKRecord, zone: String) -> Bool {
+        let parts = record.recordID.recordName.split(separator: ".", maxSplits: 2).map(String.init)
+        guard parts.count >= 2, let kind = CareSync.Kind(rawValue: parts[0]) else { return false }
+        let fields = record.encryptedValues
+        switch kind {
+        case .schedule:
+            let ref = SyncRef(zone: zone, med: parts[1])
+            guard let entry = entry(for: ref),
+                  let json = try? JSONEncoder().encode(entry.reminders) else { return false }
+            record["med"] = ref.med
+            fields["reminders"] = String(decoding: json, as: UTF8.self)
+            fields["medicineName"] = entry.medicineName
+            fields["childName"] = entry.childName
+        case .dose, .asNeeded:
+            guard parts.count == 3, let stamp = Int(parts[2]) else { return false }
+            let ref = SyncRef(zone: zone, med: parts[1])
+            let log = entry(for: ref)?.doses.first { log in
+                kind == .dose
+                    ? log.isScheduled && Int((log.scheduled.timeIntervalSince1970 / 60).rounded()) == stamp
+                    : !log.isScheduled && Int(log.loggedAt.timeIntervalSince1970) == stamp
+            }
+            guard let log else { return false }
+            record["med"] = ref.med
+            fields["status"] = log.status.rawValue
+            fields["scheduled"] = log.scheduled
+            fields["loggedAt"] = log.loggedAt
+        case .note:
+            guard let id = UUID(uuidString: parts[1]) else { return false }
+            let found = sharing.links.filter { $0.value.zone == zone }.lazy.compactMap { key, ref in
+                self.entries[key]?.notes.first { $0.id == id }.map { (ref, $0) }
+            }.first
+            guard let (ref, note) = found else { return false }
+            record["med"] = ref.med
+            fields["text"] = note.text
+            fields["date"] = note.date
+        }
+        return true
+    }
+
+    /// Applies a record another parent saved.
+    func applyRemote(_ record: CKRecord, zone: String) {
+        let parts = record.recordID.recordName.split(separator: ".", maxSplits: 2).map(String.init)
+        guard parts.count >= 2, let kind = CareSync.Kind(rawValue: parts[0]),
+              let med = record["med"] as? String else { return }
+        let ref = SyncRef(zone: zone, med: med)
+        let fields = record.encryptedValues
+        switch kind {
+        case .schedule:
+            guard let json = fields["reminders"] as? String,
+                  let reminders = try? JSONDecoder().decode([Reminder].self, from: Data(json.utf8)) else { return }
+            mutate(ref) { entry in
+                entry.reminders = reminders
+                entry.medicineName = entry.medicineName ?? fields["medicineName"] as? String
+                entry.childName = entry.childName ?? fields["childName"] as? String
+            }
+        case .dose, .asNeeded:
+            guard let raw = fields["status"] as? String, let status = DoseLog.Status(rawValue: raw),
+                  let scheduled = fields["scheduled"] as? Date,
+                  let loggedAt = fields["loggedAt"] as? Date else { return }
+            let log = DoseLog(scheduled: scheduled, status: status, loggedAt: loggedAt,
+                              isAsNeeded: kind == .asNeeded ? true : nil)
+            mutate(ref) { entry in
+                entry.doses.removeAll { Self.sameDose($0, log) }
+                entry.doses.append(log)
+            }
+            if kind == .dose {
+                for key in keys(for: ref) { clearDeliveredIfLogged(key: key, scheduled: scheduled) }
+            }
+        case .note:
+            guard let id = UUID(uuidString: parts[1]), let text = fields["text"] as? String,
+                  let date = fields["date"] as? Date else { return }
+            mutate(ref) { entry in
+                entry.notes.removeAll { $0.id == id }
+                entry.notes.append(MedicationNote(id: id, text: text, date: date))
+            }
+        }
+        save()
+        saveSharing()
+        refreshNotifications()
+    }
+
+    /// Applies another parent's deletion (an undone dose or a deleted note).
+    func applyRemoteDeletion(recordName: String, zone: String) {
+        let parts = recordName.split(separator: ".", maxSplits: 2).map(String.init)
+        guard parts.count >= 2, let kind = CareSync.Kind(rawValue: parts[0]) else { return }
+        switch kind {
+        case .schedule:
+            return
+        case .dose, .asNeeded:
+            guard parts.count == 3, let stamp = Int(parts[2]) else { return }
+            mutate(SyncRef(zone: zone, med: parts[1])) { entry in
+                entry.doses.removeAll { log in
+                    kind == .dose
+                        ? log.isScheduled && Int((log.scheduled.timeIntervalSince1970 / 60).rounded()) == stamp
+                        : !log.isScheduled && Int(log.loggedAt.timeIntervalSince1970) == stamp
+                }
+            }
+        case .note:
+            guard let id = UUID(uuidString: parts[1]) else { return }
+            for key in sharing.links.filter({ $0.value.zone == zone }).map(\.key) {
+                entries[key]?.notes.removeAll { $0.id == id }
+            }
+            for ref in sharing.orphans.keys where ref.hasPrefix(zone + "|") {
+                sharing.orphans[ref]?.notes.removeAll { $0.id == id }
+            }
+        }
+        save()
+        saveSharing()
+        refreshNotifications()
+    }
+
+    private func saveSharing() {
+        guard let data = try? JSONEncoder().encode(sharing) else { return }
+        try? data.write(to: sharingURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+
     private func save() {
         guard let data = try? JSONEncoder().encode(entries) else { return }
         try? data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        WidgetPublisher.shared.dosesChanged()
     }
 }
 
@@ -433,31 +714,48 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         ])
     }
 
+    // Completion-handler versions, not the async ones: iOS calls these on
+    // the main thread and requires the completion handler there too. The
+    // async bridges can finish on another thread, which crashed the app when
+    // a reminder was tapped.
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            didReceive response: UNNotificationResponse) async {
+                                            didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         // Reminders delivered before grouping carried a medication "key";
         // its patient is the part before the first "|".
         let patientID = (info["patientID"] as? String)
             ?? (info["key"] as? String).map { String($0.prefix { $0 != "|" }) }
-        guard let patientID, let stamp = info["scheduled"] as? Double else { return }
+        guard let patientID, let stamp = info["scheduled"] as? Double else {
+            completionHandler()
+            return
+        }
         let slot = MedicationStore.Slot(patientID: patientID, scheduled: Date(timeIntervalSince1970: stamp))
         let action = response.actionIdentifier
-        await MainActor.run {
-            guard let store = NotificationPresenter.shared.store else { return }
-            switch action {
-            case Action.taken: store.logAll(.taken, in: slot)
-            case Action.skipped: store.logAll(.skipped, in: slot)
-            case Action.snooze: store.snooze(slot)
-            // Tapping the reminder itself opens the logging sheet.
-            case UNNotificationDefaultActionIdentifier: store.openSlot = slot
-            default: break
+        // Called once, on the main thread, as iOS requires.
+        nonisolated(unsafe) let completionHandler = completionHandler
+        let handle: @Sendable () -> Void = {
+            MainActor.assumeIsolated {
+                guard let store = NotificationPresenter.shared.store else { return }
+                switch action {
+                case Action.taken: store.logAll(.taken, in: slot)
+                case Action.skipped: store.logAll(.skipped, in: slot)
+                case Action.snooze: store.snooze(slot)
+                // Tapping the reminder itself opens the logging sheet.
+                case UNNotificationDefaultActionIdentifier: store.openSlot = slot
+                default: break
+                }
             }
+            completionHandler()
         }
+        // Normally already on the main thread; hop there if not.
+        if Thread.isMainThread { handle() } else { DispatchQueue.main.async(execute: handle) }
     }
 }
