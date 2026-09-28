@@ -6,6 +6,12 @@ enum DeepLink: Equatable {
     case medicalID
     /// The logging sheet for a dose time.
     case dose(patientID: String, scheduled: Date)
+    /// A visit's details (the next visit, when no id is given).
+    case visit(id: String?)
+    /// The Medication page.
+    case medication
+    /// Notifications: new results and messages.
+    case whatsNew
 
     /// Also returns the child to switch to first, if the link names one.
     static func parse(_ url: URL) -> (DeepLink, child: String?)? {
@@ -15,6 +21,12 @@ enum DeepLink: Equatable {
         switch host {
         case "medical-id":
             return (.medicalID, child)
+        case "visit":
+            return (.visit(id: items.first { $0.name == "id" }?.value), child)
+        case "medication":
+            return (.medication, child)
+        case "whats-new":
+            return (.whatsNew, child)
         case "dose":
             guard let patient = items.first(where: { $0.name == "patient" })?.value,
                   let stamp = items.first(where: { $0.name == "time" })?.value.flatMap(Double.init) else { return nil }
@@ -38,11 +50,25 @@ enum DeepLink: Equatable {
     }
 }
 
+/// A screen opened from a link, shown as a sheet over whatever's open.
+private enum LinkedScreen: Identifiable {
+    case medicalID, visit(id: String?), medication, whatsNew
+
+    var id: String {
+        switch self {
+        case .medicalID: "medical-id"
+        case let .visit(id): "visit-\(id ?? "next")"
+        case .medication: "medication"
+        case .whatsNew: "whats-new"
+        }
+    }
+}
+
 /// Switches between the sign-in screen and the authenticated app.
 struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(MedicationStore.self) private var store
-    @State private var showsMedicalID = false
+    @State private var linked: LinkedScreen?
 
     var body: some View {
         @Bindable var store = store
@@ -56,12 +82,12 @@ struct RootView: View {
                 // A tapped medication reminder opens its logging sheet, on
                 // top of whatever screen is showing.
                 .sheet(item: $store.openSlot) { DoseLogSheet(slot: $0) }
-                .sheet(isPresented: $showsMedicalID) {
+                .sheet(item: $linked) { screen in
                     NavigationStack {
-                        MedicalIDView(patientID: session.patientID)
+                        linkedView(screen)
                             .toolbar {
                                 ToolbarItem(placement: .confirmationAction) {
-                                    Button("Done") { showsMedicalID = false }
+                                    Button("Done") { linked = nil }
                                 }
                             }
                     }
@@ -77,10 +103,23 @@ struct RootView: View {
             session.activeAccountID = child
         }
         switch link {
-        case .medicalID:
-            showsMedicalID = true
+        case .medicalID: linked = .medicalID
+        case let .visit(id): linked = .visit(id: id)
+        case .medication: linked = .medication
+        case .whatsNew: linked = .whatsNew
         case let .dose(patientID, scheduled):
+            linked = nil
             store.openSlot = MedicationStore.Slot(patientID: patientID, scheduled: scheduled)
+        }
+    }
+
+    @ViewBuilder
+    private func linkedView(_ screen: LinkedScreen) -> some View {
+        switch screen {
+        case .medicalID: MedicalIDView(patientID: session.patientID)
+        case let .visit(id): LinkedVisitView(appointmentID: id)
+        case .medication: MedicationsView(patientID: session.patientID)
+        case .whatsNew: NotificationsView(patientID: session.patientID)
         }
     }
 }
@@ -89,4 +128,25 @@ struct RootView: View {
     RootView()
         .environment(Session())
         .environment(MedicationStore.shared)
+}
+
+/// A visit opened from a widget or Live Activity: finds it in the (cached)
+/// appointments and shows its details, or the next visit if no id is given.
+private struct LinkedVisitView: View {
+    let appointmentID: String?
+    @Environment(Session.self) private var session
+
+    var body: some View {
+        AsyncSection {
+            try await session.service.appointments(for: session.patientID)
+        } content: { appointments in
+            let upcoming = appointments.filter { $0.status == .scheduled }.sorted { $0.date < $1.date }
+            if let visit = appointments.first(where: { $0.id == appointmentID }) ?? upcoming.first {
+                AppointmentDetailView(appointment: visit)
+            } else {
+                ContentUnavailableView("Visit not found", systemImage: "calendar.badge.exclamationmark",
+                                       description: Text("It may have been moved or cancelled."))
+            }
+        }
+    }
 }

@@ -102,6 +102,7 @@ struct VisitLiveActivity: Widget {
             VisitLockScreenView(context: context)
                 .padding()
                 .activityBackgroundTint(Color(.systemBackground).opacity(0.85))
+                .widgetURL(DeepLink.visitURL(child: context.attributes.patientID, id: context.attributes.visitID))
         } dynamicIsland: { context in
             let attributes = context.attributes
             let date = context.state.date
@@ -132,6 +133,7 @@ struct VisitLiveActivity: Widget {
             } minimal: {
                 Image(systemName: "calendar").foregroundStyle(.red)
             }
+            .widgetURL(DeepLink.visitURL(child: attributes.patientID, id: attributes.visitID))
         }
     }
 }

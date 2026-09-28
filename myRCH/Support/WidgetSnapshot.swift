@@ -10,6 +10,8 @@ import Foundation
 /// keep the two identical.
 nonisolated struct WidgetSnapshot: Codable, Sendable {
     struct Visit: Codable, Sendable, Hashable {
+        /// The appointment's id, for opening it from a widget.
+        var id: String? = nil
         var title: String
         var department: String
         var date: Date

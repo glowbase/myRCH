@@ -579,7 +579,7 @@ struct DashboardView: View {
     /// details. Doses come from the medication store directly.
     private func updateWidgets() {
         let visit = upcoming.first.map {
-            WidgetSnapshot.Visit(title: $0.title, department: $0.department, date: $0.date,
+            WidgetSnapshot.Visit(id: $0.id, title: $0.title, department: $0.department, date: $0.date,
                                  isTelehealth: $0.isTelehealth, location: $0.checkInLocation ?? $0.address)
         }
         WidgetPublisher.shared.updateChild(
