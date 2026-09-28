@@ -6,8 +6,9 @@ import Foundation
 /// for them, and whenever a dose is logged (here, from a widget, or by the
 /// other parent through shared reminders).
 ///
-/// The app and the widget each have a copy of this file (one per target);
-/// keep the two identical.
+/// The app, the widget and the Watch app each have a copy of this file (one
+/// per target); keep them identical. (The Watch gets it from the iPhone over
+/// Watch Connectivity, so the App Group parts do nothing there.)
 nonisolated struct WidgetSnapshot: Codable, Sendable {
     struct Visit: Codable, Sendable, Hashable {
         /// The appointment's id, for opening it from a widget.
