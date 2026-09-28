@@ -14,6 +14,7 @@ import Foundation
 struct LogDoseIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Log Dose"
     static let description = IntentDescription("Marks a medication time as taken or skipped.")
+    @available(iOS 27.0, *)
     static var allowedExecutionTargets: ExecutionTargets { .main }
     static let isDiscoverable = false
 
@@ -43,6 +44,7 @@ struct LogDoseIntent: LiveActivityIntent {
 struct LogNextDoseIntent: LiveActivityIntent {
     static let title: LocalizedStringResource = "Log Next Dose"
     static let description = IntentDescription("Marks the next medication due today as taken.")
+    @available(iOS 27.0, *)
     static var allowedExecutionTargets: ExecutionTargets { .main }
 
     init() {}

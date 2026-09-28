@@ -69,5 +69,6 @@ final class WidgetPublisher {
         snapshot.save()
         WidgetCenter.shared.reloadAllTimelines()
         ActivityManager.shared.refresh(snapshot)
+        WatchBridge.shared.send(snapshot)
     }
 }

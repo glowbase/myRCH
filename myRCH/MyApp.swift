@@ -16,6 +16,7 @@ import UIKit
         // Before launch finishes, so a tapped reminder action is handled.
         NotificationPresenter.shared.register(store: store)
         CareSync.shared.store = store
+        WatchBridge.shared.activate()
     }
 
     var body: some Scene {
