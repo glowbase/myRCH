@@ -210,7 +210,7 @@ Legacy MVC calls instead send `X-Requested-With: XMLHttpRequest`, a jQuery-style
 | Reply | `POST api/conversations/GetComposeId`, `SaveReplyDraft`, `SendReply`, `RemoveComposeId`, `DeleteReplyDraft` | Verified (multi-line format unconfirmed) |
 | Attachment upload | `POST DocumentUpload/UploadFile` (multipart) | Verified |
 | Explore More | `POST ExploreMoreFeed` | Verified |
-| Health goals | `POST api/goals/LoadPatientGoals`, `SavePatientGoal` | Load verified; save for the first goal only |
+| Health goal | `POST api/goals/LoadPatientGoals`, `SavePatientGoal` | Verified (single goal) |
 | Bulk unread / remove bookmark / trash | `POST api/conversations/BulkConversationAction` | Verified |
 | Bookmark / Trash / Restore | `POST api/conversations/Bookmark`, `RemoveBookmark`, `MoveToTrash`, `RestoreFromTrash` | Verified |
 | Reply, new message, archive, bookmark | Unknown | Not yet captured |
@@ -714,7 +714,7 @@ Each `DocumentId` goes in the reply's `documentIds`.
 { "key": 0, "goal": { "lastUpdatedDate": "28 Sep 2026", "text": "…" } }
 ```
 
-This was captured adding the **first** goal. With goals already there, it's unknown whether `key` means "new" or is a goal's position, and guessing wrong could overwrite a goal. So the app only adds a goal when there are none. Editing, deleting and the reply to SavePatientGoal are also not yet mapped.
+The portal has a **single free-text goal**, so `key` 0 is that goal, and saving replaces it. The app uses this for both setting and editing the goal. Deleting it, and the reply to SavePatientGoal, aren't mapped yet.
 
 ### Explore More
 

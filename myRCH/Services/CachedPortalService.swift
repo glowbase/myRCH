@@ -218,9 +218,9 @@ struct CachedPortalService: PortalService {
         try await cached("goals|\(patientID)") { try await base.patientGoals(for: patientID) }
     }
 
-    func addPatientGoal(_ text: String, for patientID: String) async throws {
+    func setPatientGoal(_ text: String, for patientID: String) async throws {
         do {
-            try await base.addPatientGoal(text, for: patientID)
+            try await base.setPatientGoal(text, for: patientID)
         } catch {
             await cache.remove(prefixes: ["goals|\(patientID)"])
             throw error
