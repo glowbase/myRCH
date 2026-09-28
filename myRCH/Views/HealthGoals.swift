@@ -206,7 +206,8 @@ struct HealthGoalsSection: View {
             await loadPortalGoals()
         } catch {
             await loadPortalGoals()
-            if sharedGoal?.text != text {
+            // Cleared goals come back as no goal at all.
+            if (sharedGoal?.text ?? "") != text {
                 shareError = error.localizedDescription
             }
         }
@@ -299,6 +300,7 @@ private struct SharedGoalSheet: View {
     let onSave: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
+    @State private var confirmsRemove = false
     @FocusState private var focused: Bool
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -315,6 +317,21 @@ private struct SharedGoalSheet: View {
                          ? "Saved to your child's record in My RCH Portal, where the care team can see it."
                          : "Replaces the current goal on your child's record in My RCH Portal.")
                 }
+                // The portal clears the goal by saving it empty.
+                if !current.isEmpty {
+                    Section {
+                        Button("Remove Goal", role: .destructive) { confirmsRemove = true }
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .confirmationDialog("Remove the shared goal?", isPresented: $confirmsRemove, titleVisibility: .visible) {
+                Button("Remove Goal", role: .destructive) {
+                    onSave("")
+                    dismiss()
+                }
+            } message: {
+                Text("It's removed from your child's record in My RCH Portal.")
             }
             .navigationTitle(current.isEmpty ? "Set Goal" : "Edit Goal")
             .navigationBarTitleDisplayMode(.inline)

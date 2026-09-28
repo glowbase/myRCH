@@ -995,7 +995,8 @@ actor MyChartWebService: PortalService {
 
     /// Captured from the Goals panel: `{"key": 0, "goal": {"lastUpdatedDate":
     /// "28 Sep 2026", "text": "…"}}`. The portal has a single free-text goal,
-    /// so `key` 0 is that goal and saving replaces it.
+    /// so `key` 0 is that goal and saving replaces it. Saving empty text
+    /// clears it, as the portal's own panel does.
     func setPatientGoal(_ text: String, for patientID: String) async throws {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_AU")
