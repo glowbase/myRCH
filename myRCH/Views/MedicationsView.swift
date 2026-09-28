@@ -73,6 +73,17 @@ struct MedicationsView: View {
             }
         }
         .navigationTitle("Medication")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink {
+                    SharedRemindersView()
+                } label: {
+                    Image(systemName: CareSync.shared.role(forPatient: patientID) == nil
+                          ? "person.badge.plus" : "person.2.fill")
+                }
+                .accessibilityLabel("Share reminders")
+            }
+        }
     }
 
     private func link(to medication: Medication) -> some View {

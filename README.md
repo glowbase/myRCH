@@ -74,7 +74,8 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
   - a notification at each dose time, with **Mark as Taken**, **Skip** and **Remind Me in 10 Minutes** actions
   - a **follow-up after 30 minutes** if the dose isn't logged
   - a log of today's doses in the app
-- **Personal notes** per medication, kept only on the device
+- **Personal notes** per medication
+- **Shared reminders:** invite another parent through iCloud, from Medication or Settings. They get the same reminders, and doses and notes either of you log show on both phones (see *Sharing reminders between parents* below).
 
 **Also**
 - Appointments with preparation steps and visit summaries
@@ -127,6 +128,24 @@ Tools/
 ```
 
 Views depend only on the `PortalService` protocol, so the demo, live and future FHIR backends are interchangeable. `Session.service` picks the backend.
+
+## Sharing reminders between parents
+
+Reminders, the dose log and medication notes have no portal API, so they live on the device. They can also be shared with another parent through **CloudKit sharing**. This works between different Apple IDs, and each parent uses their own My RCH Portal login.
+
+- **One zone per child.** The zone is named from a hash of the child's UR number, which is the same in every parent's login. The portal's own patient and medication ids differ between logins, so they can't be used to match.
+- **Matching medications.** A medication is matched by a hash of its name, and this phone remembers which local medication each one corresponds to. Shared data for a medication this phone hasn't loaded yet is held until it does.
+- **Records:**
+  - `Schedule`: a medication's dose times
+  - `Dose`: one per logged scheduled or as-needed dose
+  - `Note`: one per note
+
+  Medicine and child names, times and note text are stored in `encryptedValues`.
+- **Owner and participant.** Whoever shares first owns the zone, in their private database, with a zone-wide `CKShare`. The invited parent sees it in their shared database. Two `CKSyncEngine`s (private and shared) handle fetch, send, retry and push. When both change the same record, the most recent change wins.
+- **Reminders.** Each phone schedules its own reminders from the shared times. Changes arrive by silent push or when the app opens, so a follow-up can occasionally still fire for a dose the other parent has just logged.
+- **Setup.** Sharing needs the iCloud (CloudKit, container `iCloud.com.cooperbeltrami.myRCH`) and Push Notifications capabilities, `CKSharingSupported` in Info.plist, and the remote-notification background mode.
+  - Builds from Xcode use the CloudKit **development** environment. Both phones need a development build to share with each other.
+  - Deploy the schema to production in CloudKit Console before TestFlight or App Store builds.
 
 ## Privacy and security
 
