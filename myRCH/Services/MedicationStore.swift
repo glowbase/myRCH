@@ -685,31 +685,48 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
         ])
     }
 
+    // Completion-handler versions, not the async ones: iOS calls these on
+    // the main thread and requires the completion handler there too. The
+    // async bridges can finish on another thread, which crashed the app when
+    // a reminder was tapped.
+
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            didReceive response: UNNotificationResponse) async {
+                                            didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
         // Reminders delivered before grouping carried a medication "key";
         // its patient is the part before the first "|".
         let patientID = (info["patientID"] as? String)
             ?? (info["key"] as? String).map { String($0.prefix { $0 != "|" }) }
-        guard let patientID, let stamp = info["scheduled"] as? Double else { return }
+        guard let patientID, let stamp = info["scheduled"] as? Double else {
+            completionHandler()
+            return
+        }
         let slot = MedicationStore.Slot(patientID: patientID, scheduled: Date(timeIntervalSince1970: stamp))
         let action = response.actionIdentifier
-        await MainActor.run {
-            guard let store = NotificationPresenter.shared.store else { return }
-            switch action {
-            case Action.taken: store.logAll(.taken, in: slot)
-            case Action.skipped: store.logAll(.skipped, in: slot)
-            case Action.snooze: store.snooze(slot)
-            // Tapping the reminder itself opens the logging sheet.
-            case UNNotificationDefaultActionIdentifier: store.openSlot = slot
-            default: break
+        // Called once, on the main thread, as iOS requires.
+        nonisolated(unsafe) let completionHandler = completionHandler
+        let handle: @Sendable () -> Void = {
+            MainActor.assumeIsolated {
+                guard let store = NotificationPresenter.shared.store else { return }
+                switch action {
+                case Action.taken: store.logAll(.taken, in: slot)
+                case Action.skipped: store.logAll(.skipped, in: slot)
+                case Action.snooze: store.snooze(slot)
+                // Tapping the reminder itself opens the logging sheet.
+                case UNNotificationDefaultActionIdentifier: store.openSlot = slot
+                default: break
+                }
             }
+            completionHandler()
         }
+        // Normally already on the main thread; hop there if not.
+        if Thread.isMainThread { handle() } else { DispatchQueue.main.async(execute: handle) }
     }
 }
