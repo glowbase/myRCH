@@ -37,6 +37,8 @@ import UIKit
             if phase == .active {
                 medicationStore.applyPendingDoseLogs()
                 medicationStore.refreshNotifications()
+                // Live Activities can only start while the app is open.
+                WidgetPublisher.shared.dosesChanged()
                 Task { await careSync.syncNow() }
             }
         }
