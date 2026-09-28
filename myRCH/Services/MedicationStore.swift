@@ -18,6 +18,10 @@ import UserNotifications
 @MainActor
 @Observable
 final class MedicationStore {
+    /// The one store, so widget and Live Activity buttons (which iOS runs in
+    /// the app, sometimes without any screen) can reach it.
+    static let shared = MedicationStore()
+
     /// A daily dose time.
     struct Reminder: Identifiable, Hashable, Codable {
         var id = UUID()
@@ -426,6 +430,30 @@ final class MedicationStore {
     }
 
 
+    // MARK: Widgets
+
+    /// Today's scheduled doses for a child, across every medication with
+    /// reminders, earliest first.
+    func todayDoses(patientID: String) -> [(name: String, time: Date, status: DoseLog.Status?)] {
+        entries
+            .filter { Self.patientID(of: $0.key) == patientID && !$0.value.reminders.isEmpty }
+            .flatMap { key, entry in
+                doses(for: key).map { (name: entry.medicineName ?? "Medication", time: $0.scheduled, status: $0.status) }
+            }
+            .sorted { $0.time < $1.time }
+    }
+
+    /// Doses logged from a widget while the app couldn't be reached.
+    func applyPendingDoseLogs() {
+        let pending = PendingDoseLogs.load()
+        guard !pending.entries.isEmpty else { return }
+        for entry in pending.entries {
+            let slot = Slot(patientID: entry.patientID, scheduled: entry.scheduled)
+            logAll(entry.taken ? .taken : .skipped, in: slot)
+        }
+        PendingDoseLogs().save()
+    }
+
     // MARK: Sharing between parents
 
     /// Links this phone's medications for a child to their shared identity
@@ -649,6 +677,7 @@ final class MedicationStore {
     private func save() {
         guard let data = try? JSONEncoder().encode(entries) else { return }
         try? data.write(to: fileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        WidgetPublisher.shared.dosesChanged()
     }
 }
 

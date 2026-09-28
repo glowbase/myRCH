@@ -11,7 +11,7 @@ import UIKit
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
 
     init() {
-        let store = MedicationStore()
+        let store = MedicationStore.shared
         _medicationStore = State(initialValue: store)
         // Before launch finishes, so a tapped reminder action is handled.
         NotificationPresenter.shared.register(store: store)
@@ -35,6 +35,7 @@ import UIKit
         // and pick up anything another parent changed while away.
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active {
+                medicationStore.applyPendingDoseLogs()
                 medicationStore.refreshNotifications()
                 Task { await careSync.syncNow() }
             }

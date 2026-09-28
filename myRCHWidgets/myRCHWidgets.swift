@@ -6,6 +6,8 @@ import WidgetKit
 struct SnapshotEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot?
+    /// The child this widget shows.
+    var child: WidgetSnapshot.Child? { snapshot?.child() }
 }
 
 struct SnapshotProvider: TimelineProvider {
@@ -22,8 +24,8 @@ struct SnapshotProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
         let snapshot = WidgetSnapshot.load()
         var dates = [Date.now]
-        dates += (snapshot?.upcomingDoses.map(\.time) ?? []).filter { $0 > .now }
-        if let visit = snapshot?.nextVisit?.date, visit > .now { dates.append(visit) }
+        dates += (snapshot?.child()?.upcomingDoses.map(\.time) ?? []).filter { $0 > .now }
+        if let visit = snapshot?.child()?.nextVisit?.date, visit > .now { dates.append(visit) }
         let entries = dates.sorted().map { SnapshotEntry(date: $0, snapshot: snapshot) }
         let midnight = Calendar.current.startOfDay(for: .now.addingTimeInterval(86_400))
         completion(Timeline(entries: entries, policy: .after(midnight)))
@@ -31,12 +33,17 @@ struct SnapshotProvider: TimelineProvider {
 }
 
 extension WidgetSnapshot {
-    static let sample = WidgetSnapshot(
-        childName: "Sallie",
-        nextVisit: Visit(title: "Nephrology Review", department: "Nephrology Clinic",
-                         date: .now.addingTimeInterval(3 * 86_400), isTelehealth: false),
-        upcomingDoses: [Dose(medicine: "Hypersal", time: .now.addingTimeInterval(3600))],
-        dosesDue: 3, dosesLogged: 1, updated: .now)
+    static let sample: WidgetSnapshot = {
+        let child = Child(id: "sample", name: "Sallie", urNumber: "10000001",
+                          nextVisit: Visit(title: "Nephrology Review", department: "Nephrology Clinic",
+                                           date: .now.addingTimeInterval(3 * 86_400), isTelehealth: false,
+                                           location: "Specialist Clinics, Desk A1"),
+                          upcomingDoses: [Dose(medicine: "Hypersal", time: .now.addingTimeInterval(3600))],
+                          dosesDue: 3, dosesLogged: 1,
+                          allergies: [Allergy(substance: "Peanut", reaction: "Anaphylaxis")],
+                          unreadMessages: 1, newResults: 2, updated: .now)
+        return WidgetSnapshot(children: [child.id: child], activeChildID: child.id)
+    }()
 }
 
 private let teal = Color(red: 0.13, green: 0.62, blue: 0.74)
@@ -50,7 +57,7 @@ struct NextVisitView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        if let visit = entry.snapshot?.nextVisit, visit.date > entry.date.addingTimeInterval(-3600) {
+        if let visit = entry.child?.nextVisit, visit.date > entry.date.addingTimeInterval(-3600) {
             switch family {
             case .accessoryRectangular:
                 VStack(alignment: .leading, spacing: 1) {
@@ -108,11 +115,11 @@ struct MedicationView: View {
     @Environment(\.widgetFamily) private var family
 
     private var next: WidgetSnapshot.Dose? {
-        entry.snapshot?.upcomingDoses.first { $0.time > entry.date.addingTimeInterval(-3600) }
+        entry.child?.upcomingDoses.first { $0.time > entry.date.addingTimeInterval(-3600) }
     }
 
     var body: some View {
-        if let snapshot = entry.snapshot, snapshot.dosesDue > 0 {
+        if let snapshot = entry.child, snapshot.dosesDue > 0 {
             let progress = Double(snapshot.dosesLogged) / Double(max(snapshot.dosesDue, 1))
             switch family {
             case .accessoryCircular:
