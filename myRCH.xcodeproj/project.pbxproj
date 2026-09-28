@@ -50,11 +50,21 @@
 			);
 			target = 1E7CF60F30695133003D7C9D /* myRCHWidgetsExtension */;
 		};
+		1E7CF68F306A5FDD003D7C9D /* Exceptions for "myRCH" folder in "myRCH" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 000000000000000100000000 /* myRCH */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		000000000000000000000010 /* myRCH */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1E7CF68F306A5FDD003D7C9D /* Exceptions for "myRCH" folder in "myRCH" target */,
+			);
 			path = myRCH;
 			sourceTree = "<group>";
 		};
@@ -377,6 +387,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = myRCH/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = myRCH;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -423,6 +434,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = myRCH/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = myRCH;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

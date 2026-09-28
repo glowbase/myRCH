@@ -549,11 +549,18 @@ struct DashboardView: View {
         let appointments = await appointmentsTask ?? []
         let messages = await messagesTask ?? []
         results = (await resultsTask ?? []).sorted(by: TestResult.newestFirst)
-        medications = (await medicationsTask ?? []).filter(\.isActive)
+        let allMedications = await medicationsTask ?? []
+        medications = allMedications.filter(\.isActive)
         issues = await issuesTask ?? []
         let header = await headerTask
         mrn = header?.urNumber
         fullName = header?.fullName
+        // Matches this child and their medications with another parent's
+        // phone (by UR number and medicine name) for shared reminders.
+        if let ur = header?.urNumber {
+            medicationStore.linkForSharing(patientID: id, urNumber: ur,
+                                           medications: allMedications.map { ($0.id, $0.displayName) })
+        }
         allergies = await allergiesTask ?? []
         immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])
         explore = await exploreTask

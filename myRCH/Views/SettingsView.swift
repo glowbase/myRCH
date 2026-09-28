@@ -84,6 +84,11 @@ struct SettingsView: View {
             } label: {
                 SettingsRow("Health Summary", symbol: "heart.text.clipboard.fill", color: .pink)
             }
+            NavigationLink {
+                SharedRemindersView()
+            } label: {
+                SettingsRow("Share Medication Reminders", symbol: "person.2.fill", color: Theme.medication)
+            }
         }
     }
 
