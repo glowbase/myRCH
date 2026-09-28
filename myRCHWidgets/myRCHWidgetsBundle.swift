@@ -4,7 +4,13 @@ import WidgetKit
 @main
 struct myRCHWidgetsBundle: WidgetBundle {
     var body: some Widget {
-        NextVisitWidget()
+        NextDoseWidget()
         MedicationWidget()
+        NextVisitWidget()
+        URNumberWidget()
+        AllergyWidget()
+        WhatsNewWidget()
+        ShowURNumberControl()
+        LogNextDoseControl()
     }
 }

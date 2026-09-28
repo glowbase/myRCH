@@ -34,6 +34,8 @@ struct SettingsView: View {
     /// Explore More cards closed on Home (shared with the dashboard).
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
+    /// The Allergy Alert widget shows allergies without unlocking, so it's opt-in.
+    @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
@@ -146,6 +148,7 @@ struct SettingsView: View {
 
     // MARK: - Preferences
 
+    @ViewBuilder
     private var preferencesSection: some View {
         Section {
             Picker(selection: $appearance) {
@@ -163,6 +166,16 @@ struct SettingsView: View {
             Text("Preferences")
         } footer: {
             Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
+        }
+        Section {
+            Toggle(isOn: $showsAllergiesOnLockScreen) {
+                SettingsRow("Allergies on Lock Screen", symbol: "allergens.fill", color: .orange)
+            }
+            .onChange(of: showsAllergiesOnLockScreen) { WidgetPublisher.shared.settingsChanged() }
+        } header: {
+            Text("Widgets")
+        } footer: {
+            Text("Lets the Allergy Alert widget show allergies without unlocking your iPhone, like Medical ID, so a first responder can see them. Anyone who picks up your phone can too.")
         }
     }
 
