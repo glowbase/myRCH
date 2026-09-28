@@ -993,14 +993,10 @@ actor MyChartWebService: PortalService {
         }
     }
 
-    /// Captured adding the first goal: `{"key": 0, "goal": {"lastUpdatedDate":
-    /// "28 Sep 2026", "text": "…"}}`. Whether `key` means "new" or is the
-    /// goal's position hasn't been seen with goals already there, and a wrong
-    /// guess could overwrite one, so this only adds when there are none.
-    func addPatientGoal(_ text: String, for patientID: String) async throws {
-        guard try await patientGoals(for: patientID).isEmpty else {
-            throw MyChartError.actionFailed("SavePatientGoal (only the first goal can be shared so far)")
-        }
+    /// Captured from the Goals panel: `{"key": 0, "goal": {"lastUpdatedDate":
+    /// "28 Sep 2026", "text": "…"}}`. The portal has a single free-text goal,
+    /// so `key` 0 is that goal and saving replaces it.
+    func setPatientGoal(_ text: String, for patientID: String) async throws {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_AU")
         formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
