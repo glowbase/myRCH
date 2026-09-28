@@ -81,6 +81,11 @@ struct NextVisitView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
+        content.widgetURL(DeepLink.visitURL(child: entry.child?.id, id: entry.child?.nextVisit?.id))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let visit = entry.child?.nextVisit, visit.date > entry.date.addingTimeInterval(-3600) {
             switch family {
             case .accessoryRectangular:
@@ -143,6 +148,11 @@ struct MedicationView: View {
     }
 
     var body: some View {
+        content.widgetURL(DeepLink.medicationURL(child: entry.child?.id))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let child = entry.child, child.dosesDue > 0 {
             let progress = Double(child.dosesLogged) / Double(max(child.dosesDue, 1))
             switch family {
@@ -227,7 +237,21 @@ struct NextDoseView: View {
     let entry: SnapshotEntry
     @Environment(\.widgetFamily) private var family
 
+    /// Taps outside the buttons open that dose's logging sheet, or the
+    /// Medication page when nothing's due.
+    private var link: URL? {
+        if let child = entry.child, let slot = child.nextSlot {
+            return DeepLink.doseURL(patientID: child.id, time: slot.time)
+        }
+        return DeepLink.medicationURL(child: entry.child?.id)
+    }
+
     var body: some View {
+        content.widgetURL(link)
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let child = entry.child, let slot = child.nextSlot {
             let names = slot.medicines.formatted(.list(type: .and))
             let time = slot.time.formatted(date: .omitted, time: .shortened)
@@ -243,7 +267,6 @@ struct NextDoseView: View {
                     Text(names).font(.caption).lineLimit(1)
                 }
                 .privacySensitive()
-                .widgetURL(DeepLink.doseURL(patientID: child.id, time: slot.time))
             default:
                 VStack(alignment: .leading, spacing: 6) {
                     Label(slot.time < entry.date ? "Due Now" : "Next Dose", systemImage: "pills.fill")
@@ -392,6 +415,11 @@ struct WhatsNewView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
+        content.widgetURL(DeepLink.whatsNewURL(child: entry.child?.id))
+    }
+
+    @ViewBuilder
+    private var content: some View {
         if let child = entry.child {
             let total = child.newResults + child.unreadMessages
             switch family {

@@ -27,6 +27,8 @@ nonisolated struct VisitActivityAttributes: ActivityAttributes {
 
     var patientID: String
     var childName: String
+    /// The appointment's id, for opening it.
+    var visitID: String?
     var title: String
     var department: String
     var location: String?

@@ -90,7 +90,8 @@ final class ActivityManager {
         let keep = Set(matching.map(\.id))
         existing.filter { !keep.contains($0.id) }.forEach(end)
         guard matching.isEmpty else { return }
-        let attributes = VisitActivityAttributes(patientID: child.id, childName: child.name, title: visit.title,
+        let attributes = VisitActivityAttributes(patientID: child.id, childName: child.name,
+                                                 visitID: visit.id, title: visit.title,
                                                  department: visit.department, location: visit.location,
                                                  isTelehealth: visit.isTelehealth)
         _ = try? Activity.request(attributes: attributes,
