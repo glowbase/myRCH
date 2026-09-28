@@ -12,5 +12,7 @@ struct myRCHWidgetsBundle: WidgetBundle {
         WhatsNewWidget()
         ShowURNumberControl()
         LogNextDoseControl()
+        DoseLiveActivity()
+        VisitLiveActivity()
     }
 }

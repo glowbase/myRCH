@@ -51,9 +51,23 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 **Medical ID**
 - Name, date of birth, UR number, allergies, conditions and current medication on one page, at full brightness for triage
 
-**Widgets**
-- **Next Visit** (small, medium, Lock Screen) and **Medication** (next dose and today's progress; small, Lock Screen ring)
-- The app shares a small snapshot through an App Group. It's deleted on sign-out, and hidden on the Lock Screen until the phone is unlocked.
+**Widgets, controls and Live Activities**
+- **Next Dose:** Taken and Skip buttons that log straight from the Home Screen. Also a one-line Lock Screen version ("Hypersal · 8:00 pm") and a Lock Screen card.
+- **Medication:** today's progress, including a Lock Screen ring and a large ring for StandBy.
+- **Next Visit**
+- **UR Number:** large, for check-in. Tap it for the Medical ID at full brightness.
+- **Allergy Alert:** opt-in in Settings, because it's readable without unlocking.
+- **What's New:** new results and unread messages, as of the last time the app was opened.
+- **Choosing a child:** each widget can be set to a child in Edit Widget.
+- **Control Centre:** **Show UR Number** and **Log Next Dose**.
+- **Live Activities:**
+  - a dose that's due, with Taken and Skip, on the Lock Screen and in the Dynamic Island
+  - the day of a visit: a countdown and where to check in
+- **How it works:**
+  - The app shares a per-child snapshot through an App Group. It's republished whenever a dose changes, from anywhere, including the other parent's phone.
+  - Widget and Live Activity buttons are App Intents that run in the app (`LiveActivityIntent` with `allowedExecutionTargets = .main`). If they can't run there, taps are queued and applied when the app next opens.
+  - iOS only lets an app start a Live Activity while it's open, so activities appear when myRCH is next opened. Updating and ending them works any time.
+  - Most content is hidden on the Lock Screen until the phone is unlocked. The snapshot is deleted on sign-out.
 
 **Test results**
 - Results grouped by month, with search and filters (type, unread, outside normal range)

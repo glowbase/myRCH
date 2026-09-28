@@ -36,6 +36,7 @@ struct SettingsView: View {
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
     /// The Allergy Alert widget shows allergies without unlocking, so it's opt-in.
     @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
+    @AppStorage(ActivityManager.enabledKey) private var liveActivitiesEnabled = true
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
@@ -166,6 +167,14 @@ struct SettingsView: View {
             Text("Preferences")
         } footer: {
             Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
+        }
+        Section {
+            Toggle(isOn: $liveActivitiesEnabled) {
+                SettingsRow("Live Activities", symbol: "platter.filled.bottom.iphone", color: Theme.medication)
+            }
+            .onChange(of: liveActivitiesEnabled) { WidgetPublisher.shared.settingsChanged() }
+        } footer: {
+            Text("Shows a dose that's due, with Taken and Skip, and the day of a visit, on the Lock Screen and in the Dynamic Island. They start when you open myRCH.")
         }
         Section {
             Toggle(isOn: $showsAllergiesOnLockScreen) {
