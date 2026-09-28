@@ -714,7 +714,7 @@ Each `DocumentId` goes in the reply's `documentIds`.
 { "key": 0, "goal": { "lastUpdatedDate": "28 Sep 2026", "text": "…" } }
 ```
 
-The portal has a **single free-text goal**, so `key` 0 is that goal, and saving replaces it. The app uses this for both setting and editing the goal. Deleting it, and the reply to SavePatientGoal, aren't mapped yet.
+The portal has a **single free-text goal**, so `key` 0 is that goal, and saving replaces it. The app uses this for both setting and editing the goal. Saving empty text clears the goal. The reply to SavePatientGoal hasn't been captured.
 
 ### Explore More
 
