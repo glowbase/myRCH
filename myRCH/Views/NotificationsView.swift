@@ -13,6 +13,8 @@ struct NotificationsView: View {
     /// Conversations marked unread or moved to Trash from here.
     @State private var markedUnread: Set<String> = []
     @State private var trashed: Set<String> = []
+    /// The card tapped, whose page is pushed.
+    @State private var openItem: NotificationItem?
 
     /// How far back read items are shown; unread ones show whatever their age.
     private static let window: TimeInterval = 30 * 24 * 3600
@@ -40,6 +42,8 @@ struct NotificationsView: View {
             }
             .background(Color(.systemGroupedBackground))
         }
+        // Opens the tapped card's message, result, letter or visit.
+        .navigationDestination(item: $openItem) { destination($0.destination) }
         .navigationTitle("Notifications")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -76,8 +80,13 @@ struct NotificationsView: View {
 
     private func card(_ item: NotificationItem, in group: NotificationGroup) -> some View {
         let unread = isUnread(item)
-        return NavigationLink {
-            destination(item.destination)
+        // A button rather than a NavigationLink, so one tap both clears the
+        // dot and opens the page; an extra tap gesture on a link inside a
+        // scroll view can stop the link from firing.
+        return Button {
+            opened.insert(item.id)
+            markedUnread.remove(item.id)
+            openItem = item
         } label: {
             SummaryCard(category: item.category, systemImage: item.art.symbol, color: item.art.color,
                         detail: group.timeText(for: item.date)) {
@@ -108,10 +117,6 @@ struct NotificationsView: View {
             .accessibilityValue(unread ? "Unread" : "")
         }
         .buttonStyle(.plain)
-        .simultaneousGesture(TapGesture().onEnded {
-            opened.insert(item.id)
-            markedUnread.remove(item.id)
-        })
     }
 
     @ViewBuilder
@@ -202,6 +207,12 @@ struct NotificationItem: Identifiable {
     let date: Date
     let isUnread: Bool
     let destination: Destination
+}
+
+/// By id, for `navigationDestination(item:)`.
+extension NotificationItem: Hashable {
+    static func == (lhs: NotificationItem, rhs: NotificationItem) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 /// The page's sections, in order. Upcoming visits sit above everything that
