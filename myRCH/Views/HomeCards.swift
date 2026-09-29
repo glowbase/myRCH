@@ -1,8 +1,9 @@
 import Charts
 import SwiftUI
 
-/// Home's Medication card, Health-style: today's progress as a ring with
-/// the next dose, a week of dose bars underneath, and the medicines by name.
+/// Home's Medication card, Health-style: today's progress as a filled
+/// circle with the next dose, a week of day circles underneath, and the
+/// medicines by name.
 struct MedicationSummaryCard: View {
     let medications: [Medication]
     @Environment(Session.self) private var session
@@ -43,12 +44,12 @@ struct MedicationSummaryCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let progress = DayProgress(today) {
                     HStack(spacing: 16) {
-                        ProgressRing(progress: progress, color: .green)
+                        DoseCircle(progress: progress,
+                                   label: "\(today.filter { $0.status != nil }.count)/\(today.count)",
+                                   labelFont: .system(.subheadline, design: .rounded).bold())
                             .frame(width: 58, height: 58)
-                            .overlay {
-                                Text("\(today.filter { $0.status != nil }.count)/\(today.count)")
-                                    .font(.system(.subheadline, design: .rounded).bold())
-                            }
+                            .accessibilityElement()
+                            .accessibilityLabel("\(Int((progress.taken * 100).rounded())) percent of today's doses taken")
                         VStack(alignment: .leading, spacing: 3) {
                             if let next = nextDose {
                                 Text(next.time, format: .dateTime.hour().minute())
@@ -65,8 +66,7 @@ struct MedicationSummaryCard: View {
                             }
                         }
                     }
-                    WeekDoseChart(days: lastSevenDays.map { ($0, DayProgress(doses(on: $0))) })
-                        .frame(height: 74)
+                    WeekDoseCircles(days: lastSevenDays.map { ($0, DayProgress(doses(on: $0))) })
                 } else {
                     Text("\(medications.count) current medication\(medications.count == 1 ? "" : "s")")
                         .font(.system(.title3, design: .rounded).bold())
@@ -89,67 +89,36 @@ struct MedicationSummaryCard: View {
     }
 }
 
-/// A ring like the Health app's: green for doses taken, grey for skipped.
-struct ProgressRing: View {
-    let progress: DayProgress
-    let color: Color
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(color.opacity(0.18), lineWidth: 8)
-            Circle()
-                .trim(from: 0, to: progress.taken)
-                .stroke(color, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            Circle()
-                .trim(from: progress.taken, to: progress.taken + progress.skipped)
-                .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .animation(.spring, value: progress)
-        .accessibilityElement()
-        .accessibilityLabel("\(Int((progress.taken * 100).rounded())) percent of today's doses taken")
-    }
-}
-
-/// Seven small bars: the share of each day's doses taken (green) and
-/// skipped (grey). Days with nothing scheduled stay empty.
-private struct WeekDoseChart: View {
+/// The last seven days as `DoseCircle`s, the same circles as the
+/// Medication screen's day strip, with today's weekday in bold.
+private struct WeekDoseCircles: View {
     let days: [(date: Date, progress: DayProgress?)]
 
-    private struct Bar: Identifiable {
-        let date: Date
-        let kind: String
-        let value: Double
-        var id: String { "\(date.timeIntervalSince1970)-\(kind)" }
-    }
-
-    private var bars: [Bar] {
-        days.flatMap { day -> [Bar] in
-            guard let p = day.progress else { return [] }
-            return [Bar(date: day.date, kind: "Taken", value: p.taken),
-                    Bar(date: day.date, kind: "Skipped", value: p.skipped)]
-        }
-    }
-
     var body: some View {
-        Chart {
-            ForEach(bars) { bar in
-                BarMark(x: .value("Day", bar.date, unit: .day), y: .value("Share", bar.value), width: .ratio(0.55))
-                    .foregroundStyle(by: .value("Status", bar.kind))
-                    .clipShape(.rect(cornerRadius: 3))
+        HStack(spacing: 0) {
+            ForEach(days, id: \.date) { day in
+                let isToday = Calendar.current.isDateInToday(day.date)
+                VStack(spacing: 6) {
+                    DoseCircle(progress: day.progress, markFont: .caption.weight(.bold))
+                        .frame(width: 30, height: 30)
+                    Text(day.date.formatted(.dateTime.weekday(.narrow)))
+                        .font(.caption2.weight(isToday ? .bold : .medium))
+                        .foregroundStyle(isToday ? .primary : .secondary)
+                }
+                .frame(maxWidth: .infinity)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(day.date.formatted(.dateTime.weekday(.wide)))
+                .accessibilityValue(Self.describe(day.progress))
             }
         }
-        .chartForegroundStyleScale(["Taken": Color.green, "Skipped": Color.gray.opacity(0.45)])
-        .chartLegend(.hidden)
-        .chartYScale(domain: 0...1)
-        .chartYAxis(.hidden)
-        .chartXAxis {
-            AxisMarks(values: days.map(\.date)) { value in
-                AxisValueLabel(format: .dateTime.weekday(.narrow), centered: true)
-            }
-        }
-        .accessibilityLabel("Doses taken over the last seven days")
+    }
+
+    private static func describe(_ progress: DayProgress?) -> String {
+        guard let progress else { return "No doses scheduled" }
+        var parts: [String] = []
+        if progress.taken > 0 { parts.append("\(Int((progress.taken * 100).rounded())) percent taken") }
+        if progress.skipped > 0 { parts.append("\(Int((progress.skipped * 100).rounded())) percent skipped") }
+        return parts.isEmpty ? "Nothing logged" : parts.joined(separator: ", ")
     }
 }
 

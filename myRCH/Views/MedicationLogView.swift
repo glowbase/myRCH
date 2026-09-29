@@ -249,10 +249,82 @@ struct DayProgress: Equatable {
     }
 }
 
-/// One day: its weekday letter and a ring, green for doses taken and grey
-/// for doses skipped. Filled green with a tick when everything was taken,
-/// grey with a cross when everything was skipped. The centred day can also
-/// show a label inside (e.g. the time a dose was logged).
+/// A day's doses as a filled circle: a pie of green for taken and grey for
+/// skipped, over a pale circle for doses still to log. Solid green with a
+/// tick when everything was taken, grey with a cross when everything was
+/// skipped. `label` (e.g. "8:12" or "2/3") replaces the tick or cross.
+struct DoseCircle: View {
+    /// Nil when nothing is scheduled (or the day is still to come).
+    let progress: DayProgress?
+    var label: String? = nil
+    var labelFont: Font = .system(size: 10, weight: .bold).monospacedDigit()
+    var markFont: Font = .subheadline.weight(.bold)
+
+    static let taken = Theme.green
+    static let skipped = Color(.systemGray)
+
+    /// Entirely one colour, so text on it should be white.
+    private var isSolid: Bool {
+        guard let progress, progress.isComplete else { return false }
+        return progress.skipped == 0 || progress.taken == 0
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().fill(Color(.tertiarySystemFill))
+            if let progress {
+                // Taken from the top, then skipped continuing clockwise.
+                PieSlice(start: 0, end: progress.taken).fill(Self.taken)
+                PieSlice(start: progress.taken, end: progress.taken + progress.skipped).fill(Self.skipped)
+                if let label {
+                    Text(label)
+                        .font(labelFont)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+                        .foregroundStyle(isSolid ? Color.white : .primary)
+                        .padding(.horizontal, 4)
+                } else if isSolid {
+                    Image(systemName: progress.skipped == 0 ? "checkmark" : "xmark")
+                        .font(markFont)
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .animation(.spring, value: progress)
+    }
+}
+
+/// A wedge of a circle from `start` to `end`, as shares of a full turn
+/// clockwise from the top.
+struct PieSlice: Shape {
+    var start: Double
+    var end: Double
+
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(start, end) }
+        set { (start, end) = (newValue.first, newValue.second) }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard end > start else { return path }
+        let radius = min(rect.width, rect.height) / 2
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        // A whole circle, so there's no seam line from the centre.
+        if end - start >= 0.999 {
+            path.addEllipse(in: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2))
+            return path
+        }
+        path.move(to: centre)
+        path.addArc(center: centre, radius: radius,
+                    startAngle: .degrees(start * 360 - 90), endAngle: .degrees(end * 360 - 90), clockwise: false)
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// One day: its weekday letter and a `DoseCircle`. The centred day can
+/// also show a label inside (e.g. the time a dose was logged).
 private struct DayRing: View {
     let day: Date
     let progress: DayProgress?
@@ -261,8 +333,6 @@ private struct DayRing: View {
     var label: String? = nil
 
     private var isFuture: Bool { day > Calendar.current.startOfDay(for: .now) }
-    private static let taken = Theme.green
-    private static let skipped = Color(.systemGray)
 
     var body: some View {
         VStack(spacing: 8) {
@@ -272,14 +342,8 @@ private struct DayRing: View {
                 .foregroundStyle(isSelected ? Color(.systemBackground) : .secondary)
                 .frame(width: 28, height: 28)
                 .background(isSelected ? Color.primary : .clear, in: .circle)
-            ZStack {
-                Circle().stroke(Color(.tertiarySystemFill), lineWidth: 6)
-                if let progress, !isFuture {
-                    rings(progress)
-                    centre(progress)
-                }
-            }
-            .frame(width: 40, height: 40)
+            DoseCircle(progress: isFuture ? nil : progress, label: isSelected ? label : nil)
+                .frame(width: 40, height: 40)
         }
         .frame(width: 48)
         .contentShape(.rect)
@@ -287,42 +351,6 @@ private struct DayRing: View {
         .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
         .accessibilityValue(progressDescription)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-    }
-
-    @ViewBuilder
-    private func rings(_ progress: DayProgress) -> some View {
-        if progress.isComplete && progress.skipped == 0 {
-            Circle().fill(Self.taken)
-        } else if progress.isComplete && progress.taken == 0 {
-            Circle().fill(Self.skipped)
-        } else {
-            // Taken from the top, then skipped continuing clockwise.
-            Circle()
-                .trim(from: 0, to: progress.taken)
-                .stroke(Self.taken, style: StrokeStyle(lineWidth: 6, lineCap: .butt))
-                .rotationEffect(.degrees(-90))
-            Circle()
-                .trim(from: progress.taken, to: progress.taken + progress.skipped)
-                .stroke(Self.skipped, style: StrokeStyle(lineWidth: 6, lineCap: .butt))
-                .rotationEffect(.degrees(-90))
-        }
-    }
-
-    @ViewBuilder
-    private func centre(_ progress: DayProgress) -> some View {
-        let filled = progress.isComplete && (progress.skipped == 0 || progress.taken == 0)
-        if isSelected, let label {
-            Text(label)
-                .font(.system(size: 10, weight: .bold).monospacedDigit())
-                .minimumScaleFactor(0.7)
-                .lineLimit(1)
-                .foregroundStyle(filled ? Color.white : .primary)
-                .padding(.horizontal, 4)
-        } else if filled {
-            Image(systemName: progress.skipped == 0 ? "checkmark" : "xmark")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
-        }
     }
 
     private var progressDescription: String {
