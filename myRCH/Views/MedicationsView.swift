@@ -76,18 +76,35 @@ struct MedicationsView: View {
                 }
             }
         }
+        .id(listID)
         .navigationTitle("Medication")
+        .sheet(isPresented: $isAdding) {
+            AddMedicationView(patientID: patientID) { listID = UUID() }
+        }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    SharedRemindersView()
-                } label: {
-                    Image(systemName: CareSync.shared.role(forPatient: patientID) == nil
-                          ? "person.badge.plus" : "person.2.fill")
-                }
-                .accessibilityLabel("Share reminders")
+            // Pinned on iOS 27 so Add never moves into the overflow menu.
+            if #available(iOS 27, *) {
+                ToolbarItem(placement: .topBarPinnedTrailing) { addButton }
+                ToolbarItem(placement: .topBarTrailing) { shareButton }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { addButton }
+                ToolbarItem(placement: .topBarTrailing) { shareButton }
             }
         }
+    }
+
+    private var addButton: some View {
+        Button("Add Medication", systemImage: "plus") { isAdding = true }
+    }
+
+    private var shareButton: some View {
+        NavigationLink {
+            SharedRemindersView()
+        } label: {
+            Image(systemName: CareSync.shared.role(forPatient: patientID) == nil
+                  ? "person.badge.plus" : "person.2.fill")
+        }
+        .accessibilityLabel("Share reminders")
     }
 
     private func link(to medication: Medication) -> some View {
