@@ -5,6 +5,49 @@ enum WatchColors {
     static let medication = Color(red: 0.35, green: 0.78, blue: 0.98)
 }
 
+/// Today's doses as a filled circle, like the phone app's `DoseCircle`: a
+/// pie of logged doses over a pale circle, with the count on top.
+private struct FilledProgressCircle: View {
+    /// Share of today's doses logged, 0...1.
+    let progress: Double
+    let tint: Color
+    let label: String
+
+    var body: some View {
+        ZStack {
+            Circle().fill(tint.opacity(0.25))
+            PieWedge(end: progress).fill(tint)
+            Text(label)
+                .font(.system(.footnote, design: .rounded).bold())
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+                // Dark text on the green pie; white on the pale circle.
+                .foregroundStyle(progress >= 0.5 ? Color.black : .white)
+        }
+    }
+}
+
+/// A wedge from the top, clockwise to `end` (a share of a full turn).
+private struct PieWedge: Shape {
+    let end: Double
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard end > 0 else { return path }
+        let radius = min(rect.width, rect.height) / 2
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        if end >= 0.999 {
+            path.addEllipse(in: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2))
+            return path
+        }
+        path.move(to: centre)
+        path.addArc(center: centre, radius: radius,
+                    startAngle: .degrees(-90), endAngle: .degrees(end * 360 - 90), clockwise: false)
+        path.closeSubpath()
+        return path
+    }
+}
+
 struct ContentView: View {
     @Environment(WatchStore.self) private var store
     @AppStorage("watchChildID") private var childID = ""
@@ -221,13 +264,12 @@ private struct DosesView: View {
         List {
             Section {
                 HStack(spacing: 10) {
-                    Gauge(value: Double(child.dosesLogged), in: 0...Double(max(child.dosesDue, 1))) {
-                        Text("Doses")
-                    } currentValueLabel: {
-                        Text("\(child.dosesLogged)/\(child.dosesDue)")
-                    }
-                    .gaugeStyle(.accessoryCircularCapacity)
-                    .tint(.green)
+                    FilledProgressCircle(progress: Double(child.dosesLogged) / Double(max(child.dosesDue, 1)),
+                                         tint: .green, label: "\(child.dosesLogged)/\(child.dosesDue)")
+                        .frame(width: 44, height: 44)
+                        .accessibilityElement()
+                        .accessibilityLabel("Doses")
+                        .accessibilityValue("\(child.dosesLogged) of \(child.dosesDue) logged")
 
                     Text(medicationStatus)
                         .font(.footnote)
