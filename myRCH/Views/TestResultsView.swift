@@ -197,15 +197,37 @@ struct RangeStatusPill: View {
     }
 }
 
+extension TestResult {
+    /// What was tested, for the list and Home: the specimen ("Blood",
+    /// "Urine"), which arrives with the details, or "Imaging" for scans,
+    /// which have none.
+    var specimenLabel: String? {
+        if let specimen, !specimen.isEmpty { return specimen }
+        return kind == .imaging ? "Imaging" : nil
+    }
+}
+
+/// What was tested, in teal, where a list or card would otherwise say
+/// whether the result was in range: a value outside the range isn't
+/// necessarily a worry, so the family opens the result to see it in context.
+struct SpecimenPill: View {
+    let result: TestResult
+
+    var body: some View {
+        if let label = result.specimenLabel {
+            Pill(text: label, systemImage: result.kind.systemImage, tint: Theme.teal)
+                .lineLimit(1)
+        }
+    }
+}
+
 struct TestResultRow: View {
     @Environment(Session.self) private var session
     let result: TestResult
-    /// Values and ranges aren't in the list response, so each row fetches its
+    /// The specimen isn't in the list response, so each row fetches its
     /// details when it scrolls into view (the service caches them, so opening
     /// the result afterwards is instant).
     @State private var detailed: TestResult?
-
-    private var status: TestResult.RangeStatus? { (detailed ?? result).rangeStatus }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -221,10 +243,8 @@ struct TestResultRow: View {
                 Text(result.date.mediumDate)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if let status {
-                    RangeStatusPill(status: status)
-                        .padding(.top, 2)
-                }
+                SpecimenPill(result: detailed ?? result)
+                    .padding(.top, 2)
             }
             Spacer()
             if result.isUnread {
@@ -233,7 +253,7 @@ struct TestResultRow: View {
             }
         }
         .padding(.vertical, 4)
-        .animation(.default, value: status)
+        .animation(.default, value: detailed?.specimen)
         .task(id: result.id) {
             detailed = try? await session.service.testResultDetails(result, for: session.patientID)
         }
