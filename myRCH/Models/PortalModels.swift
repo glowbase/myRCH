@@ -335,11 +335,71 @@ struct Medication: Identifiable, Hashable {
     var canRequestRepeat: Bool = false
     /// Added by the family rather than prescribed; awaits clinician review.
     var isPatientReported: Bool = false
-    /// The form the family chose when adding it, e.g. "Chewable Tablet".
+    /// The form, e.g. "Chewable Tablet" or "Oral Liquid", when it's known
+    /// separately from the name.
     var productForm: String? = nil
+    /// The name exactly as the portal gave it, before strength and form
+    /// were split out.
+    var sourceName: String? = nil
 }
 
 extension Medication {
+    /// Matches this medication between parents' phones for shared
+    /// reminders, so it must stay the same across app versions. It's the
+    /// portal's full name, which is what `displayName` was before strength
+    /// and form were split out.
+    var sharingName: String { sourceName ?? displayName }
+
+    /// Units that can follow an amount in a portal prescription name.
+    private static let prescriptionUnits: Set<String> = [
+        "mg", "mcg", "microgram", "micrograms", "g", "gram", "grams", "ml", "l", "iu",
+        "unit", "units", "mmol", "nanogram", "nanograms", "%", "dose", "doses", "actuation"
+    ]
+
+    /// Splits a portal prescription name ("Sodium Chloride 6% Solution",
+    /// "Amoxicillin 400 mg-57 mg/5 mL Oral Liquid") at its strength: the
+    /// words before are the name, the words after are the form. Names
+    /// without a strength, like "Water for Injection", stay whole, as do
+    /// numbers that are part of the name, like "Macrogol 3350".
+    static func splitPrescriptionName(_ full: String) -> (name: String, strength: String?, form: String?) {
+        let words = full.split(separator: " ").map(String.init)
+
+        // "400", "mg", "6%", "1mg": an amount, a unit, or an amount with its unit.
+        func isAmountOrUnit(_ piece: Substring) -> Bool {
+            let amount = piece.prefix { $0.isNumber || $0 == "." || $0 == "," }
+            let unit = piece.dropFirst(amount.count)
+            return unit.isEmpty ? !amount.isEmpty : prescriptionUnits.contains(unit.lowercased())
+        }
+        // Joined pieces count too: "mg-57", "mg/5".
+        func isStrengthWord(_ word: String) -> Bool {
+            let pieces = word.split(whereSeparator: { "/-–".contains($0) })
+            return !pieces.isEmpty && pieces.allSatisfy(isAmountOrUnit)
+        }
+        func hasUnit(_ word: String) -> Bool { word.contains { $0.isLetter || $0 == "%" } }
+
+        var start = 1
+        while start < words.count {
+            guard words[start].first?.isNumber == true, isStrengthWord(words[start]) else {
+                start += 1
+                continue
+            }
+            var end = start
+            while end + 1 < words.count, isStrengthWord(words[end + 1]) { end += 1 }
+            let run = words[start...end]
+            // A bare number ("Macrogol 3350") is part of the name.
+            guard run.contains(where: hasUnit) else {
+                start = end + 1
+                continue
+            }
+            let form = words[(end + 1)...].joined(separator: " ")
+            // "500mg" → "500 mg", to match the rest; "6%" stays together.
+            let strength = run.joined(separator: " ")
+                .replacingOccurrences(of: #"(\d)([A-Za-z])"#, with: "$1 $2", options: .regularExpression)
+            return (words[..<start].joined(separator: " "), strength, form.isEmpty ? nil : form)
+        }
+        return (full, nil, nil)
+    }
+
     /// Offered when the family adds a medication.
     static let strengthUnits = ["mg", "mcg", "g", "mL", "IU", "%", "mg/mL", "mg/5 mL"]
     static let productForms = ["Tablet", "Chewable Tablet", "Capsule", "Liquid", "Drops", "Powder",

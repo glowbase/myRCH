@@ -12,10 +12,9 @@ extension Medication {
     /// ("Hypersal"), else the prescription name.
     var reminderName: String { commonName ?? name }
 
-    /// "1 mg · Liquid" for medications the family added, shown under the
-    /// name rather than as part of it. Nil when neither is known.
+    /// "1 mg · Liquid", shown under the name rather than as part of it.
+    /// Nil when neither is known.
     var strengthAndForm: String? {
-        guard isPatientReported else { return nil }
         let parts = [dose, productForm ?? ""].filter { !$0.isEmpty }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
@@ -289,6 +288,12 @@ struct MedicationDetailView: View {
     @ViewBuilder
     private var prescriptionDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if !medication.dose.isEmpty {
+                infoRow("Strength", medication.dose)
+            }
+            if let form = medication.productForm {
+                infoRow("Form", form)
+            }
             if let date = medication.prescribedDate {
                 infoRow("Prescribed", date.mediumDate)
             }

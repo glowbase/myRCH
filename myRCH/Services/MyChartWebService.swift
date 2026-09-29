@@ -1734,10 +1734,11 @@ actor MyChartWebService: PortalService {
             let provider = (item["authorizingProvider"] as? [String: Any])
                 ?? (item["orderingProvider"] as? [String: Any])
             let refill = item["refillDetails"] as? [String: Any] ?? [:]
-            // Ones the family added hold strength and form in the name, as
-            // the Add Medication screen joins them; split them back out.
+            // The portal gives one name holding strength and form; split
+            // them out. Ones the family added follow the Add Medication
+            // screen's format; prescriptions follow the pharmacy's.
             let isPatientReported = item["isPatientReported"] as? Bool ?? false
-            let parts = isPatientReported ? Medication.splitReportedName(name) : (name: name, strength: nil, form: nil)
+            let parts = isPatientReported ? Medication.splitReportedName(name) : Medication.splitPrescriptionName(name)
             return Medication(
                 id: Self.string(item, "id") ?? Self.string(item, "prescriptionNumber") ?? "med-\(index)",
                 name: parts.name,
@@ -1756,7 +1757,8 @@ actor MyChartWebService: PortalService {
                 daySupply: Self.int(refill, "daySupply"),
                 canRequestRepeat: item["showRefillButton"] as? Bool ?? false,
                 isPatientReported: isPatientReported,
-                productForm: parts.form
+                productForm: parts.form,
+                sourceName: name
             )
         }
     }
