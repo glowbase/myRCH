@@ -147,7 +147,7 @@ struct DashboardView: View {
                         // Rings when something new arrives.
                         .symbolEffect(.wiggle, value: unreadCount)
                 }
-                .accessibilityLabel(unreadCount > 0 ? "Notifications, \(unreadCount) unread" : "Notifications")
+                .accessibilityLabel(unreadCount > 0 ? "Notices, \(unreadCount) unread" : "Notices")
             }
             // Like the Health app's profile picture: opens settings and accounts.
             ToolbarItem(placement: .topBarTrailing) {
