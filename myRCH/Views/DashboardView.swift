@@ -557,7 +557,7 @@ struct DashboardView: View {
         // phone (by UR number and medicine name) for shared reminders.
         if let ur = header?.urNumber {
             medicationStore.linkForSharing(patientID: id, urNumber: ur,
-                                           medications: allMedications.map { ($0.id, $0.displayName) })
+                                           medications: allMedications.map { ($0.id, $0.sharingName) })
         }
         allergies = await allergiesTask ?? []
         immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])

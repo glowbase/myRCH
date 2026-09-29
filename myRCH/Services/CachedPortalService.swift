@@ -124,6 +124,21 @@ struct CachedPortalService: PortalService {
         try await cached("medications|\(patientID)") { try await base.medications(for: patientID) }
     }
 
+    /// Search-as-you-type results aren't worth keeping.
+    func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] {
+        try await base.searchMedications(text, for: patientID)
+    }
+
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws {
+        do {
+            try await base.addMedication(named: name, startDate: startDate, for: patientID)
+        } catch {
+            await cache.remove(prefixes: ["medications|\(patientID)"])
+            throw error
+        }
+        await cache.remove(prefixes: ["medications|\(patientID)"])
+    }
+
     func messages(for patientID: String) async throws -> [Message] {
         try await cached("messages|\(patientID)") { try await base.messages(for: patientID) }
     }

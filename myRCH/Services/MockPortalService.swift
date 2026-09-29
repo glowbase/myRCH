@@ -1,5 +1,12 @@
 import Foundation
 
+/// Medications added while exploring with sample data.
+private actor MockAddedMedications {
+    static let shared = MockAddedMedications()
+    private(set) var items: [Medication] = []
+    func add(_ medication: Medication) { items.append(medication) }
+}
+
 /// In-memory backend with realistic sample data mirroring the portal
 /// screenshots. Any username/password is accepted so the UI can be explored.
 struct MockPortalService: PortalService {
@@ -289,42 +296,66 @@ struct MockPortalService: PortalService {
     func medications(for patientID: String) async throws -> [Medication] {
         await delay()
         return [
-            Medication(id: "m1", name: "Sodium chloride", dose: "6% solution",
+            // sourceName keeps m1 and m2's shared-reminder names from before
+            // strength and form were separate fields.
+            Medication(id: "m1", name: "Sodium chloride", dose: "6%",
                        instructions: "Inhale 3 mL using a nebuliser daily. Mix with 3 mL of distilled water to dilute to 3%.",
                        prescriber: "Respiratory Medicine", isActive: true,
                        commonName: "Hypersal", form: .inhaled,
                        prescribedDate: Self.date(2026, 8, 12), approvedBy: "Hani Gowai, Fellow",
-                       quantity: "100 sachets", daySupply: 333),
-            Medication(id: "m2", name: "Water for injection", dose: "ampoule",
+                       quantity: "100 sachets", daySupply: 333,
+                       productForm: "Solution", sourceName: "Sodium chloride 6% solution"),
+            Medication(id: "m2", name: "Water for injection", dose: "",
                        instructions: "Take 3 mL by measure daily. Use to dilute Hypersal for nebulisation as advised by the physiotherapy team.",
                        prescriber: "Respiratory Medicine", isActive: true,
                        form: .liquid,
                        prescribedDate: Self.date(2026, 8, 12), approvedBy: "Hani Gowai, Fellow",
-                       quantity: "50 ampoules", daySupply: 166),
+                       quantity: "50 ampoules", daySupply: 166,
+                       productForm: "Ampoule", sourceName: "Water for injection ampoule"),
             Medication(id: "m3", name: "Amoxicillin–clavulanic acid", dose: "400 mg–57 mg/5 mL",
                        instructions: "Take 152 mg of amoxicillin (1.9 mL) by measure orally TWICE a day.",
                        prescriber: "Respiratory Medicine", isActive: true,
                        commonName: "Augmentin Duo", form: .liquid,
                        prescribedDate: Self.date(2026, 9, 18), approvedBy: "Joanne Harrison, Consultant",
-                       quantity: "60 mL", daySupply: 14),
+                       quantity: "60 mL", daySupply: 14, productForm: "Oral Liquid"),
             Medication(id: "m4", name: "Levothyroxine", dose: "50 mcg",
                        instructions: "Take 1 tablet by mouth every morning, 30 minutes before food.",
                        prescriber: "Nephrology Clinic", isActive: true,
                        commonName: "Eutroxsig", form: .tablet,
                        prescribedDate: Self.date(2026, 3, 4), approvedBy: "Kevin Chang, Consultant",
-                       quantity: "200 tablets", daySupply: 200, canRequestRepeat: true),
+                       quantity: "200 tablets", daySupply: 200, canRequestRepeat: true, productForm: "Tablet"),
             Medication(id: "m5", name: "Cholecalciferol (Vitamin D3)", dose: "1000 IU",
                        instructions: "Take 1 capsule by mouth daily with food.",
                        prescriber: "General Medicine", isActive: true,
                        form: .capsule, prescribedDate: Self.date(2026, 9, 5),
                        approvedBy: "Kevin Chang, Consultant", quantity: "90 capsules", daySupply: 90,
-                       canRequestRepeat: true),
+                       canRequestRepeat: true, productForm: "Capsule"),
             Medication(id: "m6", name: "Amoxicillin", dose: "250 mg/5 mL",
                        instructions: "5 mL three times a day for 7 days.",
                        prescriber: "Emergency Department", isActive: false,
                        form: .liquid, prescribedDate: Self.date(2025, 6, 2),
-                       approvedBy: "Priya Nair, Registrar", quantity: "100 mL", daySupply: 7)
-        ]
+                       approvedBy: "Priya Nair, Registrar", quantity: "100 mL", daySupply: 7,
+                       productForm: "Oral Liquid")
+        ] + (await MockAddedMedications.shared.items)
+    }
+
+    func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] {
+        await delay()
+        let names = ["Zinc Sulfate", "Zinc Oxide", "Paracetamol", "Ibuprofen", "Cetirizine",
+                     "Loratadine", "Melatonin", "Macrogol 3350", "Probiotic", "Multivitamin"]
+        return names.filter { $0.localizedStandardContains(text) }
+            .map { MedicationSearchResult(id: "search-\($0)", name: $0) }
+    }
+
+    /// Kept in memory until relaunch, so added medications show in the list.
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws {
+        await delay()
+        let parts = Medication.splitReportedName(name)
+        await MockAddedMedications.shared.add(Medication(
+            id: "added-\(UUID().uuidString)", name: parts.name, dose: parts.strength ?? "",
+            instructions: "", prescriber: "", isActive: true,
+            form: MyChartWebService.medicationForm(name: name, sig: nil),
+            prescribedDate: startDate, isPatientReported: true, productForm: parts.form, sourceName: name))
     }
 
     /// Flat summaries used by the dashboard and notifications, derived from the
