@@ -143,10 +143,19 @@ struct MedicationRow: View {
                 .background(tint.opacity(0.14), in: .circle)
             VStack(alignment: .leading, spacing: 3) {
                 Text(medication.titleName).font(.headline)
-                if let strengthAndForm = medication.strengthAndForm {
-                    Text(strengthAndForm)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                if medication.strengthAndForm != nil {
+                    // Strength stands out in a pill; the form sits beside it.
+                    HStack(spacing: 6) {
+                        if !medication.dose.isEmpty {
+                            Pill(text: medication.dose, tint: tint)
+                        }
+                        if let form = medication.productForm {
+                            Text(form)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
                 }
                 if !medication.instructions.isEmpty {
                     Text(medication.instructions)
@@ -259,7 +268,13 @@ struct MedicationDetailView: View {
                 .textCase(.uppercase)
             Text(medication.titleName)
                 .font(.system(.title, design: .rounded).bold())
-            HStack(spacing: 8) {
+            // Wraps at large text sizes, with up to three pills.
+            FlowLayout(spacing: 8) {
+                if !medication.dose.isEmpty {
+                    Pill(text: medication.dose, systemImage: "scalemass.fill",
+                         tint: medication.isActive ? Feature.medication.accent : .secondary)
+                        .accessibilityLabel("Strength \(medication.dose)")
+                }
                 Pill(text: medication.isActive ? "Current" : "Past",
                      systemImage: medication.isActive ? "checkmark.circle.fill" : "clock.arrow.circlepath",
                      tint: medication.isActive ? Theme.green : .secondary)
