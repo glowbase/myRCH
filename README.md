@@ -108,7 +108,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 | iOS deployment target | 27.0 |
 | Swift | 5 language mode |
 | Apple Developer Program | **Paid membership required** for the *Time Sensitive Notifications* capability, which lets reminders break through Focus modes. A free team can't sign the app with this capability; see below. |
-| App Groups | `group.com.cooperbeltrami.myRCH`, shared by the app and widgets. Change it in both targets' entitlements and in `WidgetSnapshot.swift` (two copies) if you use your own bundle ID. |
+| App Groups | `group.com.glowbase.myRCH`, shared by the app and widgets. Change it in both targets' entitlements and in `WidgetSnapshot.swift` (two copies) if you use your own bundle ID. |
 | Portal account | A My RCH Portal login, only for live mode. Demo mode needs none. |
 
 ## Getting started
@@ -157,7 +157,7 @@ Reminders, the dose log and medication notes have no portal API, so they live on
   Medicine and child names, times and note text are stored in `encryptedValues`.
 - **Owner and participant.** Whoever shares first owns the zone, in their private database, with a zone-wide `CKShare`. The invited parent sees it in their shared database. Two `CKSyncEngine`s (private and shared) handle fetch, send, retry and push. When both change the same record, the most recent change wins.
 - **Reminders.** Each phone schedules its own reminders from the shared times. Changes arrive by silent push or when the app opens, so a follow-up can occasionally still fire for a dose the other parent has just logged.
-- **Setup.** Sharing needs the iCloud (CloudKit, container `iCloud.com.cooperbeltrami.myRCH`) and Push Notifications capabilities, `CKSharingSupported` in Info.plist, and the remote-notification background mode.
+- **Setup.** Sharing needs the iCloud (CloudKit, container `iCloud.com.glowbase.myRCH`) and Push Notifications capabilities, `CKSharingSupported` in Info.plist, and the remote-notification background mode.
   - Builds from Xcode use the CloudKit **development** environment. Both phones need a development build to share with each other.
   - Deploy the schema to production in CloudKit Console before TestFlight or App Store builds.
 

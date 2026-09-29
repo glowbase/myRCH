@@ -1,0 +1,10 @@
+# Per-user Xcode state (named after the Mac's username)
+xcuserdata/
+*.xcuserstate
+
+# Build products
+build/
+DerivedData/
+
+# macOS
+.DS_Store
