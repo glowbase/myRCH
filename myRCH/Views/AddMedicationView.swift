@@ -105,8 +105,9 @@ struct AddMedicationView: View {
     }
 }
 
-/// The name (editable, so strength and form can be added, e.g. "Zinc
-/// Acetate 1 mg Liquid") and when they started taking it.
+/// The medicine, its strength and form, and when they started taking it.
+/// The portal takes a single name, so the fields are joined into one
+/// ("Zinc Acetate 1 mg Liquid") when it's sent.
 private struct AddMedicationDetailsView: View {
     let patientID: String
     let initialName: String
@@ -115,20 +116,61 @@ private struct AddMedicationDetailsView: View {
     @Environment(Session.self) private var session
 
     @State private var name = ""
+    @State private var strength = ""
+    @State private var unit = "mg"
+    /// Empty when they're not sure.
+    @State private var form = ""
     @State private var startDate = Date.now
     @State private var isSaving = false
     @State private var errorMessage: String?
 
+    private static let units = ["mg", "mcg", "g", "mL", "IU", "%", "mg/mL", "mg/5 mL"]
+    private static let forms = ["Tablet", "Chewable Tablet", "Capsule", "Liquid", "Drops", "Powder",
+                                "Cream", "Ointment", "Gel", "Spray", "Inhaler", "Patch", "Injection"]
+
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var trimmedStrength: String { strength.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    /// What's sent to the portal: name, then strength with its unit, then
+    /// form, leaving out whatever wasn't filled in. "%" sits against the
+    /// number ("6%"), as in the portal's own names.
+    private var fullName: String {
+        var parts = [trimmedName]
+        if !trimmedStrength.isEmpty {
+            parts.append(unit == "%" ? "\(trimmedStrength)%" : "\(trimmedStrength) \(unit)")
+        }
+        if !form.isEmpty { parts.append(form) }
+        return parts.joined(separator: " ")
+    }
 
     var body: some View {
         Form {
-            Section {
+            Section("Medication") {
                 TextField("Name", text: $name, axis: .vertical)
+            }
+            Section {
+                HStack {
+                    TextField("Strength, e.g. 1", text: $strength)
+                        .keyboardType(.decimalPad)
+                    Picker("Unit", selection: $unit) {
+                        ForEach(Self.units, id: \.self) { Text($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                Picker("Form", selection: $form) {
+                    Text("Not sure").tag("")
+                    ForEach(Self.forms, id: \.self) { Text($0) }
+                }
             } header: {
-                Text("Medication")
+                Text("Strength and Form")
             } footer: {
-                Text("Add the strength and form if you know them, e.g. “1 mg liquid”.")
+                Text("Optional. You'll find these on the box or bottle.")
+            }
+            if !trimmedName.isEmpty {
+                Section("Will Be Added As") {
+                    Text(fullName)
+                }
             }
             Section {
                 DatePicker("Started", selection: $startDate, in: ...Date.now, displayedComponents: .date)
@@ -164,7 +206,7 @@ private struct AddMedicationDetailsView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            try await session.service.addMedication(named: trimmedName, startDate: startDate, for: patientID)
+            try await session.service.addMedication(named: fullName, startDate: startDate, for: patientID)
             onAdded()
         } catch {
             errorMessage = error.localizedDescription
