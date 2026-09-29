@@ -36,43 +36,47 @@ enum Feature: String, Identifiable, CaseIterable {
         }
     }
 
+    /// The section's one icon, matching what its screen shows (a syringe for
+    /// immunisations, a chart for growth charts), used on Browse tiles, cards,
+    /// search results and the section's own screens alike.
     var systemImage: String {
         switch self {
-        case .visits: "calendar"
+        case .visits: "calendar.badge.clock"
         case .testResults: "testtube.2"
         case .medication: "pills.fill"
         case .immunisations: "syringe.fill"
-        case .allergies: "allergens"
+        case .allergies: "allergens.fill"
         case .growthCharts: "chart.line.uptrend.xyaxis"
         case .trackHealth: "waveform.path.ecg"
         case .implants: "cross.case.fill"
-        case .letters: "doc.text.fill"
-        case .healthSummary: "heart.text.square.fill"
-        case .messages: "envelope.fill"
-        case .sharing: "folder.badge.person.crop"
+        case .letters: "envelope.open.fill"
+        case .healthSummary: "heart.text.clipboard.fill"
+        case .messages: "bubble.left.and.bubble.right.fill"
+        case .sharing: "person.2.wave.2.fill"
         case .medicalID: "staroflife.fill"
         }
     }
 
-    /// Browse's icon and its colour, one per section like the Health app's
-    /// categories, in softer shades (`Theme.Section`). Separate from
-    /// `systemImage`/`accent`, which the section screens use.
+    /// Browse's icon and its colour, one colour per section like the Health
+    /// app's categories (`Theme.Section`). The icon is always `systemImage`,
+    /// so a tile never shows something different from its screen.
     var tileArt: (symbol: String, color: Color) {
-        switch self {
-        case .visits: ("calendar.badge.clock", Theme.Section.visits)
-        case .testResults: ("cross.vial.fill", Theme.Section.testResults)
-        case .medication: ("pills.fill", Theme.Section.medication)
-        case .immunisations: ("bandage.fill", Theme.Section.immunisations)
-        case .allergies: ("allergens.fill", Theme.Section.allergies)
-        case .growthCharts: ("figure.and.child.holdinghands", Theme.Section.growthCharts)
-        case .trackHealth: ("figure.walk.motion", Theme.Section.trackHealth)
-        case .implants: ("cross.case.fill", Theme.Section.implants)
-        case .letters: ("envelope.open.fill", Theme.Section.letters)
-        case .healthSummary: ("heart.text.clipboard.fill", Theme.Section.healthSummary)
-        case .messages: ("bubble.left.and.bubble.right.fill", Theme.Section.messages)
-        case .sharing: ("person.2.fill", Theme.Section.sharing)
-        case .medicalID: ("staroflife.fill", Theme.Section.medicalID)
+        let color: Color = switch self {
+        case .visits: Theme.Section.visits
+        case .testResults: Theme.Section.testResults
+        case .medication: Theme.Section.medication
+        case .immunisations: Theme.Section.immunisations
+        case .allergies: Theme.Section.allergies
+        case .growthCharts: Theme.Section.growthCharts
+        case .trackHealth: Theme.Section.trackHealth
+        case .implants: Theme.Section.implants
+        case .letters: Theme.Section.letters
+        case .healthSummary: Theme.Section.healthSummary
+        case .messages: Theme.Section.messages
+        case .sharing: Theme.Section.sharing
+        case .medicalID: Theme.Section.medicalID
         }
+        return (systemImage, color)
     }
 
     var accent: Color {
