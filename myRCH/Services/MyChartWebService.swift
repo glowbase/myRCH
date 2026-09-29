@@ -706,6 +706,48 @@ actor MyChartWebService: PortalService {
         return decodeMedications(json)
     }
 
+    /// Captured from the Add Medication page: `{searchString, genericOnly,
+    /// resultsLimit, isRxNorm, isCommon, isForSearchAsYouType}` →
+    /// `{results: [{id, name, isPreferred}], searchFinished, …}`. The portal
+    /// may return a few more than `resultsLimit`.
+    func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] {
+        let json = try await postJSON(for: patientID, action: "api/medications/SearchMedications", body: [
+            "searchString": text,
+            "genericOnly": false,
+            "resultsLimit": 20,
+            "isRxNorm": false,
+            "isCommon": false,
+            "isForSearchAsYouType": false
+        ], savesCopy: false, referer: config.url("app/medications/add-medication").absoluteString)
+        let results = (json as? [String: Any])?["results"] as? [[String: Any]] ?? []
+        return results.compactMap { item in
+            guard let id = Self.string(item, "id"), let name = Self.string(item, "name") else { return nil }
+            return MedicationSearchResult(id: id, name: name)
+        }
+    }
+
+    /// Captured from the Add Medication page: `{"updateType": 1, "name": …,
+    /// "erxID": "", "date": "2026-09-18"}`. Only a free-text name has been
+    /// captured (erxID empty), so a picked search result is sent by name too.
+    /// `date` is when they started taking it, as a Melbourne calendar day.
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let json = try await postJSON(for: patientID, action: "api/medications/SubmitMedicationUpdate", body: [
+            "updateType": 1,
+            "name": name,
+            "erxID": "",
+            "date": formatter.string(from: startDate)
+        ], savesCopy: false, referer: config.url("app/medications/add-medication").absoluteString)
+        // The reply hasn't been captured, so only an explicit failure counts.
+        let reply = json as? [String: Any] ?? [:]
+        if reply["isSuccess"] as? Bool == false || !(reply["errors"] as? [Any] ?? []).isEmpty {
+            throw MyChartError.actionFailed("SubmitMedicationUpdate")
+        }
+    }
+
     /// Latest message of each conversation, for the dashboard and notifications.
     func messages(for patientID: String) async throws -> [Message] {
         try await conversations(for: patientID).compactMap { conversation in
@@ -1692,24 +1734,31 @@ actor MyChartWebService: PortalService {
             let provider = (item["authorizingProvider"] as? [String: Any])
                 ?? (item["orderingProvider"] as? [String: Any])
             let refill = item["refillDetails"] as? [String: Any] ?? [:]
+            // The portal gives one name holding strength and form; split
+            // them out. Ones the family added follow the Add Medication
+            // screen's format; prescriptions follow the pharmacy's.
+            let isPatientReported = item["isPatientReported"] as? Bool ?? false
+            let parts = isPatientReported ? Medication.splitReportedName(name) : Medication.splitPrescriptionName(name)
             return Medication(
                 id: Self.string(item, "id") ?? Self.string(item, "prescriptionNumber") ?? "med-\(index)",
-                name: name,
+                name: parts.name,
                 // Epic keeps dose inside the sig rather than a separate field.
-                dose: "",
+                dose: parts.strength ?? "",
                 instructions: Self.string(item, "sig") ?? "",
                 prescriber: Self.string(provider ?? [:], "name") ?? "",
                 // These come from the current-medications list, so treat them
                 // as active unless the portal flags a pending removal.
                 isActive: !(item["showPendingUndoDeleteButton"] as? Bool ?? false),
-                commonName: friendly == name ? nil : friendly,
+                commonName: friendly == name || friendly == parts.name ? nil : friendly,
                 form: Self.medicationForm(name: name, sig: Self.string(item, "sig")),
                 prescribedDate: Self.portalDate(Self.string(item, "startDate"))
                     ?? Self.portalDate(Self.string(item, "dateToDisplay")),
                 quantity: Self.dispenseQuantity(refill),
                 daySupply: Self.int(refill, "daySupply"),
                 canRequestRepeat: item["showRefillButton"] as? Bool ?? false,
-                isPatientReported: item["isPatientReported"] as? Bool ?? false
+                isPatientReported: isPatientReported,
+                productForm: parts.form,
+                sourceName: name
             )
         }
     }
@@ -1735,7 +1784,7 @@ actor MyChartWebService: PortalService {
 
     /// The response carries no form field, so infer it from the prescription
     /// name and instructions ("Inhale 2 puffs…", "…oral liquid").
-    private nonisolated static func medicationForm(name: String, sig: String?) -> Medication.Form {
+    nonisolated static func medicationForm(name: String, sig: String?) -> Medication.Form {
         let text = "\(name) \(sig ?? "")".lowercased()
         return switch true {
         case text.contains("capsule"): .capsule

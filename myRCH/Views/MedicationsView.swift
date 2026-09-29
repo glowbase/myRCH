@@ -11,6 +11,17 @@ extension Medication {
     /// The short name used in reminders: the brand name families know
     /// ("Hypersal"), else the prescription name.
     var reminderName: String { commonName ?? name }
+
+    /// "1 mg · Liquid", shown under the name rather than as part of it.
+    /// Nil when neither is known.
+    var strengthAndForm: String? {
+        let parts = [dose, productForm ?? ""].filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The row and header title: just the name when strength and form are
+    /// shown on their own line.
+    var titleName: String { strengthAndForm == nil ? displayName : name }
 }
 
 extension Session {
@@ -49,6 +60,10 @@ struct MedicationsView: View {
     let patientID: String
     @Environment(Session.self) private var session
 
+    @State private var isAdding = false
+    /// Changed after adding a medication, so the list loads afresh.
+    @State private var listID = UUID()
+
     var body: some View {
         AsyncSection {
             try await session.service.medications(for: patientID)
@@ -72,18 +87,35 @@ struct MedicationsView: View {
                 }
             }
         }
+        .id(listID)
         .navigationTitle("Medication")
+        .sheet(isPresented: $isAdding) {
+            AddMedicationView(patientID: patientID) { listID = UUID() }
+        }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink {
-                    SharedRemindersView()
-                } label: {
-                    Image(systemName: CareSync.shared.role(forPatient: patientID) == nil
-                          ? "person.badge.plus" : "person.2.fill")
-                }
-                .accessibilityLabel("Share reminders")
+            // Pinned on iOS 27 so Add never moves into the overflow menu.
+            if #available(iOS 27, *) {
+                ToolbarItem(placement: .topBarPinnedTrailing) { addButton }
+                ToolbarItem(placement: .topBarTrailing) { shareButton }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) { addButton }
+                ToolbarItem(placement: .topBarTrailing) { shareButton }
             }
         }
+    }
+
+    private var addButton: some View {
+        Button("Add Medication", systemImage: "plus") { isAdding = true }
+    }
+
+    private var shareButton: some View {
+        NavigationLink {
+            SharedRemindersView()
+        } label: {
+            Image(systemName: CareSync.shared.role(forPatient: patientID) == nil
+                  ? "person.badge.plus" : "person.2.fill")
+        }
+        .accessibilityLabel("Share reminders")
     }
 
     private func link(to medication: Medication) -> some View {
@@ -110,7 +142,21 @@ struct MedicationRow: View {
                 .frame(width: 40, height: 40)
                 .background(tint.opacity(0.14), in: .circle)
             VStack(alignment: .leading, spacing: 3) {
-                Text(medication.displayName).font(.headline)
+                Text(medication.titleName).font(.headline)
+                if medication.strengthAndForm != nil {
+                    // Strength stands out in a pill; the form sits beside it.
+                    HStack(spacing: 6) {
+                        if !medication.dose.isEmpty {
+                            Pill(text: medication.dose, tint: tint)
+                        }
+                        if let form = medication.productForm {
+                            Text(form)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
                 if !medication.instructions.isEmpty {
                     Text(medication.instructions)
                         .font(.subheadline)
@@ -163,7 +209,11 @@ struct MedicationDetailView: View {
                     if !reminders.isEmpty { historySection }
                     remindersSection
                 }
-                section("Prescription") { prescriptionDetails }
+                if medication.isPatientReported {
+                    section("Details") { reportedDetails }
+                } else {
+                    section("Prescription") { prescriptionDetails }
+                }
                 if medication.isActive { repeatsSection }
                 notesSection
                 if medication.isPatientReported {
@@ -212,13 +262,19 @@ struct MedicationDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(medication.form.label, systemImage: medication.form.systemImage)
+            Label(medication.productForm ?? medication.form.label, systemImage: medication.form.systemImage)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Feature.medication.accent)
                 .textCase(.uppercase)
-            Text(medication.displayName)
+            Text(medication.titleName)
                 .font(.system(.title, design: .rounded).bold())
-            HStack(spacing: 8) {
+            // Wraps at large text sizes, with up to three pills.
+            FlowLayout(spacing: 8) {
+                if !medication.dose.isEmpty {
+                    Pill(text: medication.dose, systemImage: "scalemass.fill",
+                         tint: medication.isActive ? Feature.medication.accent : .secondary)
+                        .accessibilityLabel("Strength \(medication.dose)")
+                }
                 Pill(text: medication.isActive ? "Current" : "Past",
                      systemImage: medication.isActive ? "checkmark.circle.fill" : "clock.arrow.circlepath",
                      tint: medication.isActive ? Theme.green : .secondary)
@@ -232,9 +288,27 @@ struct MedicationDetailView: View {
 
     // MARK: Prescription
 
+    /// For medications the family added: the strength and form they chose,
+    /// each on its own row, and when they started it.
+    private var reportedDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            infoRow("Strength", medication.dose.isEmpty ? "Not given" : medication.dose)
+            infoRow("Form", medication.productForm ?? "Not given")
+            if let date = medication.prescribedDate {
+                infoRow("Started", date.mediumDate)
+            }
+        }
+    }
+
     @ViewBuilder
     private var prescriptionDetails: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if !medication.dose.isEmpty {
+                infoRow("Strength", medication.dose)
+            }
+            if let form = medication.productForm {
+                infoRow("Form", form)
+            }
             if let date = medication.prescribedDate {
                 infoRow("Prescribed", date.mediumDate)
             }

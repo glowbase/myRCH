@@ -43,7 +43,7 @@ nonisolated struct SyncRef: Codable, Hashable, Sendable {
 @Observable
 final class CareSync: CKSyncEngineDelegate {
     static let shared = CareSync()
-    nonisolated static let containerID = "iCloud.com.cooperbeltrami.myRCH"
+    nonisolated static let containerID = "iCloud.com.glowbase.myRCH"
 
     enum Role: String, Codable { case owner, participant }
 
