@@ -128,16 +128,15 @@ struct DashboardView: View {
 
     /// Pinned sections, in order (see `HomeLayout`).
     @AppStorage(HomeLayout.storageKey) private var homeSections = ""
-    @State private var showsEditHome = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 header
+                // Rearranged from Settings › Edit Home.
                 ForEach(HomeLayout(stored: homeSections).pinned) { section in
                     self.section(section)
                 }
-                editHomeButton
             }
             .padding()
         }
@@ -170,7 +169,6 @@ struct DashboardView: View {
             }
         }
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
-        .sheet(isPresented: $showsEditHome) { EditHomeSheet() }
         .sheet(isPresented: $showsMRN) {
             if let mrn {
                 MRNSheet(mrn: mrn, name: displayName)
@@ -195,7 +193,6 @@ struct DashboardView: View {
     @ViewBuilder
     private func section(_ section: HomeSection) -> some View {
         switch section {
-        case .highlights: highlightsSection
         case .upcoming: upcomingSection
         case .results: resultsSection
         case .medication: medicationSection
@@ -204,46 +201,6 @@ struct DashboardView: View {
         case .goals: HealthGoalsSection()
         case .sharing: sharingCard
         case .explore: exploreMoreSection
-        }
-    }
-
-    /// Like the Health app's "Edit" for Pinned: choose and order sections.
-    private var editHomeButton: some View {
-        Button {
-            showsEditHome = true
-        } label: {
-            Label("Edit Home", systemImage: "slider.horizontal.3")
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.brandText)
-    }
-
-    private var highlights: [Highlight] {
-        let keys = medications.map { MedicationStore.key(patientID: session.patientID, medicationID: $0.id) }
-        let doses = keys.flatMap { medicationStore.doses(for: $0) }
-        return Highlight.make(upcoming: upcoming, results: results, unreadMessages: unreadMessages,
-                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count))
-    }
-
-    @ViewBuilder
-    private var highlightsSection: some View {
-        let items = highlights
-        if !isLoading, !items.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                SummarySectionHeader<Feature>(title: "Highlights")
-                ForEach(items.prefix(4)) { highlight in
-                    if let feature = highlight.feature {
-                        NavigationLink(value: feature) { HighlightCard(highlight: highlight) }
-                            .buttonStyle(.plain)
-                    } else {
-                        HighlightCard(highlight: highlight)
-                    }
-                }
-            }
         }
     }
 
@@ -373,13 +330,6 @@ struct DashboardView: View {
                 emptyCard("No test results yet", systemImage: "testtube.2",
                           detail: "Results appear here once the lab releases them to the portal. Some take a few days.")
             } else {
-                // Only once there's enough for a breakdown to mean something.
-                if results.filter({ $0.date >= Calendar.current.date(byAdding: .month, value: -3, to: .now) ?? .now }).count >= 3 {
-                    NavigationLink(value: Feature.testResults) {
-                        ResultsOverviewCard(results: results)
-                    }
-                    .buttonStyle(.plain)
-                }
                 ForEach(results.prefix(3)) { result in
                     NavigationLink {
                         TestResultDetailView(result: result)
