@@ -706,6 +706,48 @@ actor MyChartWebService: PortalService {
         return decodeMedications(json)
     }
 
+    /// Captured from the Add Medication page: `{searchString, genericOnly,
+    /// resultsLimit, isRxNorm, isCommon, isForSearchAsYouType}` →
+    /// `{results: [{id, name, isPreferred}], searchFinished, …}`. The portal
+    /// may return a few more than `resultsLimit`.
+    func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] {
+        let json = try await postJSON(for: patientID, action: "api/medications/SearchMedications", body: [
+            "searchString": text,
+            "genericOnly": false,
+            "resultsLimit": 20,
+            "isRxNorm": false,
+            "isCommon": false,
+            "isForSearchAsYouType": false
+        ], savesCopy: false, referer: config.url("app/medications/add-medication").absoluteString)
+        let results = (json as? [String: Any])?["results"] as? [[String: Any]] ?? []
+        return results.compactMap { item in
+            guard let id = Self.string(item, "id"), let name = Self.string(item, "name") else { return nil }
+            return MedicationSearchResult(id: id, name: name)
+        }
+    }
+
+    /// Captured from the Add Medication page: `{"updateType": 1, "name": …,
+    /// "erxID": "", "date": "2026-09-18"}`. Only a free-text name has been
+    /// captured (erxID empty), so a picked search result is sent by name too.
+    /// `date` is when they started taking it, as a Melbourne calendar day.
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let json = try await postJSON(for: patientID, action: "api/medications/SubmitMedicationUpdate", body: [
+            "updateType": 1,
+            "name": name,
+            "erxID": "",
+            "date": formatter.string(from: startDate)
+        ], savesCopy: false, referer: config.url("app/medications/add-medication").absoluteString)
+        // The reply hasn't been captured, so only an explicit failure counts.
+        let reply = json as? [String: Any] ?? [:]
+        if reply["isSuccess"] as? Bool == false || !(reply["errors"] as? [Any] ?? []).isEmpty {
+            throw MyChartError.actionFailed("SubmitMedicationUpdate")
+        }
+    }
+
     /// Latest message of each conversation, for the dashboard and notifications.
     func messages(for patientID: String) async throws -> [Message] {
         try await conversations(for: patientID).compactMap { conversation in

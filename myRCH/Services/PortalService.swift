@@ -28,6 +28,11 @@ protocol PortalService: Sendable {
     /// Downloads a scan or report attached to a result (PDF or image bytes).
     func documentData(_ document: ResultDocument, for patientID: String) async throws -> Data
     func medications(for patientID: String) async throws -> [Medication]
+    /// Medicines matching `text`, for adding one the hospital hasn't.
+    func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult]
+    /// Adds a medication the family reports taking, from `startDate`. The
+    /// care team reviews it at the next visit.
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws
     func messages(for patientID: String) async throws -> [Message]
 
     /// Message threads with the care team, in one of the Messages folders.

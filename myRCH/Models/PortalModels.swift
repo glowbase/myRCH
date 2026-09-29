@@ -337,6 +337,13 @@ struct Medication: Identifiable, Hashable {
     var isPatientReported: Bool = false
 }
 
+/// One match from the portal's medicine search, e.g. "Zinc Sulfate".
+struct MedicationSearchResult: Identifiable, Hashable, Sendable {
+    /// The portal's opaque id for the medicine.
+    let id: String
+    let name: String
+}
+
 /// A private note the family keeps about medication.
 struct MedicationNote: Identifiable, Hashable, Codable {
     let id: UUID

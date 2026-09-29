@@ -327,6 +327,16 @@ struct MockPortalService: PortalService {
         ]
     }
 
+    func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] {
+        await delay()
+        let names = ["Zinc Sulfate", "Zinc Oxide", "Paracetamol", "Ibuprofen", "Cetirizine",
+                     "Loratadine", "Melatonin", "Macrogol 3350", "Probiotic", "Multivitamin"]
+        return names.filter { $0.localizedStandardContains(text) }
+            .map { MedicationSearchResult(id: "search-\($0)", name: $0) }
+    }
+
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws { await delay() }
+
     /// Flat summaries used by the dashboard and notifications, derived from the
     /// conversation threads so both stay in step.
     func messages(for patientID: String) async throws -> [Message] {

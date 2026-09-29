@@ -49,6 +49,10 @@ struct MedicationsView: View {
     let patientID: String
     @Environment(Session.self) private var session
 
+    @State private var isAdding = false
+    /// Changed after adding a medication, so the list loads afresh.
+    @State private var listID = UUID()
+
     var body: some View {
         AsyncSection {
             try await session.service.medications(for: patientID)
