@@ -60,6 +60,31 @@ enum Theme {
     /// Ordered leaf palette for cycling accents across items.
     static let leaves: [Color] = [red, orange, yellow, green, teal]
 
+    /// Section colours for Browse tiles and card headers: softer than the
+    /// system colours, each with a lighter shade for dark mode. All at least
+    /// 3.9:1 against white cards and 6.5:1 against dark ones, so the icons
+    /// stay clear.
+    enum Section {
+        static let visits = muted(0.74, 0.38, 0.27, dark: 0.92, 0.60, 0.48)        // terracotta
+        static let testResults = muted(0.36, 0.38, 0.66, dark: 0.64, 0.66, 0.92)   // slate indigo
+        static let medication = muted(0.16, 0.46, 0.62, dark: 0.46, 0.72, 0.86)    // steel cyan
+        static let immunisations = muted(0.52, 0.38, 0.62, dark: 0.76, 0.64, 0.86) // plum
+        static let allergies = muted(0.72, 0.44, 0.18, dark: 0.92, 0.66, 0.40)     // amber
+        static let growthCharts = muted(0.33, 0.53, 0.36, dark: 0.56, 0.76, 0.58)  // sage
+        static let trackHealth = muted(0.18, 0.50, 0.52, dark: 0.46, 0.76, 0.76)   // deep teal
+        static let implants = muted(0.52, 0.42, 0.34, dark: 0.76, 0.66, 0.57)      // taupe
+        static let letters = muted(0.60, 0.49, 0.14, dark: 0.86, 0.74, 0.40)       // ochre
+        static let healthSummary = muted(0.68, 0.34, 0.45, dark: 0.90, 0.60, 0.68) // dusty rose
+        static let messages = muted(0.24, 0.43, 0.67, dark: 0.54, 0.70, 0.92)      // denim
+        static let sharing = muted(0.22, 0.51, 0.43, dark: 0.50, 0.78, 0.68)       // seafoam
+        static let medicalID = muted(0.66, 0.26, 0.28, dark: 0.90, 0.52, 0.53)     // brick
+
+        private static func muted(_ r: Double, _ g: Double, _ b: Double,
+                                  dark dr: Double, _ dg: Double, _ db: Double) -> Color {
+            Color(light: Color(red: r, green: g, blue: b), dark: Color(red: dr, green: dg, blue: db))
+        }
+    }
+
     /// The soft, welcoming background wash used behind entry screens. In dark
     /// mode, a deep navy wash in the same spirit.
     static var welcomeBackground: LinearGradient {
