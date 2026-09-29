@@ -70,7 +70,7 @@ nonisolated struct WidgetSnapshot: Codable, Sendable {
         return children.values.sorted { $0.name < $1.name }.first
     }
 
-    static let appGroup = "group.com.cooperbeltrami.myRCH"
+    static let appGroup = "group.com.glowbase.myRCH"
     private static let fileName = "WidgetSnapshot-v2.json"
 
     private static var fileURL: URL? {
