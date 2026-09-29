@@ -23,15 +23,17 @@ enum HomeSection: String, CaseIterable, Identifiable {
 
     var art: (symbol: String, color: Color) {
         switch self {
-        case .highlights: ("sparkles", .orange)
+        // Sections without a Browse tile use the matching Theme.Section shade
+        // (gold, not bright yellow, for Explore More).
+        case .highlights: ("sparkles", Theme.Section.allergies)
         case .upcoming: Feature.visits.tileArt
         case .results: Feature.testResults.tileArt
         case .medication: Feature.medication.tileArt
-        case .immunisations: ("syringe.fill", Feature.immunisations.tileArt.color)
+        case .immunisations: Feature.immunisations.tileArt
         case .growth: Feature.growthCharts.tileArt
-        case .goals: ("target", .green)
+        case .goals: ("target", Theme.Section.growthCharts)
         case .sharing: Feature.sharing.tileArt
-        case .explore: ("lightbulb.max.fill", .yellow)
+        case .explore: ("lightbulb.max.fill", Theme.Section.letters)
         }
     }
 

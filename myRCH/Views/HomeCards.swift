@@ -158,7 +158,7 @@ struct ImmunisationSummaryCard: View {
     }
 
     var body: some View {
-        SummaryCard(category: "Immunisations", systemImage: "syringe.fill", color: color,
+        SummaryCard(category: "Immunisations", systemImage: Feature.immunisations.systemImage, color: color,
                     detail: latest?.date.mediumDate) {
             VStack(alignment: .leading, spacing: 12) {
                 if let latest {

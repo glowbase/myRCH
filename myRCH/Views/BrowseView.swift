@@ -158,7 +158,7 @@ private struct SearchResultsList: View {
                             ImmunisationDetailView(group: group, patientID: session.patientID)
                         } label: {
                             row(group.name, detail: group.dates.first?.mediumDate,
-                                art: ("syringe.fill", Feature.immunisations.tileArt.color))
+                                art: Feature.immunisations.tileArt)
                         }
                     }
                 }
