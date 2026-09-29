@@ -44,7 +44,7 @@ struct NotificationsView: View {
         }
         // Opens the tapped card's message, result, letter or visit.
         .navigationDestination(item: $openItem) { destination($0.destination) }
-        .navigationTitle("Notifications")
+        .navigationTitle("Notices")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -68,7 +68,7 @@ struct NotificationsView: View {
     @ViewBuilder
     private var emptyState: some View {
         if showsUnreadOnly {
-            ContentUnavailableView("No Unread Notifications", systemImage: "checkmark.circle",
+            ContentUnavailableView("No Unread Notices", systemImage: "checkmark.circle",
                                    description: Text("You've seen everything new."))
         } else {
             ContentUnavailableView("You're All Caught Up", systemImage: "checkmark.circle",
