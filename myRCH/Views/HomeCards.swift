@@ -44,12 +44,18 @@ struct MedicationSummaryCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 if let progress = DayProgress(today) {
                     HStack(spacing: 16) {
-                        DoseCircle(progress: progress,
-                                   label: "\(today.filter { $0.status != nil }.count)/\(today.count)",
-                                   labelFont: .system(.subheadline, design: .rounded).bold())
-                            .frame(width: 58, height: 58)
-                            .accessibilityElement()
-                            .accessibilityLabel("\(Int((progress.taken * 100).rounded())) percent of today's doses taken")
+                        Group {
+                            if progress.isComplete {
+                                doneMark(allSkipped: progress.taken == 0)
+                            } else {
+                                DoseCircle(progress: progress,
+                                           label: "\(today.filter { $0.status != nil }.count)/\(today.count)",
+                                           labelFont: .system(.subheadline, design: .rounded).bold())
+                            }
+                        }
+                        .frame(width: 58, height: 58)
+                        .accessibilityElement()
+                        .accessibilityLabel("\(Int((progress.taken * 100).rounded())) percent of today's doses taken")
                         VStack(alignment: .leading, spacing: 3) {
                             if let next = nextDose {
                                 Text(next.time, format: .dateTime.hour().minute())
@@ -80,6 +86,19 @@ struct MedicationSummaryCard: View {
                     .lineLimit(2)
             }
         }
+    }
+
+    /// Once today is all logged: a tick (or a cross, if every dose was
+    /// skipped) on a pale circle, lighter than a solid filled circle.
+    private func doneMark(allSkipped: Bool) -> some View {
+        let tint = allSkipped ? DoseCircle.skipped : DoseCircle.taken
+        return Circle()
+            .fill(tint.opacity(0.15))
+            .overlay {
+                Image(systemName: allSkipped ? "xmark" : "checkmark")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(tint)
+            }
     }
 
     private var lastSevenDays: [Date] {
