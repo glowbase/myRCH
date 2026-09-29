@@ -1,5 +1,12 @@
 import Foundation
 
+/// Medications added while exploring with sample data.
+private actor MockAddedMedications {
+    static let shared = MockAddedMedications()
+    private(set) var items: [Medication] = []
+    func add(_ medication: Medication) { items.append(medication) }
+}
+
 /// In-memory backend with realistic sample data mirroring the portal
 /// screenshots. Any username/password is accepted so the UI can be explored.
 struct MockPortalService: PortalService {
@@ -324,7 +331,7 @@ struct MockPortalService: PortalService {
                        prescriber: "Emergency Department", isActive: false,
                        form: .liquid, prescribedDate: Self.date(2025, 6, 2),
                        approvedBy: "Priya Nair, Registrar", quantity: "100 mL", daySupply: 7)
-        ]
+        ] + (await MockAddedMedications.shared.items)
     }
 
     func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] {
@@ -335,7 +342,16 @@ struct MockPortalService: PortalService {
             .map { MedicationSearchResult(id: "search-\($0)", name: $0) }
     }
 
-    func addMedication(named name: String, startDate: Date, for patientID: String) async throws { await delay() }
+    /// Kept in memory until relaunch, so added medications show in the list.
+    func addMedication(named name: String, startDate: Date, for patientID: String) async throws {
+        await delay()
+        let parts = Medication.splitReportedName(name)
+        await MockAddedMedications.shared.add(Medication(
+            id: "added-\(UUID().uuidString)", name: parts.name, dose: parts.strength ?? "",
+            instructions: "", prescriber: "", isActive: true,
+            form: MyChartWebService.medicationForm(name: name, sig: nil),
+            prescribedDate: startDate, isPatientReported: true, productForm: parts.form))
+    }
 
     /// Flat summaries used by the dashboard and notifications, derived from the
     /// conversation threads so both stay in step.

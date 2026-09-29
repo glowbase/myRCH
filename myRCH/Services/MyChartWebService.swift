@@ -1734,24 +1734,29 @@ actor MyChartWebService: PortalService {
             let provider = (item["authorizingProvider"] as? [String: Any])
                 ?? (item["orderingProvider"] as? [String: Any])
             let refill = item["refillDetails"] as? [String: Any] ?? [:]
+            // Ones the family added hold strength and form in the name, as
+            // the Add Medication screen joins them; split them back out.
+            let isPatientReported = item["isPatientReported"] as? Bool ?? false
+            let parts = isPatientReported ? Medication.splitReportedName(name) : (name: name, strength: nil, form: nil)
             return Medication(
                 id: Self.string(item, "id") ?? Self.string(item, "prescriptionNumber") ?? "med-\(index)",
-                name: name,
+                name: parts.name,
                 // Epic keeps dose inside the sig rather than a separate field.
-                dose: "",
+                dose: parts.strength ?? "",
                 instructions: Self.string(item, "sig") ?? "",
                 prescriber: Self.string(provider ?? [:], "name") ?? "",
                 // These come from the current-medications list, so treat them
                 // as active unless the portal flags a pending removal.
                 isActive: !(item["showPendingUndoDeleteButton"] as? Bool ?? false),
-                commonName: friendly == name ? nil : friendly,
+                commonName: friendly == name || friendly == parts.name ? nil : friendly,
                 form: Self.medicationForm(name: name, sig: Self.string(item, "sig")),
                 prescribedDate: Self.portalDate(Self.string(item, "startDate"))
                     ?? Self.portalDate(Self.string(item, "dateToDisplay")),
                 quantity: Self.dispenseQuantity(refill),
                 daySupply: Self.int(refill, "daySupply"),
                 canRequestRepeat: item["showRefillButton"] as? Bool ?? false,
-                isPatientReported: item["isPatientReported"] as? Bool ?? false
+                isPatientReported: isPatientReported,
+                productForm: parts.form
             )
         }
     }
@@ -1777,7 +1782,7 @@ actor MyChartWebService: PortalService {
 
     /// The response carries no form field, so infer it from the prescription
     /// name and instructions ("Inhale 2 puffs…", "…oral liquid").
-    private nonisolated static func medicationForm(name: String, sig: String?) -> Medication.Form {
+    nonisolated static func medicationForm(name: String, sig: String?) -> Medication.Form {
         let text = "\(name) \(sig ?? "")".lowercased()
         return switch true {
         case text.contains("capsule"): .capsule

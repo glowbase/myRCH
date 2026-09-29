@@ -11,6 +11,18 @@ extension Medication {
     /// The short name used in reminders: the brand name families know
     /// ("Hypersal"), else the prescription name.
     var reminderName: String { commonName ?? name }
+
+    /// "1 mg · Liquid" for medications the family added, shown under the
+    /// name rather than as part of it. Nil when neither is known.
+    var strengthAndForm: String? {
+        guard isPatientReported else { return nil }
+        let parts = [dose, productForm ?? ""].filter { !$0.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// The row and header title: just the name when strength and form are
+    /// shown on their own line.
+    var titleName: String { strengthAndForm == nil ? displayName : name }
 }
 
 extension Session {
@@ -131,7 +143,12 @@ struct MedicationRow: View {
                 .frame(width: 40, height: 40)
                 .background(tint.opacity(0.14), in: .circle)
             VStack(alignment: .leading, spacing: 3) {
-                Text(medication.displayName).font(.headline)
+                Text(medication.titleName).font(.headline)
+                if let strengthAndForm = medication.strengthAndForm {
+                    Text(strengthAndForm)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
                 if !medication.instructions.isEmpty {
                     Text(medication.instructions)
                         .font(.subheadline)
@@ -184,7 +201,11 @@ struct MedicationDetailView: View {
                     if !reminders.isEmpty { historySection }
                     remindersSection
                 }
-                section("Prescription") { prescriptionDetails }
+                if medication.isPatientReported {
+                    section("Details") { reportedDetails }
+                } else {
+                    section("Prescription") { prescriptionDetails }
+                }
                 if medication.isActive { repeatsSection }
                 notesSection
                 if medication.isPatientReported {
@@ -233,11 +254,11 @@ struct MedicationDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(medication.form.label, systemImage: medication.form.systemImage)
+            Label(medication.productForm ?? medication.form.label, systemImage: medication.form.systemImage)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Feature.medication.accent)
                 .textCase(.uppercase)
-            Text(medication.displayName)
+            Text(medication.titleName)
                 .font(.system(.title, design: .rounded).bold())
             HStack(spacing: 8) {
                 Pill(text: medication.isActive ? "Current" : "Past",
@@ -252,6 +273,18 @@ struct MedicationDetailView: View {
     }
 
     // MARK: Prescription
+
+    /// For medications the family added: the strength and form they chose,
+    /// each on its own row, and when they started it.
+    private var reportedDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            infoRow("Strength", medication.dose.isEmpty ? "Not given" : medication.dose)
+            infoRow("Form", medication.productForm ?? "Not given")
+            if let date = medication.prescribedDate {
+                infoRow("Started", date.mediumDate)
+            }
+        }
+    }
 
     @ViewBuilder
     private var prescriptionDetails: some View {

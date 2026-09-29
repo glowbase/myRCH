@@ -124,10 +124,6 @@ private struct AddMedicationDetailsView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
 
-    private static let units = ["mg", "mcg", "g", "mL", "IU", "%", "mg/mL", "mg/5 mL"]
-    private static let forms = ["Tablet", "Chewable Tablet", "Capsule", "Liquid", "Drops", "Powder",
-                                "Cream", "Ointment", "Gel", "Spray", "Inhaler", "Patch", "Injection"]
-
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var trimmedStrength: String { strength.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -153,14 +149,14 @@ private struct AddMedicationDetailsView: View {
                     TextField("Strength, e.g. 1", text: $strength)
                         .keyboardType(.decimalPad)
                     Picker("Unit", selection: $unit) {
-                        ForEach(Self.units, id: \.self) { Text($0) }
+                        ForEach(Medication.strengthUnits, id: \.self) { Text($0) }
                     }
                     .labelsHidden()
                     .fixedSize()
                 }
                 Picker("Form", selection: $form) {
                     Text("Not sure").tag("")
-                    ForEach(Self.forms, id: \.self) { Text($0) }
+                    ForEach(Medication.productForms, id: \.self) { Text($0) }
                 }
             } header: {
                 Text("Strength and Form")

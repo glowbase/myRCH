@@ -335,6 +335,55 @@ struct Medication: Identifiable, Hashable {
     var canRequestRepeat: Bool = false
     /// Added by the family rather than prescribed; awaits clinician review.
     var isPatientReported: Bool = false
+    /// The form the family chose when adding it, e.g. "Chewable Tablet".
+    var productForm: String? = nil
+}
+
+extension Medication {
+    /// Offered when the family adds a medication.
+    static let strengthUnits = ["mg", "mcg", "g", "mL", "IU", "%", "mg/mL", "mg/5 mL"]
+    static let productForms = ["Tablet", "Chewable Tablet", "Capsule", "Liquid", "Drops", "Powder",
+                               "Cream", "Ointment", "Gel", "Spray", "Inhaler", "Patch", "Injection"]
+
+    /// Splits a name the family added ("Zinc Acetate 1 mg Liquid") back into
+    /// the fields it was built from, since the portal keeps only the one
+    /// name. Also reads names typed on the website ("1mg", any case).
+    /// Anything it doesn't recognise stays in the name.
+    static func splitReportedName(_ full: String) -> (name: String, strength: String?, form: String?) {
+        var rest = full.trimmingCharacters(in: .whitespaces)
+
+        var form: String?
+        // Longest first, so "Chewable Tablet" wins over "Tablet".
+        for candidate in productForms.sorted(by: { $0.count > $1.count }) {
+            let suffix = " " + candidate.lowercased()
+            if rest.count > suffix.count, rest.lowercased().hasSuffix(suffix) {
+                form = candidate
+                rest = String(rest.dropLast(suffix.count))
+                break
+            }
+        }
+
+        var strength: String?
+        let units = strengthUnits.sorted { $0.count > $1.count }
+            .map(NSRegularExpression.escapedPattern(for:))
+            .joined(separator: "|")
+        if let regex = try? NSRegularExpression(pattern: #"\s(\d+(?:[.,]\d+)?)\s?("# + units + ")$",
+                                                options: .caseInsensitive),
+           let match = regex.firstMatch(in: rest, range: NSRange(rest.startIndex..., in: rest)),
+           let whole = Range(match.range, in: rest),
+           let number = Range(match.range(at: 1), in: rest),
+           let unitRange = Range(match.range(at: 2), in: rest) {
+            // Back to the list's spelling, e.g. "ML" → "mL".
+            let typed = String(rest[unitRange])
+            let unit = strengthUnits.first { $0.caseInsensitiveCompare(typed) == .orderedSame } ?? typed
+            strength = unit == "%" ? "\(rest[number])%" : "\(rest[number]) \(unit)"
+            rest = String(rest[..<whole.lowerBound])
+        }
+
+        let name = rest.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return (full, nil, nil) }
+        return (name, strength, form)
+    }
 }
 
 /// One match from the portal's medicine search, e.g. "Zinc Sulfate".
