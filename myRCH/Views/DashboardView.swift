@@ -8,10 +8,15 @@ enum Feature: String, Identifiable, CaseIterable {
 
     var id: String { rawValue }
 
-    /// Browse's tiles, alphabetical like the Health app's categories.
-    static var browsable: [Feature] {
-        allCases.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-    }
+    /// Browse's tiles, the everyday sections first (visits, results,
+    /// medication, messages), then the rest roughly by how often they're
+    /// needed, with the not-yet-available ones last.
+    static let browsable: [Feature] = [
+        .visits, .testResults, .medication, .messages,
+        .letters, .medicalID, .immunisations, .allergies,
+        .growthCharts, .healthSummary, .sharing,
+        .trackHealth, .implants
+    ]
 
     var title: String {
         switch self {
@@ -49,24 +54,24 @@ enum Feature: String, Identifiable, CaseIterable {
         }
     }
 
-    /// Browse's icon and its colour, one bright colour per section like the
-    /// Health app's categories. Separate from `systemImage`/`accent`, which
-    /// the section screens use.
+    /// Browse's icon and its colour, one per section like the Health app's
+    /// categories, in softer shades (`Theme.Section`). Separate from
+    /// `systemImage`/`accent`, which the section screens use.
     var tileArt: (symbol: String, color: Color) {
         switch self {
-        case .visits: ("calendar.badge.clock", .red)
-        case .testResults: ("cross.vial.fill", .indigo)
-        case .medication: ("pills.fill", Theme.medication)
-        case .immunisations: ("bandage.fill", .purple)
-        case .allergies: ("allergens.fill", .orange)
-        case .growthCharts: ("figure.and.child.holdinghands", .green)
-        case .trackHealth: ("figure.walk.motion", .teal)
-        case .implants: ("cross.case.fill", .brown)
-        case .letters: ("envelope.open.fill", .yellow)
-        case .healthSummary: ("heart.text.clipboard.fill", .pink)
-        case .messages: ("bubble.left.and.bubble.right.fill", .blue)
-        case .sharing: ("person.2.fill", .mint)
-        case .medicalID: ("staroflife.fill", .red)
+        case .visits: ("calendar.badge.clock", Theme.Section.visits)
+        case .testResults: ("cross.vial.fill", Theme.Section.testResults)
+        case .medication: ("pills.fill", Theme.Section.medication)
+        case .immunisations: ("bandage.fill", Theme.Section.immunisations)
+        case .allergies: ("allergens.fill", Theme.Section.allergies)
+        case .growthCharts: ("figure.and.child.holdinghands", Theme.Section.growthCharts)
+        case .trackHealth: ("figure.walk.motion", Theme.Section.trackHealth)
+        case .implants: ("cross.case.fill", Theme.Section.implants)
+        case .letters: ("envelope.open.fill", Theme.Section.letters)
+        case .healthSummary: ("heart.text.clipboard.fill", Theme.Section.healthSummary)
+        case .messages: ("bubble.left.and.bubble.right.fill", Theme.Section.messages)
+        case .sharing: ("person.2.fill", Theme.Section.sharing)
+        case .medicalID: ("staroflife.fill", Theme.Section.medicalID)
         }
     }
 
