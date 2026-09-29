@@ -62,6 +62,55 @@ enum WidgetColors {
     static let medication = Color(red: 0.0, green: 0.52, blue: 0.74)
 }
 
+/// Today's doses as a filled circle, like the app's `DoseCircle`: a pie of
+/// logged doses over a pale circle. Solid with a tick once all are logged.
+private struct FilledProgressCircle: View {
+    /// Share of today's doses logged, 0...1.
+    let progress: Double
+    let tint: Color
+    var label: String? = nil
+    var font: Font = .caption.weight(.bold)
+
+    var body: some View {
+        ZStack {
+            Circle().fill(tint.opacity(0.18))
+            PieWedge(end: progress).fill(tint)
+            if let label {
+                Text(label)
+                    .font(font)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.6)
+                    .foregroundStyle(progress >= 0.999 ? Color.white : .primary)
+            } else if progress >= 0.999 {
+                Image(systemName: "checkmark")
+                    .font(font)
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+}
+
+/// A wedge from the top, clockwise to `end` (a share of a full turn).
+private struct PieWedge: Shape {
+    let end: Double
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard end > 0 else { return path }
+        let radius = min(rect.width, rect.height) / 2
+        let centre = CGPoint(x: rect.midX, y: rect.midY)
+        if end >= 0.999 {
+            path.addEllipse(in: CGRect(x: centre.x - radius, y: centre.y - radius, width: radius * 2, height: radius * 2))
+            return path
+        }
+        path.move(to: centre)
+        path.addArc(center: centre, radius: radius,
+                    startAngle: .degrees(-90), endAngle: .degrees(end * 360 - 90), clockwise: false)
+        path.closeSubpath()
+        return path
+    }
+}
+
 private struct EmptyWidget: View {
     let symbol: String
     let text: String
@@ -164,18 +213,16 @@ struct MedicationView: View {
                 }
                 .gaugeStyle(.accessoryCircularCapacity)
             case .systemLarge:
-                // StandBy and the bedside: a big ring.
+                // StandBy and the bedside: a big filled circle.
                 VStack(spacing: 14) {
                     Label("\(child.name)'s Medication", systemImage: "pills.fill")
                         .font(.headline)
                         .foregroundStyle(WidgetColors.medication)
-                    Gauge(value: progress) { EmptyView() } currentValueLabel: {
-                        Text("\(child.dosesLogged)/\(child.dosesDue)")
-                    }
-                    .gaugeStyle(.accessoryCircularCapacity)
-                    .tint(.green)
-                    .scaleEffect(2.4)
-                    .frame(height: 150)
+                    FilledProgressCircle(progress: progress, tint: .green,
+                                         label: "\(child.dosesLogged)/\(child.dosesDue)",
+                                         font: .system(.largeTitle, design: .rounded).bold())
+                        .frame(width: 130, height: 130)
+                        .frame(height: 150)
                     if let next {
                         Text("Next: \(next.medicine) at \(next.time.formatted(date: .omitted, time: .shortened))")
                             .font(.subheadline)
@@ -192,11 +239,9 @@ struct MedicationView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(WidgetColors.medication)
                         Spacer()
-                        Gauge(value: progress) { EmptyView() }
-                            .gaugeStyle(.accessoryCircularCapacity)
-                            .tint(WidgetColors.medication)
-                            .scaleEffect(0.6)
-                            .frame(width: 30, height: 30)
+                        FilledProgressCircle(progress: progress, tint: WidgetColors.medication,
+                                             font: .system(size: 11, weight: .bold))
+                            .frame(width: 24, height: 24)
                     }
                     Spacer(minLength: 0)
                     if let next {
