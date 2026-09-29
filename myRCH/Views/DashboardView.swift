@@ -715,7 +715,7 @@ private struct ResultSummaryCard: View {
                         // a value outside the range isn't necessarily a worry,
                         // so the family opens the result to see it in context.
                         if let label = specimenLabel {
-                            Pill(text: label, systemImage: result.kind.systemImage, tint: art.color)
+                            Pill(text: label, systemImage: result.kind.systemImage, tint: Theme.teal)
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 8)
