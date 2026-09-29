@@ -711,8 +711,12 @@ private struct ResultSummaryCard: View {
                     .padding(.top, 2)
                 } else {
                     HStack(alignment: .bottom) {
-                        if let status = (detailed ?? result).rangeStatus {
-                            RangeStatusPill(status: status)
+                        // What was tested rather than whether it was in range:
+                        // a value outside the range isn't necessarily a worry,
+                        // so the family opens the result to see it in context.
+                        if let label = specimenLabel {
+                            Pill(text: label, systemImage: result.kind.systemImage, tint: art.color)
+                                .lineLimit(1)
                         }
                         Spacer(minLength: 8)
                         TrendSparkline(result: result)
@@ -720,10 +724,17 @@ private struct ResultSummaryCard: View {
                 }
             }
         }
-        .animation(.default, value: detailed?.rangeStatus)
+        .animation(.default, value: detailed?.specimen)
         .task(id: result.id) {
             detailed = try? await session.service.testResultDetails(result, for: session.patientID)
         }
+    }
+
+    /// The specimen ("Blood", "Urine"), which arrives with the details.
+    /// Imaging has none, so it says "Imaging".
+    private var specimenLabel: String? {
+        if let specimen = (detailed ?? result).specimen, !specimen.isEmpty { return specimen }
+        return result.kind == .imaging ? "Imaging" : nil
     }
 }
 
