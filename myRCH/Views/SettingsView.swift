@@ -241,6 +241,11 @@ struct SettingsView: View {
                 .foregroundStyle(.primary)
             }
             NavigationLink {
+                PrivacyView()
+            } label: {
+                SettingsRow("Privacy", symbol: "hand.raised.fill", color: .blue)
+            }
+            NavigationLink {
                 LicencesView()
             } label: {
                 SettingsRow("Licences", symbol: "doc.text.fill", color: .gray)
