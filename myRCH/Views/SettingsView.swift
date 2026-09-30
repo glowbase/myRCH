@@ -37,6 +37,8 @@ struct SettingsView: View {
     /// The Allergy Alert widget shows allergies without unlocking, so it's opt-in.
     @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
     @AppStorage(ActivityManager.enabledKey) private var liveActivitiesEnabled = true
+    /// From the portal's record header, for the profile row.
+    @State private var urNumber: String?
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
@@ -58,26 +60,36 @@ struct SettingsView: View {
 
     // MARK: - Profile
 
-    /// Like the top of iOS Settings: avatar on the left, name beside it, in
-    /// a row about two and a half normal rows tall.
+    /// Like the top of iOS Settings: avatar on the left, then the child's
+    /// name, age and UR number.
     private var profileHeader: some View {
         Section {
-            HStack(spacing: 16) {
+            HStack(spacing: 14) {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                           tint: session.activeTint, size: 72)
-                VStack(alignment: .leading, spacing: 3) {
+                           tint: session.activeTint, size: 64)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(session.activeAccount?.name ?? profile.fullName)
                         .font(.title2.weight(.semibold))
                         .lineLimit(2)
-                    Text(session.useLivePortal ? "My RCH Portal" : "Demo mode")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    if let birth = session.activeAccount?.dateOfBirth {
+                        Text("\(birth.ageDescription) · Born \(birth.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let urNumber {
+                        Text("UR \(urNumber)")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: 96)
-            .padding(.vertical, 6)
             .accessibilityElement(children: .combine)
+        }
+        .task(id: session.patientID) {
+            // Never show one child's UR number under another's name.
+            urNumber = nil
+            urNumber = try? await session.service.recordHeader(for: session.patientID).urNumber
         }
     }
 
