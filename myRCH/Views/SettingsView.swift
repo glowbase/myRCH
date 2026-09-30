@@ -1,3 +1,4 @@
+import AppIntents
 import SwiftUI
 
 /// Chosen in Settings; applied at the app's root.
@@ -167,6 +168,14 @@ struct SettingsView: View {
             Text("Preferences")
         } footer: {
             Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
+        }
+        Section {
+            ShortcutsLink()
+                .shortcutsLinkStyle(.automaticOutline)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+        } footer: {
+            Text("Say \u{201C}Hey Siri, log next dose in myRCH\u{201D} to mark the next medication due today as taken.")
         }
         Section {
             Toggle(isOn: $liveActivitiesEnabled) {
