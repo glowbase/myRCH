@@ -38,13 +38,12 @@ struct LoginView: View {
 
     private var hero: some View {
         VStack(spacing: 20) {
-            // The tree from the app icon, without the hospital's wordmark.
-            // Transparent, with a light figure in dark mode.
-            Image("LaunchIcon")
+            // Transparent, with a white figure and wordmark in dark mode.
+            Image("RCHLogo")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 130, height: 130)
-                .accessibilityLabel("myRCH")
+                .frame(maxWidth: 130)
+                .accessibilityLabel("The Royal Children's Hospital Melbourne")
 
             Text("Your child’s care, together in one place.")
                 .font(.callout)
