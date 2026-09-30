@@ -58,20 +58,26 @@ struct SettingsView: View {
 
     // MARK: - Profile
 
+    /// Like the top of iOS Settings: avatar on the left, name beside it, in
+    /// a row about two and a half normal rows tall.
     private var profileHeader: some View {
         Section {
-            VStack(spacing: 10) {
+            HStack(spacing: 16) {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                           tint: session.activeTint, size: 88)
-                Text(session.activeAccount?.name ?? profile.fullName)
-                    .font(.system(.title, design: .rounded).bold())
-                Text(session.useLivePortal ? "My RCH Portal" : "Demo mode")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                           tint: session.activeTint, size: 72)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(session.activeAccount?.name ?? profile.fullName)
+                        .font(.title2.weight(.semibold))
+                        .lineLimit(2)
+                    Text(session.useLivePortal ? "My RCH Portal" : "Demo mode")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .listRowBackground(Color.clear)
+            .frame(minHeight: 96)
+            .padding(.vertical, 6)
+            .accessibilityElement(children: .combine)
         }
     }
 
