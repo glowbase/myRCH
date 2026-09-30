@@ -2,7 +2,6 @@ import SwiftUI
 
 struct LoginView: View {
     @Environment(Session.self) private var session
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var username = ""
     @State private var password = ""
@@ -31,10 +30,7 @@ struct LoginView: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background {
-            Theme.welcomeBackground.ignoresSafeArea()
-            DecorativeBlobs().ignoresSafeArea()
-        }
+        .background(Theme.welcomeBackground.ignoresSafeArea())
         .tint(Theme.brand)
     }
 
@@ -42,17 +38,11 @@ struct LoginView: View {
 
     private var hero: some View {
         VStack(spacing: 20) {
-            // The logo is a JPEG with a white background. Multiply hides the
-            // white on the light wash; on a dark background it would blacken
-            // the whole logo, so there it sits on a white tile instead.
+            // Transparent, with a white figure and wordmark in dark mode.
             Image("RCHLogo")
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: 130)
-                .blendMode(colorScheme == .dark ? .normal : .multiply)
-                .padding(colorScheme == .dark ? 12 : 0)
-                .background(colorScheme == .dark ? Color.white : .clear,
-                            in: .rect(cornerRadius: 20, style: .continuous))
                 .accessibilityLabel("The Royal Children's Hospital Melbourne")
 
             Text("Your child’s care, together in one place.")
@@ -273,44 +263,6 @@ struct LaunchView: View {
             ProgressView()
                 .controlSize(.large)
                 .accessibilityLabel("Signing in")
-        }
-    }
-}
-
-private struct DecorativeBlobs: View {
-    private struct Blob {
-        var color: Color
-        var size: CGFloat
-        var base: CGPoint      // fractional home position (0...1)
-        var phase: Double      // offsets each blob's motion so they don't sync
-    }
-
-    private let blobs: [Blob] = [
-        Blob(color: Theme.yellow, size: 200, base: CGPoint(x: 0.15, y: 0.12), phase: 0.0),
-        Blob(color: Theme.teal,   size: 240, base: CGPoint(x: 0.88, y: 0.18), phase: 1.3),
-        Blob(color: Theme.red,    size: 190, base: CGPoint(x: 0.90, y: 0.80), phase: 2.6),
-        Blob(color: Theme.orange, size: 180, base: CGPoint(x: 0.22, y: 0.68), phase: 3.9),
-        Blob(color: Theme.green,  size: 220, base: CGPoint(x: 0.10, y: 0.90), phase: 5.2)
-    ]
-
-    var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height
-                ZStack {
-                    ForEach(Array(blobs.enumerated()), id: \.offset) { _, blob in
-                        let x = blob.base.x * w + CGFloat(sin(t * 0.45 + blob.phase)) * w * 0.22
-                        let y = blob.base.y * h + CGFloat(cos(t * 0.35 + blob.phase * 1.2)) * h * 0.16
-                        Circle()
-                            .fill(blob.color.opacity(0.55))
-                            .frame(width: blob.size, height: blob.size)
-                            .blur(radius: 36)
-                            .position(x: x, y: y)
-                    }
-                }
-            }
         }
     }
 }

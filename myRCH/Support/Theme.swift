@@ -86,14 +86,14 @@ enum Theme {
         }
     }
 
-    /// The soft, welcoming background wash used behind entry screens. In dark
-    /// mode, a deep navy wash in the same spirit.
+    /// The soft, welcoming background wash used behind entry screens. Plain
+    /// black in dark mode.
     static var welcomeBackground: LinearGradient {
         LinearGradient(
             colors: [
-                Color(light: Color(red: 0.96, green: 0.97, blue: 0.99), dark: Color(red: 0.06, green: 0.07, blue: 0.12)),
-                Color(light: Color(red: 0.99, green: 0.99, blue: 1.0), dark: Color(red: 0.04, green: 0.05, blue: 0.08)),
-                Color(light: Color(red: 0.95, green: 0.98, blue: 0.99), dark: Color(red: 0.03, green: 0.08, blue: 0.10))
+                Color(light: Color(red: 0.96, green: 0.97, blue: 0.99), dark: .black),
+                Color(light: Color(red: 0.99, green: 0.99, blue: 1.0), dark: .black),
+                Color(light: Color(red: 0.95, green: 0.98, blue: 0.99), dark: .black)
             ],
             startPoint: .top,
             endPoint: .bottom)
