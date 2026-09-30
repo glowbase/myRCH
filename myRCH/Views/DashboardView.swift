@@ -151,7 +151,7 @@ struct DashboardView: View {
                     NotificationsView(patientID: session.patientID)
                 } label: {
                     Image(systemName: unreadCount > 0 ? "bell.badge" : "bell")
-                        .symbolRenderingMode(.multicolor)
+                        .foregroundStyle(Theme.brand)
                         // Rings when something new arrives.
                         .symbolEffect(.wiggle, value: unreadCount)
                 }
