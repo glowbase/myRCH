@@ -14,35 +14,45 @@ struct VerificationCodeView: View {
     private let controlRadius: CGFloat = 14
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                header
-                    .padding(.top, 72)
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 24) {
+                    header
+                        .padding(.top, 72)
 
-                if let sentVia = session.codeSentVia {
-                    codeEntry(sentVia: sentVia)
-                } else {
-                    deliveryChoice
-                }
+                    if let sentVia = session.codeSentVia {
+                        codeEntry(sentVia: sentVia)
+                    } else {
+                        deliveryChoice
+                    }
 
-                if let error = session.verificationError {
-                    Label(error, systemImage: "exclamationmark.circle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                    if let error = session.verificationError {
+                        Label(error, systemImage: "exclamationmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
 
-                Button("Cancel", role: .cancel) {
-                    session.cancelVerification()
+                    Button("Cancel", role: .cancel) {
+                        session.cancelVerification()
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.brandText)
+                    .disabled(session.isVerifying)
                 }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.brandText)
-                .disabled(session.isVerifying)
+                .padding(.horizontal, 24)
+                // Fill the screen, so a tap anywhere below the content counts too.
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+                // A tap on empty space closes the keyboard. Behind the content,
+                // so the code field and buttons still get their taps.
+                .background {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { codeFocused = false }
+                }
             }
-            .padding(.horizontal, 24)
-            .frame(maxWidth: .infinity)
+            .scrollDismissesKeyboard(.interactively)
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(Theme.welcomeBackground.ignoresSafeArea())
         .tint(Theme.brand)
     }
