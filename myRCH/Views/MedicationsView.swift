@@ -462,9 +462,11 @@ struct MedicationDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Text("If a dose isn't logged, you'll get a follow-up reminder 30 minutes later.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if MedicationStore.followUpMinutes > 0 {
+                    Text("If a dose isn't logged, you'll get a follow-up reminder \(MedicationStore.followUpMinutes) minutes later.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
