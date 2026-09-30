@@ -125,36 +125,32 @@ final class AppLock {
     }
 }
 
-/// What the lock window shows: an unlock button while locked, otherwise a
-/// plain cover for the app switcher.
+/// What the lock window shows: the launch screen's look, with an unlock
+/// button while locked, or just the icon as the app switcher's cover.
 private struct AppLockScreen: View {
     @State private var lock = AppLock.shared
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
 
     var body: some View {
-        ZStack {
-            Rectangle().fill(.background).ignoresSafeArea()
-            VStack(spacing: 16) {
-                Image(systemName: lock.isLocked ? "lock.fill" : "heart.text.clipboard.fill")
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(Theme.brand)
-                Text(lock.isLocked ? "myRCH is Locked" : "myRCH")
-                    .font(.system(.title2, design: .rounded).bold())
-                    .foregroundStyle(Theme.ink)
-                if lock.isLocked && !lock.isInactive {
-                    Button {
-                        Task { await lock.unlock() }
-                    } label: {
-                        Label("Unlock with \(lock.method)", systemImage: lock.symbol)
-                            .padding(.horizontal, 8)
+        LaunchArtwork {
+            if lock.isLocked {
+                VStack(spacing: 16) {
+                    Text("myRCH is Locked")
+                        .font(.system(.title2, design: .rounded).bold())
+                        .foregroundStyle(Theme.ink)
+                    if !lock.isInactive {
+                        Button {
+                            Task { await lock.unlock() }
+                        } label: {
+                            Label("Unlock with \(lock.method)", systemImage: lock.symbol)
+                                .padding(.horizontal, 8)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Theme.brand)
+                        .disabled(lock.isAuthenticating)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.brand)
-                    .padding(.top, 8)
-                    .disabled(lock.isAuthenticating)
                 }
             }
-            .padding()
         }
         .preferredColorScheme(AppAppearance(rawValue: appearance)?.colorScheme)
     }

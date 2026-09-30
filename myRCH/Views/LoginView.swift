@@ -240,27 +240,40 @@ struct LoginView: View {
 /// Soft, blurred accent shapes that drift slowly around the screen, adding a
 /// playful children's-hospital warmth behind entry screens without distracting
 /// from the form.
-/// Shown while saved details sign in again at launch. Picks up where the
-/// launch screen leaves off: the same icon, the same size and place, now on
-/// the login screen's background, with a spinner below.
-struct LaunchView: View {
+/// The launch screen's icon, the same size and place, on the same plain
+/// white (black in dark mode), with anything else (a spinner, an unlock
+/// button) below it so the icon never moves. Used while signing in at launch
+/// and for the lock.
+struct LaunchArtwork<Accessory: View>: View {
+    /// Matches the 480px @3x `LaunchIcon` the launch screen shows.
+    static var iconSize: CGFloat { 160 }
+    @ViewBuilder var accessory: Accessory
+
     var body: some View {
         Image("LaunchIcon")
             .resizable()
             .scaledToFit()
-            .frame(width: 200, height: 200)
-            .overlay(alignment: .bottom) {
-                ProgressView()
-                    .controlSize(.large)
-                    .offset(y: 56)
+            .frame(width: Self.iconSize, height: Self.iconSize)
+            .accessibilityHidden(true)
+            .overlay(alignment: .top) {
+                accessory
+                    .fixedSize()
+                    .offset(y: Self.iconSize + 28)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                Theme.welcomeBackground.ignoresSafeArea()
-                DecorativeBlobs().ignoresSafeArea()
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Signing in")
+            // The asset the launch screen uses, so the two match exactly.
+            .background(Color("LaunchBackground").ignoresSafeArea())
+    }
+}
+
+/// Shown while saved details sign in again at launch.
+struct LaunchView: View {
+    var body: some View {
+        LaunchArtwork {
+            ProgressView()
+                .controlSize(.large)
+                .accessibilityLabel("Signing in")
+        }
     }
 }
 
