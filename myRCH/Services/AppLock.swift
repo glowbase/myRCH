@@ -21,6 +21,16 @@ final class AppLock {
         }
     }
 
+    /// Signed in, or signing in again with saved details. Kept current by
+    /// `Session`. Signed out there's nothing to protect, so no lock or cover:
+    /// just the login screen.
+    var hasAccount: Bool {
+        didSet {
+            if !hasAccount { isLocked = false }
+            updateWindow()
+        }
+    }
+
     /// Needs Face ID, Touch ID or the passcode to open.
     private(set) var isLocked: Bool
     /// The app isn't in front (app switcher, Control Centre, a Face ID prompt).
@@ -29,8 +39,14 @@ final class AppLock {
 
     private var window: UIWindow?
 
+    /// On and there's an account to protect.
+    private var isActive: Bool { isEnabled && hasAccount }
+
     private init() {
-        isLocked = UserDefaults.standard.bool(forKey: AppLock.enabledKey)
+        // At launch, saved details mean the app is about to sign in again.
+        let hasAccount = Keychain.loadCredentials() != nil
+        self.hasAccount = hasAccount
+        isLocked = hasAccount && UserDefaults.standard.bool(forKey: AppLock.enabledKey)
     }
 
     /// Face ID, Touch ID, Optic ID or just the passcode, for labels.
@@ -73,7 +89,7 @@ final class AppLock {
     }
 
     private func updateWindow() {
-        window?.isHidden = !(isEnabled && (isLocked || isInactive))
+        window?.isHidden = !(isActive && (isLocked || isInactive))
     }
 
     // MARK: Lifecycle
@@ -81,7 +97,7 @@ final class AppLock {
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .background:
-            if isEnabled { isLocked = true }
+            if isActive { isLocked = true }
             isInactive = true
         case .inactive:
             isInactive = true
@@ -89,7 +105,7 @@ final class AppLock {
             isInactive = false
             // Not while a prompt is up: it makes the app inactive then
             // active again, which would ask twice.
-            if isLocked && !isAuthenticating { Task { await unlock() } }
+            if isActive && isLocked && !isAuthenticating { Task { await unlock() } }
         @unknown default:
             break
         }

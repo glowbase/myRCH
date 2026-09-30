@@ -14,7 +14,9 @@ final class Session {
         case signedIn(PatientProfile)
     }
 
-    private(set) var phase: Phase = .signedOut
+    private(set) var phase: Phase = .signedOut {
+        didSet { updateAppLock() }
+    }
     var signInError: String?
     var verificationError: String?
     /// True while a SendCode/Validate request is in flight.
@@ -62,11 +64,24 @@ final class Session {
 
     /// Signing in again with saved details at launch. The app shows its
     /// loading screen meanwhile, rather than flashing the login form.
-    private(set) var isRestoring: Bool
+    private(set) var isRestoring: Bool {
+        didSet { updateAppLock() }
+    }
 
     init() {
         cachesDataOnDevice = UserDefaults.standard.bool(forKey: PortalDiskCache.enabledKey)
         isRestoring = Self.runsOnDevice && Keychain.loadCredentials() != nil
+        updateAppLock()
+    }
+
+    /// The Face ID lock only applies with an account to protect: signed in,
+    /// or signing in again with saved details. Never at the login screen.
+    private func updateAppLock() {
+        if case .signedIn = phase {
+            AppLock.shared.hasAccount = true
+        } else {
+            AppLock.shared.hasAccount = isRestoring
+        }
     }
 
     /// Signs in again from the Keychain so the app opens straight into the
