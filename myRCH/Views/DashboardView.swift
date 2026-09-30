@@ -137,6 +137,8 @@ struct DashboardView: View {
                 ForEach(HomeLayout(stored: homeSections).pinned) { section in
                     self.section(section)
                 }
+                // Always last, like Articles in the Health app.
+                HomeArticlesSection()
             }
             .padding()
         }

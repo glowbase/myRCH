@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The signed-in shell, like the Health app: Home (the dashboard) and
-/// Browse (every section), each in its own navigation stack.
+/// The signed-in shell, like the Health app: Home (the dashboard), Browse
+/// (every section) and Discover (RCH news and fact sheets), each in its own
+/// navigation stack.
 struct MainTabView: View {
     let profile: PatientProfile
 
@@ -14,6 +15,11 @@ struct MainTabView: View {
             }
             Tab("Browse", systemImage: "square.grid.2x2.fill") {
                 NavigationStack { BrowseView() }.id(session.patientID)
+            }
+            // Hospital news and fact sheets: the same for every child, so
+            // not reset when switching.
+            Tab("Discover", systemImage: "newspaper.fill") {
+                NavigationStack { DiscoverView() }
             }
         }
         .tint(Theme.brand)

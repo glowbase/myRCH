@@ -25,6 +25,10 @@ struct PrivacyView: View {
                 Widgets, your Apple Watch and Live Activities show a copy of your next visit, medications and what's new. It's removed when you sign out. Allergies only appear on the Lock Screen if you turn that on.
                 """)
 
+            section("News and Fact Sheets", symbol: "newspaper.fill", color: Theme.brand, """
+                Discover and Home's Articles load RCH News and the Kids and Teen Health Info fact sheets from the hospital's public websites. Nothing about you or your children is sent to load them.
+                """)
+
             section("Things You Choose to Share", symbol: "square.and.arrow.up.fill", color: .blue, """
                 myRCH only uses your calendar when you add a visit to it, and your photos when you attach one to a message. A health summary is only shared when you send it.
                 """)
