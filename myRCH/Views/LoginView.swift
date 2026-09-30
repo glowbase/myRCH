@@ -7,6 +7,8 @@ struct LoginView: View {
     @State private var password = ""
     @State private var rememberUsername = true
     @State private var showPassword = false
+    @State private var showsHelp = false
+    @State private var showsSignUp = false
     @FocusState private var focus: Field?
 
     private enum Field { case username, password }
@@ -189,13 +191,15 @@ struct LoginView: View {
 
     private var footer: some View {
         HStack(spacing: 28) {
-            footerLink("Need help?", systemImage: "questionmark.circle")
-            footerLink("Sign up", systemImage: "person.badge.plus")
+            footerButton("Need help?", systemImage: "questionmark.circle") { showsHelp = true }
+            footerButton("Sign up", systemImage: "person.badge.plus") { showsSignUp = true }
         }
+        .sheet(isPresented: $showsHelp) { PortalHelpView() }
+        .sheet(isPresented: $showsSignUp) { SignUpFormView() }
     }
 
-    private func footerLink(_ title: String, systemImage: String) -> some View {
-        Link(destination: URL(string: "https://myrchportal.rch.org.au")!) {
+    private func footerButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.brandText)
@@ -211,9 +215,6 @@ struct LoginView: View {
     }
 }
 
-/// Soft, blurred accent shapes that drift slowly around the screen, adding a
-/// playful children's-hospital warmth behind entry screens without distracting
-/// from the form.
 /// The launch screen's icon, the same size and place, on the same plain
 /// white (black in dark mode), with anything else (a spinner, an unlock
 /// button) below it so the icon never moves. Used while signing in at launch
