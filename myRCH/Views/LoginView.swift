@@ -240,9 +240,10 @@ struct LoginView: View {
 /// Soft, blurred accent shapes that drift slowly around the screen, adding a
 /// playful children's-hospital warmth behind entry screens without distracting
 /// from the form.
-/// The launch screen's icon, the same size and place, on the login screen's
-/// background, with anything else (a spinner, an unlock button) below it so
-/// the icon never moves. Used while signing in at launch and for the lock.
+/// The launch screen's icon, the same size and place, on the same plain
+/// white (black in dark mode), with anything else (a spinner, an unlock
+/// button) below it so the icon never moves. Used while signing in at launch
+/// and for the lock.
 struct LaunchArtwork<Accessory: View>: View {
     /// Matches the 480px @3x `LaunchIcon` the launch screen shows.
     static var iconSize: CGFloat { 160 }
@@ -260,10 +261,8 @@ struct LaunchArtwork<Accessory: View>: View {
                     .offset(y: Self.iconSize + 28)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                Theme.welcomeBackground.ignoresSafeArea()
-                DecorativeBlobs().ignoresSafeArea()
-            }
+            // The asset the launch screen uses, so the two match exactly.
+            .background(Color("LaunchBackground").ignoresSafeArea())
     }
 }
 
