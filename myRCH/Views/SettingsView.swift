@@ -68,9 +68,16 @@ struct SettingsView: View {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
                            tint: session.activeTint, size: 64)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(session.activeAccount?.name ?? profile.fullName)
-                        .font(.title2.weight(.semibold))
-                        .lineLimit(2)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(session.activeAccount?.name ?? profile.fullName)
+                            .font(.title2.weight(.semibold))
+                            .lineLimit(2)
+                        // So sample records are never mistaken for real ones.
+                        if !session.useLivePortal {
+                            Pill(text: "Demo", tint: .orange)
+                                .fixedSize()
+                        }
+                    }
                     if let birth = session.activeAccount?.dateOfBirth {
                         Text("\(birth.ageDescription) · Born \(birth.formatted(date: .abbreviated, time: .omitted))")
                             .font(.subheadline)
