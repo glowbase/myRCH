@@ -268,6 +268,8 @@ struct TestResultDetailView: View {
     @State private var result: TestResult
     @State private var showsAdditionalInfo = true
     @State private var openDocument: ResultDocument?
+    /// Past values of each component, shown in a dropdown under its card.
+    @State private var trends: [ComponentTrend] = []
 
     init(result: TestResult) {
         _result = State(initialValue: result)
@@ -278,7 +280,6 @@ struct TestResultDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 resultsSection
-                ResultTrendsSection(result: result)
                 if !result.comments.isEmpty { commentsSection }
                 if !result.documents.isEmpty { documentsSection }
                 additionalInfoSection
@@ -294,6 +295,7 @@ struct TestResultDetailView: View {
             if let detailed = try? await session.service.testResultDetails(result, for: session.patientID) {
                 result = detailed
             }
+            trends = await ResultHistory.trends(for: result, service: session.service, patientID: session.patientID)
         }
     }
 
@@ -387,7 +389,15 @@ struct TestResultDetailView: View {
                 ForEach(resultRows) { row in
                     switch row {
                     case .component(let component):
-                        card { ResultComponentView(component: component) }
+                        card {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ResultComponentView(component: component)
+                                if let trend = trends.first(where: { $0.name == component.name }) {
+                                    Divider()
+                                    TrendDisclosure(trend: trend)
+                                }
+                            }
+                        }
                     case .culture(let organisms):
                         card { CultureView(organisms: organisms) }
                     }
