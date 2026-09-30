@@ -227,6 +227,11 @@ struct SettingsView: View {
                 }
                 .foregroundStyle(.primary)
             }
+            NavigationLink {
+                LicencesView()
+            } label: {
+                SettingsRow("Licences", symbol: "doc.text.fill", color: .gray)
+            }
             LabeledContent {
                 Text(version).foregroundStyle(.secondary)
             } label: {
