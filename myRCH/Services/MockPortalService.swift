@@ -197,40 +197,47 @@ struct MockPortalService: PortalService {
             50 Flemington Road, Parkville VIC 3052
             03 9345 4200
             """
+        // A child with cystic fibrosis (F508del homozygous): routine cough
+        // swabs, the fat-soluble vitamin and liver checks CF teams run, lung
+        // function, and the newborn-screening sweat test.
         return [
-            TestResult(id: "t1", name: "Thyroid Function",
-                       date: Self.date(2026, 9, 3, 9), kind: .lab,
-                       orderingProvider: "Kevin Chang, Consultant", isUnread: true, summary: nil,
+            TestResult(id: "t1", name: "Cough Swab Culture",
+                       date: Self.date(2026, 9, 3, 9), kind: .pathology,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: true,
+                       summary: "Light growth of Staphylococcus aureus. No Pseudomonas aeruginosa isolated.",
                        components: [
-                        ResultComponent(id: "t1a", name: "TSH", value: 5.9, unit: "mIU/L",
-                                        normalLow: 0.5, normalHigh: 4.5),
-                        ResultComponent(id: "t1b", name: "Free T4", value: 13.2, unit: "pmol/L",
-                                        normalLow: 10, normalHigh: 20)
+                        ResultComponent(id: "t1a", name: "Culture", value: nil, unit: "",
+                                        normalLow: nil, normalHigh: nil,
+                                        valueText: "Organism 1\nStaphylococcus aureus\nColony Count Qualitative: light")
                        ],
-                       specimen: "Blood", authorisingClinician: "Joanne Harrison, Consultant",
-                       resultDate: Self.date(2026, 9, 4, 15), resultingLab: rchLab),
-            TestResult(id: "t2", name: "Vitamin D",
+                       specimen: "Cough swab", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 9, 5, 11), resultingLab: rchLab),
+            TestResult(id: "t2", name: "Fat-Soluble Vitamins",
                        date: Self.date(2026, 9, 3, 9), kind: .lab,
-                       orderingProvider: "Kevin Chang, Consultant", isUnread: true, summary: nil,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: true, summary: nil,
                        components: [
                         ResultComponent(id: "t2a", name: "25-OH Vitamin D", value: 48, unit: "nmol/L",
-                                        normalLow: 50, normalHigh: 150)
+                                        normalLow: 50, normalHigh: 150),
+                        ResultComponent(id: "t2b", name: "Vitamin A (retinol)", value: 1.2, unit: "µmol/L",
+                                        normalLow: 0.9, normalHigh: 2.5),
+                        ResultComponent(id: "t2c", name: "Vitamin E (alpha-tocopherol)", value: 19, unit: "µmol/L",
+                                        normalLow: 11, normalHigh: 38)
                        ],
-                       specimen: "Blood", authorisingClinician: "Joanne Harrison, Consultant",
+                       specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
                        resultDate: Self.date(2026, 9, 5, 11), resultingLab: rchLab),
-            TestResult(id: "t3", name: "Allergy IgE",
+            TestResult(id: "t3", name: "Faecal Elastase",
                        date: Self.date(2026, 8, 21, 12), kind: .lab,
-                       orderingProvider: "Nicola Byrne, Registrar", isUnread: false, summary: nil,
+                       orderingProvider: "Kevin Chang, Consultant", isUnread: false,
+                       summary: "Consistent with pancreatic insufficiency. Continue pancreatic enzymes with all meals and snacks.",
                        components: [
-                        ResultComponent(id: "t3a", name: "Total IgE", value: 20.8, unit: "kU/L",
-                                        normalLow: 0, normalHigh: 25)
+                        ResultComponent(id: "t3a", name: "Faecal elastase", value: 15, unit: "µg/g",
+                                        normalLow: 200, normalHigh: nil, valueText: "<15", qualifier: .lessThan)
                        ],
-                       documents: [ResultDocument(id: "t3d1", title: "Scan 1")],
-                       specimen: "Blood", authorisingClinician: "Joanne Harrison, Consultant",
-                       resultDate: Self.date(2026, 9, 7, 12), resultingLab: rchLab),
+                       specimen: "Faeces", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 8, 26, 10), resultingLab: rchLab),
             TestResult(id: "t4", name: "Full Blood Examination",
                        date: Self.date(2026, 8, 21, 12), kind: .lab,
-                       orderingProvider: "Nicola Byrne, Registrar", isUnread: false, summary: nil,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false, summary: nil,
                        components: [
                         ResultComponent(id: "t4a", name: "Haemoglobin", value: 128, unit: "g/L",
                                         normalLow: 115, normalHigh: 155),
@@ -241,55 +248,90 @@ struct MockPortalService: PortalService {
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
                        resultDate: Self.date(2026, 8, 21, 17), resultingLab: rchLab),
-            TestResult(id: "t5", name: "Iron Studies",
-                       date: Self.date(2026, 7, 12, 10), kind: .lab,
+            TestResult(id: "t5", name: "Liver Function",
+                       date: Self.date(2026, 8, 21, 12), kind: .lab,
                        orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
                        components: [
-                        ResultComponent(id: "t5a", name: "Ferritin", value: 22, unit: "µg/L",
+                        ResultComponent(id: "t5a", name: "ALT", value: 34, unit: "U/L",
+                                        normalLow: 5, normalHigh: 30),
+                        ResultComponent(id: "t5b", name: "GGT", value: 18, unit: "U/L",
+                                        normalLow: 5, normalHigh: 25),
+                        ResultComponent(id: "t5c", name: "Albumin", value: 41, unit: "g/L",
+                                        normalLow: 35, normalHigh: 50)
+                       ],
+                       specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 8, 21, 18), resultingLab: rchLab),
+            TestResult(id: "t6", name: "Lung Function (Spirometry)",
+                       date: Self.date(2026, 7, 2, 10), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Normal spirometry. FEV1 stable compared with last year.",
+                       components: [
+                        ResultComponent(id: "t6a", name: "FEV1 (% predicted)", value: 92, unit: "%",
+                                        normalLow: 80, normalHigh: 120),
+                        ResultComponent(id: "t6b", name: "FVC (% predicted)", value: 98, unit: "%",
+                                        normalLow: 80, normalHigh: 120)
+                       ],
+                       authorisingClinician: "Joanne Harrison, Consultant",
+                       resultDate: Self.date(2026, 7, 2, 12), resultingLab: "RCH Respiratory Laboratory"),
+            TestResult(id: "t7", name: "XR Chest 2 VW",
+                       date: Self.date(2026, 7, 2, 14), kind: .imaging,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Mild peribronchial thickening in both upper lobes, in keeping with known cystic fibrosis. No consolidation. Unchanged from last year.",
+                       documents: [ResultDocument(id: "t7d1", title: "Radiology report", pageCount: 2)],
+                       authorisingClinician: "Mark Tran, Radiologist",
+                       resultDate: Self.date(2026, 7, 2, 18), resultingLab: "RCH Medical Imaging"),
+            TestResult(id: "t8", name: "Iron Studies",
+                       date: Self.date(2026, 7, 2, 9), kind: .lab,
+                       orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
+                       components: [
+                        ResultComponent(id: "t8a", name: "Ferritin", value: 22, unit: "µg/L",
                                         normalLow: 15, normalHigh: 120),
-                        ResultComponent(id: "t5b", name: "Transferrin saturation", value: 18, unit: "%",
+                        ResultComponent(id: "t8b", name: "Transferrin saturation", value: 18, unit: "%",
                                         normalLow: 15, normalHigh: 45)
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2026, 7, 13, 9), resultingLab: rchLab),
-            TestResult(id: "t6", name: "XR Chest 2 VW",
-                       date: Self.date(2026, 7, 2, 14), kind: .imaging,
-                       orderingProvider: "Sarah Flynn, Registrar", isUnread: false,
-                       summary: "Lungs are clear. Heart size is normal. No acute cardiopulmonary abnormality.",
-                       documents: [ResultDocument(id: "t6d1", title: "Radiology report", pageCount: 2)],
-                       authorisingClinician: "Mark Tran, Radiologist",
-                       resultDate: Self.date(2026, 7, 2, 18), resultingLab: "RCH Medical Imaging"),
-            TestResult(id: "t7", name: "Renal Function",
-                       date: Self.date(2026, 6, 15, 8), kind: .lab,
-                       orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
+                       resultDate: Self.date(2026, 7, 3, 9), resultingLab: rchLab),
+            TestResult(id: "t9", name: "Allergy IgE",
+                       date: Self.date(2026, 7, 2, 9), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Annual screen for allergic bronchopulmonary aspergillosis (ABPA): no evidence.",
                        components: [
-                        ResultComponent(id: "t7a", name: "Creatinine", value: 52, unit: "µmol/L",
-                                        normalLow: 30, normalHigh: 70),
-                        ResultComponent(id: "t7b", name: "Urea", value: 4.1, unit: "mmol/L",
+                        ResultComponent(id: "t9a", name: "Total IgE", value: 20.8, unit: "kU/L",
+                                        normalLow: 0, normalHigh: 25)
+                       ],
+                       specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 7, 6, 12), resultingLab: rchLab),
+            TestResult(id: "t10", name: "Renal Function",
+                       date: Self.date(2026, 6, 1, 8), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Checked after inhaled tobramycin: normal.",
+                       components: [
+                        ResultComponent(id: "t10a", name: "Creatinine", value: 41, unit: "µmol/L",
+                                        normalLow: 25, normalHigh: 60),
+                        ResultComponent(id: "t10b", name: "Urea", value: 4.1, unit: "mmol/L",
                                         normalLow: 2.5, normalHigh: 6.5)
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2026, 6, 15, 16), resultingLab: rchLab),
-            TestResult(id: "t8", name: "Duodenal Biopsy Disaccharidases",
-                       date: Self.date(2026, 5, 2, 11), kind: .pathology,
-                       orderingProvider: "Anatomical Pathology", isUnread: false,
-                       summary: "Disaccharidase activity within normal limits for age. No evidence of lactase deficiency.",
-                       documents: [
-                        ResultDocument(id: "t8d1", title: "Pathology report", pageCount: 3),
-                        ResultDocument(id: "t8d2", title: "Scan 1")
-                       ],
-                       specimen: "Tissue — duodenal biopsy",
-                       authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2026, 5, 16, 10), resultingLab: rchLab),
-            TestResult(id: "t9", name: "Trace Metals",
+                       resultDate: Self.date(2026, 6, 1, 16), resultingLab: rchLab),
+            TestResult(id: "t11", name: "Trace Metals",
                        date: Self.date(2025, 8, 15, 9), kind: .lab,
                        orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
                        components: [
-                        ResultComponent(id: "t9a", name: "Zinc", value: 9.2, unit: "µmol/L",
+                        ResultComponent(id: "t11a", name: "Zinc", value: 9.2, unit: "µmol/L",
                                         normalLow: 10, normalHigh: 18)
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2025, 8, 20, 12), resultingLab: rchLab)
+                       resultDate: Self.date(2025, 8, 20, 12), resultingLab: rchLab),
+            TestResult(id: "t12", name: "Sweat Test",
+                       date: Self.date(2018, 4, 10, 10), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Sweat chloride in the diagnostic range for cystic fibrosis, following newborn screening.",
+                       components: [
+                        ResultComponent(id: "t12a", name: "Sweat chloride", value: 102, unit: "mmol/L",
+                                        normalLow: nil, normalHigh: 29, rangeText: "<30")
+                       ],
+                       specimen: "Sweat", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2018, 4, 10, 15), resultingLab: rchLab)
         ]
     }
 
