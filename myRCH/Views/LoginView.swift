@@ -28,6 +28,13 @@ struct LoginView: View {
                 .padding(.bottom, 8)
                 .frame(minHeight: geo.size.height)
                 .frame(maxWidth: .infinity)
+                // A tap on empty space closes the keyboard. Behind the
+                // content, so the fields and buttons still get their taps.
+                .background {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { focus = nil }
+                }
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
