@@ -26,13 +26,17 @@ final class Session {
     @ObservationIgnored private var pendingCredentials: (username: String, password: String)?
 
     /// When true, sign-in talks to the real RCH portal (unsanctioned web API).
-    /// When false, the app runs on local mock data.
-    var useLivePortal: Bool {
-        didSet {
-            UserDefaults.standard.set(useLivePortal, forKey: Self.liveKey)
-            // Demo and live data mustn't mix.
-            clearCache()
-        }
+    /// When false, the app runs on local mock data. Fixed by where the app
+    /// runs: the Simulator is the only way into demo mode, so a real iPhone
+    /// always uses the portal.
+    let useLivePortal = Session.runsOnDevice
+
+    private static var runsOnDevice: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
     }
 
     @ObservationIgnored private let mockService: PortalService = MockPortalService()
@@ -44,7 +48,6 @@ final class Session {
     @ObservationIgnored private lazy var cachedMock = CachedPortalService(base: mockService, cache: cache)
     @ObservationIgnored private lazy var cachedLive = CachedPortalService(base: liveService, cache: cache)
 
-    private static let liveKey = "useLivePortal"
     private static let accountKey = "activeAccountID"
 
     /// Settings → "Save data on this iPhone": keeps the portal's responses on
@@ -62,10 +65,8 @@ final class Session {
     private(set) var isRestoring: Bool
 
     init() {
-        let live = UserDefaults.standard.bool(forKey: Self.liveKey)
-        useLivePortal = live
         cachesDataOnDevice = UserDefaults.standard.bool(forKey: PortalDiskCache.enabledKey)
-        isRestoring = live && Keychain.loadCredentials() != nil
+        isRestoring = Self.runsOnDevice && Keychain.loadCredentials() != nil
     }
 
     /// Signs in again from the Keychain so the app opens straight into the

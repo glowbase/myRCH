@@ -91,26 +91,10 @@ struct LoginView: View {
                     .transition(.opacity)
             }
 
-            #if DEBUG
-            liveToggle
-            #endif
-
             signInButton
                 .padding(.top, 12)
         }
     }
-
-    #if DEBUG
-    /// Developer switch between mock data and the real portal.
-    private var liveToggle: some View {
-        @Bindable var session = session
-        return Toggle(isOn: $session.useLivePortal) {
-            Label("Connect to live RCH portal", systemImage: "antenna.radiowaves.left.and.right")
-                .font(.subheadline)
-        }
-        .toggleStyle(.switch)
-    }
-    #endif
 
     private var passwordField: some View {
         HStack {

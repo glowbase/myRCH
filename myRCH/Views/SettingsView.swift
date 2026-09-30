@@ -269,7 +269,7 @@ struct SettingsView: View {
                 SettingsRow("Save Data on This iPhone", symbol: "internaldrive.fill", color: .gray)
             }
         } footer: {
-            Text("Keeps a copy of your portal data on this iPhone for up to 5 minutes, so reopening the app is quicker. It's encrypted while your iPhone is locked, and deleted when you sign out, pull to refresh or turn this off. Applies to the live portal only.")
+            Text("Keeps a copy of your portal data on this iPhone for up to 5 minutes, so reopening the app is quicker. It's encrypted while your iPhone is locked, and deleted when you sign out, pull to refresh or turn this off.")
         }
     }
 
