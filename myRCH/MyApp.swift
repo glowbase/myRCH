@@ -35,6 +35,7 @@ import UIKit
         // Reminders are scheduled a window ahead; top it up on each return,
         // and pick up anything another parent changed while away.
         .onChange(of: scenePhase, initial: true) { _, phase in
+            AppLock.shared.scenePhaseChanged(phase)
             if phase == .active {
                 medicationStore.applyPendingDoseLogs()
                 medicationStore.refreshNotifications()
@@ -67,6 +68,9 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// launched by tapping the link.
 final class SceneDelegate: NSObject, UIWindowSceneDelegate {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        if let windowScene = scene as? UIWindowScene {
+            MainActor.assumeIsolated { AppLock.shared.attach(to: windowScene) }
+        }
         if let metadata = connectionOptions.cloudKitShareMetadata {
             Task { await CareSync.shared.accept(metadata) }
         }

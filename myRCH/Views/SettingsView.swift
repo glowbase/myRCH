@@ -37,6 +37,7 @@ struct SettingsView: View {
     /// The Allergy Alert widget shows allergies without unlocking, so it's opt-in.
     @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
     @AppStorage(ActivityManager.enabledKey) private var liveActivitiesEnabled = true
+    @State private var appLock = AppLock.shared
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
@@ -190,14 +191,26 @@ struct SettingsView: View {
 
     // MARK: - Data & privacy
 
+    @ViewBuilder
     private var dataSection: some View {
         @Bindable var session = session
-        return Section {
+        Section {
+            Toggle(isOn: Binding(get: { appLock.isEnabled },
+                                 set: { enabled in Task { await appLock.setEnabled(enabled) } })) {
+                SettingsRow("Require \(appLock.method)", symbol: appLock.symbol, color: .green)
+            }
+            .disabled(!appLock.isAvailable)
+        } header: {
+            Text("Data & Privacy")
+        } footer: {
+            Text(appLock.isAvailable
+                 ? "Asks for \(appLock.method) each time you open myRCH, and hides your records in the app switcher. Your iPhone passcode works too."
+                 : "Set a passcode for your iPhone in Settings to lock myRCH.")
+        }
+        Section {
             Toggle(isOn: $session.cachesDataOnDevice) {
                 SettingsRow("Save Data on This iPhone", symbol: "internaldrive.fill", color: .gray)
             }
-        } header: {
-            Text("Data & Privacy")
         } footer: {
             Text("Keeps a copy of your portal data on this iPhone for up to 5 minutes, so reopening the app is quicker. It's encrypted while your iPhone is locked, and deleted when you sign out, pull to refresh or turn this off. Applies to the live portal only.")
         }
