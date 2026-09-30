@@ -42,6 +42,8 @@ struct SettingsView: View {
     @AppStorage(MedicationStore.snoozeMinutesKey) private var snoozeMinutes = 10
     @AppStorage(MedicationStore.followUpMinutesKey) private var followUpMinutes = 30
     @Environment(MedicationStore.self) private var medicationStore
+    /// From the portal's record header, for the profile row.
+    @State private var urNumber: String?
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
@@ -63,20 +65,43 @@ struct SettingsView: View {
 
     // MARK: - Profile
 
+    /// Like the top of iOS Settings: avatar on the left, then the child's
+    /// name, age and UR number.
     private var profileHeader: some View {
         Section {
-            VStack(spacing: 10) {
+            HStack(spacing: 14) {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                           tint: session.activeTint, size: 88)
-                Text(session.activeAccount?.name ?? profile.fullName)
-                    .font(.system(.title, design: .rounded).bold())
-                Text(session.useLivePortal ? "My RCH Portal" : "Demo mode")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                           tint: session.activeTint, size: 64)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(session.activeAccount?.name ?? profile.fullName)
+                            .font(.title2.weight(.semibold))
+                            .lineLimit(2)
+                        // So sample records are never mistaken for real ones.
+                        if !session.useLivePortal {
+                            Pill(text: "Demo", tint: .orange)
+                                .fixedSize()
+                        }
+                    }
+                    if let birth = session.activeAccount?.dateOfBirth {
+                        Text("\(birth.ageDescription) · Born \(birth.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let urNumber {
+                        Text("UR \(urNumber)")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .listRowBackground(Color.clear)
+            .accessibilityElement(children: .combine)
+        }
+        .task(id: session.patientID) {
+            // Never show one child's UR number under another's name.
+            urNumber = nil
+            urNumber = try? await session.service.recordHeader(for: session.patientID).urNumber
         }
     }
 
