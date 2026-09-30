@@ -57,9 +57,15 @@ final class Session {
         }
     }
 
+    /// Signing in again with saved details at launch. The app shows its
+    /// loading screen meanwhile, rather than flashing the login form.
+    private(set) var isRestoring: Bool
+
     init() {
-        useLivePortal = UserDefaults.standard.bool(forKey: Self.liveKey)
+        let live = UserDefaults.standard.bool(forKey: Self.liveKey)
+        useLivePortal = live
         cachesDataOnDevice = UserDefaults.standard.bool(forKey: PortalDiskCache.enabledKey)
+        isRestoring = live && Keychain.loadCredentials() != nil
     }
 
     /// Signs in again from the Keychain so the app opens straight into the
@@ -67,6 +73,7 @@ final class Session {
     /// this replays the saved credentials; the remembered device ID normally
     /// means no verification code is needed.
     func restoreSession() async {
+        defer { isRestoring = false }
         guard useLivePortal, case .signedOut = phase,
               let credentials = Keychain.loadCredentials() else { return }
         await signIn(username: credentials.username, password: credentials.password)

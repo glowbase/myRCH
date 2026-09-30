@@ -240,6 +240,30 @@ struct LoginView: View {
 /// Soft, blurred accent shapes that drift slowly around the screen, adding a
 /// playful children's-hospital warmth behind entry screens without distracting
 /// from the form.
+/// Shown while saved details sign in again at launch. Picks up where the
+/// launch screen leaves off: the same icon, the same size and place, now on
+/// the login screen's background, with a spinner below.
+struct LaunchView: View {
+    var body: some View {
+        Image("LaunchIcon")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 200, height: 200)
+            .overlay(alignment: .bottom) {
+                ProgressView()
+                    .controlSize(.large)
+                    .offset(y: 56)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                Theme.welcomeBackground.ignoresSafeArea()
+                DecorativeBlobs().ignoresSafeArea()
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Signing in")
+    }
+}
+
 private struct DecorativeBlobs: View {
     private struct Blob {
         var color: Color

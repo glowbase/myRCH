@@ -74,7 +74,11 @@ struct RootView: View {
         @Bindable var store = store
         switch session.phase {
         case .signedOut, .authenticating:
-            LoginView()
+            if session.isRestoring {
+                LaunchView()
+            } else {
+                LoginView()
+            }
         case .verifyingCode:
             VerificationCodeView()
         case let .signedIn(profile):
