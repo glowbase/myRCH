@@ -11,7 +11,7 @@ import UserNotifications
 /// Reminders work like the Health app's: one notification per child per dose
 /// time, covering every medication due then ("Time for Sam's 8:00 am
 /// medications: …"), with Mark All as Taken / Skip All / Snooze actions, and
-/// a follow-up 30 minutes later naming whatever still isn't logged. Tapping a
+/// a follow-up (30 minutes later by default) naming whatever still isn't logged. Tapping a
 /// reminder opens a sheet to log each medication. Each slot is its own
 /// one-off notification (not a repeating trigger), so a day's follow-up can
 /// be dropped once everything in it is logged.
@@ -99,8 +99,20 @@ final class MedicationStore {
     /// Every reminder's title. Fixed here, not read from saved entries, so
     /// reminders set up earlier (saved as "Medication reminder") update too.
     static let reminderTitle = "Medication Reminder"
-    static let followUpDelay: TimeInterval = 30 * 60
-    static let snoozeDelay: TimeInterval = 10 * 60
+    /// Settings > Medication Reminders, in minutes.
+    static let snoozeMinutesKey = "snoozeMinutes"
+    static let followUpMinutesKey = "followUpMinutes"
+    static let snoozeChoices = [5, 10, 15, 30]
+    /// 0 turns the follow-up off.
+    static let followUpChoices = [0, 15, 30, 60]
+
+    static var snoozeMinutes: Int {
+        UserDefaults.standard.object(forKey: snoozeMinutesKey) as? Int ?? 10
+    }
+    static var followUpMinutes: Int {
+        UserDefaults.standard.object(forKey: followUpMinutesKey) as? Int ?? 30
+    }
+    static var snoozeDelay: TimeInterval { TimeInterval(snoozeMinutes * 60) }
     static let categoryID = "MEDICATION_REMINDER"
     /// iOS keeps at most 64 pending notifications per app; leave headroom.
     private static let maxPending = 60
@@ -301,7 +313,8 @@ final class MedicationStore {
         share(key, deleted: true) { (.asNeeded, Self.asNeededName($0, log)) }
     }
 
-    /// "Remind Me in 10 Minutes": a one-off repeat for what's still unlogged.
+    /// "Remind Me in 10 Minutes" (or as set in Settings): a one-off repeat
+    /// for what's still unlogged.
     func snooze(_ slot: Slot) {
         let names = items(in: slot).filter { $0.status == nil }.map(\.name)
         guard !names.isEmpty else { return }
@@ -361,8 +374,11 @@ final class MedicationStore {
         for (slot, names) in unlogged {
             let sortedNames = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             let child = children[slot.patientID]
-            let followUp = slot.scheduled.addingTimeInterval(Self.followUpDelay)
-            for (kind, fireDate) in [("main", slot.scheduled), ("followup", followUp)] where fireDate > now {
+            var fires = [("main", slot.scheduled)]
+            if Self.followUpMinutes > 0 {
+                fires.append(("followup", slot.scheduled.addingTimeInterval(TimeInterval(Self.followUpMinutes * 60))))
+            }
+            for (kind, fireDate) in fires where fireDate > now {
                 let request = Self.request(
                     slot: slot, fireDate: fireDate, kind: kind, title: Self.reminderTitle,
                     body: Self.body(names: sortedNames, child: child, at: slot.scheduled, followUp: kind == "followup"))
@@ -697,9 +713,13 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     /// Registers the notification buttons. Call once at launch.
     func register(store: MedicationStore) {
         self.store = store
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.setNotificationCategories([
+        UNUserNotificationCenter.current().delegate = self
+        registerCategories()
+    }
+
+    /// The buttons, again when the snooze length changes in Settings.
+    func registerCategories() {
+        UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(
                 identifier: MedicationStore.categoryID,
                 actions: [
@@ -707,7 +727,7 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
                                          icon: UNNotificationActionIcon(systemImageName: "checkmark.circle")),
                     UNNotificationAction(identifier: Action.skipped, title: "Skip All",
                                          icon: UNNotificationActionIcon(systemImageName: "xmark.circle")),
-                    UNNotificationAction(identifier: Action.snooze, title: "Remind Me in 10 Minutes",
+                    UNNotificationAction(identifier: Action.snooze, title: "Remind Me in \(MedicationStore.snoozeMinutes) Minutes",
                                          icon: UNNotificationActionIcon(systemImageName: "clock"))
                 ],
                 intentIdentifiers: [])

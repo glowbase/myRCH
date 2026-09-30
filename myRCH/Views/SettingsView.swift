@@ -39,6 +39,9 @@ struct SettingsView: View {
     @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
     @AppStorage(ActivityManager.enabledKey) private var liveActivitiesEnabled = true
     @State private var appLock = AppLock.shared
+    @AppStorage(MedicationStore.snoozeMinutesKey) private var snoozeMinutes = 10
+    @AppStorage(MedicationStore.followUpMinutesKey) private var followUpMinutes = 30
+    @Environment(MedicationStore.self) private var medicationStore
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
@@ -170,6 +173,26 @@ struct SettingsView: View {
         } footer: {
             Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
         }
+        Section {
+            Picker(selection: $snoozeMinutes) {
+                ForEach(MedicationStore.snoozeChoices, id: \.self) { Text("\($0) minutes").tag($0) }
+            } label: {
+                SettingsRow("Snooze", symbol: "clock.fill", color: Theme.medication)
+            }
+            Picker(selection: $followUpMinutes) {
+                ForEach(MedicationStore.followUpChoices, id: \.self) { minutes in
+                    Text(minutes == 0 ? "Off" : "After \(minutes) minutes").tag(minutes)
+                }
+            } label: {
+                SettingsRow("Follow-up Reminder", symbol: "bell.and.waves.left.and.right.fill", color: Theme.medication)
+            }
+        } header: {
+            Text("Medication Reminders")
+        } footer: {
+            Text("Snooze is how long Remind Me waits. A follow-up names any medication still not logged after its reminder.")
+        }
+        .onChange(of: snoozeMinutes) { NotificationPresenter.shared.registerCategories() }
+        .onChange(of: followUpMinutes) { medicationStore.refreshNotifications() }
         Section {
             ShortcutsLink()
                 .shortcutsLinkStyle(.automaticOutline)
@@ -331,4 +354,5 @@ struct SettingsRow: View {
             ]))
     }
     .environment(Session())
+    .environment(MedicationStore.shared)
 }
