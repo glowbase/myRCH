@@ -180,6 +180,7 @@ struct AppointmentDetailView: View {
     @State private var confirmation: String?
     /// Notes and After Visit Summary, fetched when a past visit opens.
     @State private var documents: [VisitDocument] = []
+    @State private var showsRecap = false
 
     private var isUpcoming: Bool { appointment.status == .scheduled && !isCancelled }
 
@@ -236,6 +237,12 @@ struct AppointmentDetailView: View {
             AddToCalendarSheet(appointment: appointment)
                 .ignoresSafeArea()
         }
+        .toolbar {
+            if appointment.status == .completed {
+                AIExplainToolbarItem(title: "Visit Recap") { showsRecap = true }
+            }
+        }
+        .sheet(isPresented: $showsRecap) { VisitRecapSheet(appointment: appointment, documents: documents) }
         .task(id: appointment.id) { await loadDocuments() }
     }
 
