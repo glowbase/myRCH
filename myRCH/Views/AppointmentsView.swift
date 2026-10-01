@@ -192,6 +192,7 @@ struct AppointmentDetailView: View {
                     if appointment.isTelehealth { telehealthCard }
                     earlierOffersCard
                     if !appointment.instructions.isEmpty { preparationCard }
+                    AppointmentQuestionsCard(appointment: appointment)
                 }
                 if appointment.status == .missed { missedCard }
                 documentsSections
