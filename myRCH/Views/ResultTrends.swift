@@ -65,6 +65,38 @@ enum ResultHistory {
     }
 }
 
+/// Describes a component's history for the on-device model.
+enum TrendSummary {
+    static let instructions = """
+        You are describing how one of a child's test values has changed over \
+        time. Describe the direction (rising, falling, steady or up and \
+        down) and where the latest value sits against the normal range. \
+        Don't guess at causes.
+        """
+
+    static func prompt(for trend: ComponentTrend, age: String?) -> String {
+        var lines: [String] = []
+        if let age { lines.append("Child's age now: \(age)") }
+        lines.append("Test value: \(trend.name)" + (trend.unit.isEmpty ? "" : " (\(trend.unit))"))
+        switch (trend.normalLow, trend.normalHigh) {
+        case let (low?, high?): lines.append("Normal range: \(low.formatted())–\(high.formatted())")
+        case let (nil, high?): lines.append("Normal: below \(high.formatted())")
+        case let (low?, nil): lines.append("Normal: above \(low.formatted())")
+        case (nil, nil): break
+        }
+        lines.append("Values, oldest first:")
+        for point in trend.points {
+            var line = "- \(point.date.mediumDate): \(point.value.formatted(.number.precision(.fractionLength(0...2))))"
+            if let low = trend.normalLow, point.value < low { line += " (below range)" }
+            if let high = trend.normalHigh, point.value > high { line += " (above range)" }
+            lines.append(line)
+        }
+        lines.append("")
+        lines.append("In two or three short sentences, describe how this value has changed over time and where the latest one sits compared with the normal range. Reply with only the description.")
+        return lines.joined(separator: "\n")
+    }
+}
+
 /// A collapsed "Trend" dropdown under a result value: a time-range picker,
 /// then the history as a chart (normal range shaded) and as a table.
 struct TrendDisclosure: View {
@@ -86,6 +118,7 @@ struct TrendDisclosure: View {
 
 private struct TrendDetail: View {
     let trend: ComponentTrend
+    @Environment(Session.self) private var session
 
     enum Span: String, CaseIterable, Identifiable {
         case sixMonths = "6M", year = "Y", all = "All"
@@ -124,6 +157,10 @@ private struct TrendDetail: View {
                 }
                 Divider()
                 table
+                Divider()
+                AIInlineSummary(buttonTitle: "Summarise trend", instructions: TrendSummary.instructions) {
+                    TrendSummary.prompt(for: trend, age: await ChildContext.load(session).age)
+                }
             } else {
                 Text("No values in this period.")
                     .font(.subheadline)
