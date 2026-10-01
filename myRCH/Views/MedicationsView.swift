@@ -188,6 +188,7 @@ struct MedicationDetailView: View {
     @State private var notificationsDenied = false
     /// The day shown in the History section.
     @State private var historyDay = Calendar.current.startOfDay(for: .now)
+    @State private var showsExplanation = false
     @FocusState private var isWritingNote: Bool
 
     private var storeKey: String {
@@ -229,6 +230,10 @@ struct MedicationDetailView: View {
         .navigationTitle("Medication")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            AIExplainToolbarItem(title: "Explain Medication") { showsExplanation = true }
+        }
+        .sheet(isPresented: $showsExplanation) { MedicationExplanationSheet(medication: medication) }
     }
 
     // MARK: AKA
