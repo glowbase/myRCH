@@ -87,12 +87,28 @@ struct AppointmentQuestionsCard: View {
                     row(question)
                     Divider().padding(.leading, 52)
                 }
-                TextField("Add a question", text: $newQuestion, axis: .vertical)
-                    .focused($isTyping)
-                    .submitLabel(.done)
-                    .onSubmit(addTyped)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    // Wraps long questions, but a vertical field's return key
+                    // types a new line rather than submitting, so a typed
+                    // return adds the question instead.
+                    TextField("Add a question", text: $newQuestion, axis: .vertical)
+                        .focused($isTyping)
+                        .submitLabel(.done)
+                        .onChange(of: newQuestion) {
+                            if newQuestion.contains("\n") {
+                                newQuestion = newQuestion.replacingOccurrences(of: "\n", with: "")
+                                addTyped()
+                            }
+                        }
+                    if !newQuestion.trimmingCharacters(in: .whitespaces).isEmpty {
+                        Button("Add Question", systemImage: "plus.circle.fill", action: addTyped)
+                            .labelStyle(.iconOnly)
+                            .font(.title3)
+                            .tint(Theme.brand)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
                 if OnDeviceAI.isSupported {
                     Divider().padding(.leading, 16)
                     suggestButton
