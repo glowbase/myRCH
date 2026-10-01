@@ -341,6 +341,9 @@ struct Medication: Identifiable, Hashable {
     /// The name exactly as the portal gave it, before strength and form
     /// were split out.
     var sourceName: String? = nil
+    /// The portal's raw name, before the app tidies its capitalisation;
+    /// sent back when removing the medication.
+    var portalName: String? = nil
 }
 
 extension Medication {

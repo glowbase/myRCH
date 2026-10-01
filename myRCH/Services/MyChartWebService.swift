@@ -38,9 +38,6 @@ enum MyChartError: LocalizedError {
     case decoding(action: String, snippet: String)
     /// An action like Bookmark came back without `isSuccess`.
     case actionFailed(String)
-    /// The portal request for this hasn't been captured yet, so the app
-    /// doesn't send one. Names what can't be done, e.g. "Removing medications".
-    case notInAppYet(String)
 
     var errorDescription: String? {
         switch self {
@@ -54,7 +51,6 @@ enum MyChartError: LocalizedError {
         case let .portalError(code): "The portal rejected the sign-in (error \(code ?? "unknown"))."
         case .sessionExpired: "Your session expired. Please sign in again."
         case let .actionFailed(action): "The portal couldn't complete that (\(action)). Please try again."
-        case let .notInAppYet(what): "\(what) isn't available in the app yet. You can do it on the My RCH Portal website."
         case let .decoding(action, snippet):
             "Couldn't read the response for \(action). Raw JSON: \(snippet)"
         }
@@ -752,11 +748,55 @@ actor MyChartWebService: PortalService {
         }
     }
 
-    /// Not captured yet. The medications page offers removal for ones the
-    /// family added (`showPendingUndoDeleteButton` follows it), but the
-    /// request hasn't been recorded, so none is guessed at.
+    /// Captured from the Medications page, removing a medication the family
+    /// added (still awaiting review): a legacy form POST to
+    /// `Clinical/Medications/SubmitUpdate?noCache=…` with `name` (the
+    /// portal's raw name), `action=4`, `referenceID` and
+    /// `IsFilteredList=false`. The reply wasn't captured, and `referenceID`
+    /// is taken to be the list's `id`, so success is checked by reloading
+    /// the list and making sure the medication has gone.
     func removeMedication(_ medication: Medication, for patientID: String) async throws {
-        throw MyChartError.notInAppYet("Removing medications")
+        await ensureContext(patientID)
+        let path = "Clinical/Medications/SubmitUpdate"
+        var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "noCache", value: String(Double.random(in: 0..<1)))]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+        request.setValue(config.url("Clinical/Medications").absoluteString, forHTTPHeaderField: "Referer")
+        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+        request.httpBody = Self.formEncode([
+            "name": medication.portalName ?? medication.sourceName ?? medication.displayName,
+            "action": "4",
+            "referenceID": medication.id,
+            "IsFilteredList": "false"
+        ]).data(using: .utf8)
+
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if debugLogResponses { print("→ \(path): HTTP \(status), \(data.count) bytes") }
+        let text = String(decoding: data, as: UTF8.self)
+        if text.contains("Authentication/Login") { throw MyChartError.sessionExpired }
+        guard (200..<300).contains(status) else { throw MyChartError.actionFailed("SubmitUpdate") }
+        if let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           reply["isSuccess"] as? Bool == false || reply["Success"] as? Bool == false {
+            throw MyChartError.actionFailed("SubmitUpdate")
+        }
+
+        // The portal answered, but only a fresh list without it proves it's
+        // gone. Drop the device's saved list too, so it doesn't come back.
+        let body: [String: Any] = ["context": 2]
+        PortalDiskCache.shared.remove(PortalDiskCache.shared.key(
+            patientID: patientID, endpoint: "api/medications/LoadMedicationsPage", parameters: body))
+        let json = try await postJSON(for: patientID, action: "api/medications/LoadMedicationsPage",
+                                      body: body, savesCopy: false)
+        if decodeMedications(json).contains(where: { $0.id == medication.id && $0.isActive }) {
+            throw MyChartError.actionFailed("SubmitUpdate")
+        }
     }
 
     /// Latest message of each conversation, for the dashboard and notifications.
@@ -1775,7 +1815,8 @@ actor MyChartWebService: PortalService {
                 canRequestRepeat: item["showRefillButton"] as? Bool ?? false,
                 isPatientReported: isPatientReported,
                 productForm: parts.form,
-                sourceName: name
+                sourceName: name,
+                portalName: Self.string(item, "name")
             )
         }
     }
