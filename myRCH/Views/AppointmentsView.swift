@@ -206,6 +206,8 @@ struct AppointmentDetailView: View {
             }
             .padding()
         }
+        // For swipe-to-delete on the questions to ask.
+        .swipeActionsContainerIfAvailable()
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Appointment")
         .navigationBarTitleDisplayMode(.inline)

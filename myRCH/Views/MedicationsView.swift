@@ -153,7 +153,7 @@ struct MedicationsView: View {
 
     private func link(to medication: Medication) -> some View {
         NavigationLink {
-            MedicationDetailView(medication: medication) { listID = UUID() }
+            MedicationDetailView(medication: medication)
         } label: {
             MedicationRow(medication: medication)
         }
@@ -220,15 +220,8 @@ struct MedicationRow: View {
 
 struct MedicationDetailView: View {
     let medication: Medication
-    /// After a family-added medication is removed, so the list reloads.
-    var onRemoved: () -> Void = {}
     @Environment(Session.self) private var session
     @Environment(MedicationStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var confirmsRemoval = false
-    @State private var isRemoving = false
-    @State private var removalError: String?
 
     @State private var newNote = ""
     @State private var notificationsDenied = false
@@ -266,9 +259,8 @@ struct MedicationDetailView: View {
                 if medication.isPatientReported {
                     section("Good to Know") {
                         note("person.fill.checkmark",
-                             "You added this medication. The care team will review it at the next visit.")
+                             "You added this medication. The care team will review it at the next visit. To remove it, swipe left on it in the medication list.")
                     }
-                    removeButton
                 }
             }
             .padding()
@@ -281,56 +273,6 @@ struct MedicationDetailView: View {
             AIExplainToolbarItem(title: "Explain Medication") { showsExplanation = true }
         }
         .sheet(isPresented: $showsExplanation) { MedicationExplanationSheet(medication: medication) }
-        .confirmationDialog("Remove \(medication.reminderName)?", isPresented: $confirmsRemoval,
-                            titleVisibility: .visible) {
-            Button("Remove Medication", role: .destructive) { Task { await remove() } }
-        } message: {
-            Text("It comes off the medication list on the portal, and its reminders on this iPhone stop.")
-        }
-        .alert("Couldn't remove the medication", isPresented: .constant(removalError != nil)) {
-            Button("OK") { removalError = nil }
-        } message: {
-            Text(removalError ?? "")
-        }
-    }
-
-    // MARK: Remove
-
-    /// Only for medications the family added; prescriptions are the care
-    /// team's to change.
-    private var removeButton: some View {
-        Button(role: .destructive) {
-            confirmsRemoval = true
-        } label: {
-            HStack(spacing: 8) {
-                if isRemoving { ProgressView() }
-                Text(isRemoving ? "Removing…" : "Remove Medication")
-                    .font(.headline)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.red)
-        .disabled(isRemoving)
-    }
-
-    private func remove() async {
-        isRemoving = true
-        defer { isRemoving = false }
-        do {
-            try await session.service.removeMedication(medication, for: session.patientID)
-            // No reminders for a medicine that's no longer on the list.
-            if !reminders.isEmpty {
-                store.setReminders([], for: storeKey, medicineName: medication.reminderName,
-                                   childName: session.activeFirstName)
-            }
-            onRemoved()
-            dismiss()
-        } catch {
-            removalError = error.localizedDescription
-        }
     }
 
     // MARK: AKA
