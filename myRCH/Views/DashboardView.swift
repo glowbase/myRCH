@@ -132,7 +132,14 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                header
+                // No spacing, so an absent digest leaves no gap; the card
+                // pads itself when shown.
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    if !isLoading {
+                        HomeDigestCard(results: results, upcoming: upcoming, unreadMessages: unreadMessages)
+                    }
+                }
                 // Rearranged from Settings › Edit Home.
                 ForEach(HomeLayout(stored: homeSections).pinned) { section in
                     self.section(section)
