@@ -14,6 +14,14 @@ enum ResultExplainer {
 
     static let purposeRequest = "In two or three short sentences, explain what this test checks and why a doctor might order it. Reply with only the explanation."
     static let meaningRequest = "Now, in two to four short sentences, explain what these particular results likely mean, including what any comments say. Reply with only the explanation."
+    /// Only asked when something is outside its range.
+    static let causesRequest = "Now, for each result outside its normal range, in two to four short sentences in total, describe the common reasons a child's level can be low or high (as it is here), and what it can affect in a child's body if it stays that way. These are general possibilities, not what this child has. Reply with only the explanation."
+
+    /// Whether any measured value (not a culture) is outside its range, so
+    /// causes and effects are worth explaining.
+    static func hasValuesOutOfRange(_ result: TestResult) -> Bool {
+        result.components.contains { $0.organism == nil && $0.isAbnormal }
+    }
 
     /// Whether to offer the button at all: hidden on devices that can never
     /// run Apple Intelligence, shown otherwise (the sheet explains if it's
@@ -28,7 +36,10 @@ enum ResultExplainer {
         English, in warm, plain language a parent without medical training can \
         follow. Explain medical terms when you use them. Be factual and calm. \
         Never diagnose, never suggest treatment, and never say a result is \
-        definitely fine or definitely serious. Normal ranges in children vary \
+        definitely fine or definitely serious. When asked, you may describe \
+        common causes and effects of a low or high level in general terms, \
+        using words like "can" and "sometimes", and say the care team will \
+        know which apply to this child. Normal ranges in children vary \
         with age, so a value just outside the range is often not a concern. \
         Only describe the results you are given; don't invent values. \
         Lab and care team comments matter: explain each one in plain words. \
@@ -113,7 +124,16 @@ enum ResultExplainer {
         default: if let range = component.rangeText { line += " (normal: \(range))" }
         }
         if component.isAbnormal {
-            line += " – outside normal range"
+            // Which side matters for causes and effects. A censored value
+            // ("<3") is only flagged when it's past the bound, so `value` is
+            // enough to tell the side.
+            if let value = component.value, let low = component.normalLow, value <= low {
+                line += " – LOW, below normal range"
+            } else if let value = component.value, let high = component.normalHigh, value >= high {
+                line += " – HIGH, above normal range"
+            } else {
+                line += " – flagged by the lab as outside normal range"
+            }
         } else if component.normalLow != nil || component.normalHigh != nil {
             line += " – within normal range"
         }
@@ -139,6 +159,7 @@ struct ResultExplanationSheet: View {
     @State private var phase: Phase = .generating
     @State private var purpose: String?
     @State private var meaning: String?
+    @State private var causes: String?
     /// Bumped by "Try again" to restart the task.
     @State private var attempt = 0
 
@@ -183,6 +204,9 @@ struct ResultExplanationSheet: View {
         case .generating, .done:
             section("What this test is for", systemImage: "questionmark.circle.fill", text: purpose)
             section("What the result likely means", systemImage: "text.magnifyingglass", text: meaning)
+            if ResultExplainer.hasValuesOutOfRange(result) {
+                section("Possible causes and effects", systemImage: "arrow.triangle.branch", text: causes)
+            }
             disclaimer
         }
     }
@@ -239,14 +263,18 @@ struct ResultExplanationSheet: View {
         phase = .generating
         purpose = nil
         meaning = nil
-        // One session, two turns: the second request sees the result from
-        // the first, so it doesn't need repeating.
+        causes = nil
+        // One session, a turn per section: later requests see the result
+        // from the first, so it doesn't need repeating.
         let session = LanguageModelSession(model: ResultExplainer.model,
                                            instructions: ResultExplainer.instructions)
         do {
             let opening = ResultExplainer.prompt(for: result) + "\n\n" + ResultExplainer.purposeRequest
             try await stream(session.streamResponse(to: opening)) { purpose = $0 }
             try await stream(session.streamResponse(to: ResultExplainer.meaningRequest)) { meaning = $0 }
+            if ResultExplainer.hasValuesOutOfRange(result) {
+                try await stream(session.streamResponse(to: ResultExplainer.causesRequest)) { causes = $0 }
+            }
             phase = .done
         } catch is CancellationError {
             // The sheet closed; nothing to show.
