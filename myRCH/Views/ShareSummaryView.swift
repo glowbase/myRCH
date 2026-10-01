@@ -20,6 +20,12 @@ struct ShareSummaryView: View {
     @State private var includesMedication = true
     @State private var includesImmunisations = false
     @State private var pdf: URL?
+    /// An optional plain-language paragraph at the top, drafted on device
+    /// and edited by the family before sharing.
+    @State private var includesIntro = false
+    @State private var intro = ""
+    @State private var isWritingIntro = false
+    @State private var introFailure: String?
 
     private var name: String { header?.fullName ?? session.activeAccount?.name ?? "Patient" }
 
@@ -53,6 +59,8 @@ struct ShareSummaryView: View {
             }
             .disabled(isLoading)
 
+            if OnDeviceAI.isSupported { introSection }
+
             Section {
                 if let pdf {
                     ShareLink(item: pdf) {
@@ -75,13 +83,101 @@ struct ShareSummaryView: View {
         .task(id: patientID) { await load() }
         .task(id: selection) {
             guard !isLoading else { return }
+            // Waits out typing in the summary before re-rendering.
+            if includesIntro { try? await Task.sleep(for: .milliseconds(400)) }
+            guard !Task.isCancelled else { return }
             pdf = DocumentPDF.write(html: html, named: "Health Summary – \(name)")
         }
     }
 
+    private struct Selection: Hashable {
+        var flags: [Bool]
+        var intro: String
+    }
+
     /// Changes whenever the PDF needs rebuilding.
-    private var selection: [Bool] {
-        [isLoading, includesUR, includesAllergies, includesConditions, includesMedication, includesImmunisations]
+    private var selection: Selection {
+        Selection(flags: [isLoading, includesUR, includesAllergies, includesConditions, includesMedication,
+                          includesImmunisations, includesIntro],
+                  intro: intro)
+    }
+
+    // MARK: Summary paragraph
+
+    private var introSection: some View {
+        Section {
+            Toggle("Add a short summary", isOn: $includesIntro)
+                .disabled(isLoading)
+                .onChange(of: includesIntro) {
+                    if includesIntro, intro.isEmpty { Task { await writeIntro() } }
+                }
+            if includesIntro {
+                if isWritingIntro {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Writing a summary…").foregroundStyle(.secondary)
+                    }
+                } else {
+                    TextField("A few sentences about your child's health", text: $intro, axis: .vertical)
+                        .lineLimit(3...10)
+                    Button("Rewrite", systemImage: "sparkles") { Task { await writeIntro() } }
+                }
+                if let introFailure {
+                    Label(introFailure, systemImage: "exclamationmark.bubble")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } footer: {
+            Text("A plain-language paragraph at the top, for a teacher, carer or GP. Apple Intelligence drafts it on this iPhone from what's switched on above; check and edit it before sharing.")
+        }
+    }
+
+    private func writeIntro() async {
+        if let reason = OnDeviceAI.unavailableReason {
+            introFailure = reason
+            return
+        }
+        isWritingIntro = true
+        introFailure = nil
+        defer { isWritingIntro = false }
+        do {
+            intro = try await OnDeviceAI.respond(instructions: Self.introInstructions, prompt: introPrompt)
+        } catch {
+            OnDeviceAI.logFailure("Share summary intro", error)
+            introFailure = "Couldn't write a summary. You can type your own."
+        }
+    }
+
+    private static let introInstructions = """
+        You are writing the opening paragraph of a child's health summary, \
+        which the parent will give to a teacher, carer or GP. In three or \
+        four sentences, introduce the child's main health needs in plain \
+        words, based only on the details given, in the third person using \
+        the child's first name. Mention allergies that matter for day-to-day \
+        care. Don't give instructions or advice, and don't add anything \
+        that isn't listed.
+        """
+
+    /// What's switched on, so the paragraph matches the PDF.
+    private var introPrompt: String {
+        var lines = ["Child's first name: \(name.split(separator: " ").first.map(String.init) ?? name)"]
+        if let birth = session.activeAccount?.dateOfBirth { lines.append("Age: \(birth.ageDescription)") }
+        if includesConditions {
+            lines += RecordContext.block("Conditions", conditions.map { "- \($0.name)" })
+        }
+        if includesAllergies {
+            lines += RecordContext.block("Allergies", allergies.map { allergy in
+                let detail = [allergy.reaction, allergy.severity].filter { !$0.isEmpty }.joined(separator: ", ")
+                return "- \(allergy.substance)" + (detail.isEmpty ? "" : " (\(detail))")
+            })
+        }
+        if includesMedication {
+            lines += RecordContext.block("Current medicines", medications.map { "- \($0.reminderName)" })
+        }
+        lines.append("")
+        lines.append("Write the opening paragraph. Reply with only the paragraph.")
+        return lines.joined(separator: "\n")
     }
 
     private func load() async {
@@ -125,6 +221,10 @@ struct ShareSummaryView: View {
         }
         parts.append("<h1>\(e(name))</h1>")
         if !facts.isEmpty { parts.append("<p class=\"facts\">\(facts.joined(separator: " · "))</p>") }
+        let introText = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+        if includesIntro, !introText.isEmpty {
+            parts.append("<p class=\"intro\">\(e(introText).replacingOccurrences(of: "\n", with: "<br>"))</p>")
+        }
 
         if includesAllergies {
             parts.append(section("Allergies", empty: "No known allergies recorded.", rows: allergies.map { allergy in
@@ -154,6 +254,7 @@ struct ShareSummaryView: View {
         h1 { font-size: 22pt; margin: 0 0 4pt; }
         h2 { font-size: 13pt; color: #0f7690; border-bottom: 1px solid #d1d1d6; padding-bottom: 3pt; margin-top: 16pt; }
         .facts { color: #3a3a3c; margin: 0; }
+        .intro { margin: 12pt 0 0; line-height: 1.4; }
         ul { padding-left: 16pt; margin: 6pt 0; } li { margin-bottom: 4pt; }
         .sub { color: #636366; font-size: 10pt; } .empty { color: #636366; }
         .footer { margin-top: 24pt; font-size: 8.5pt; color: #8e8e93; }
