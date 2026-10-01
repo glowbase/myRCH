@@ -52,6 +52,8 @@ enum ResultExplainer {
         using words like "can" and "sometimes", and say the care team will \
         know which apply to this child. Normal ranges in children vary \
         with age, so a value just outside the range is often not a concern. \
+        When the child's age is given, keep explanations relevant to a \
+        child of that age. \
         Only describe the results you are given; don't invent values. \
         Lab and care team comments matter: explain each one in plain words. \
         Labs often name germs they looked for but didn't find. "Not \
@@ -66,9 +68,11 @@ enum ResultExplainer {
     private static let commentLimit = 600
 
     /// Describes the result for the model: what was tested and each value
-    /// against its range. No names or identifiers are included.
-    static func prompt(for result: TestResult) -> String {
+    /// against its range. No names or identifiers are included; `age` is
+    /// the child's age when the sample was collected.
+    static func prompt(for result: TestResult, age: String?) -> String {
         var lines: [String] = []
+        if let age { lines.append("Child's age when tested: \(age)") }
         lines.append("Test: \(result.name)")
         switch result.kind {
         case .lab: lines.append("Type: Lab test")
@@ -301,7 +305,11 @@ struct ResultExplanationSheet: View {
         let chat = LanguageModelSession(model: ResultExplainer.model,
                                         instructions: ResultExplainer.instructions)
         do {
-            let opening = ResultExplainer.prompt(for: result) + "\n\n" + ResultExplainer.purposeRequest
+            // Matched on the record being viewed, not `activeAccount`, whose
+            // fallback could give another child's age.
+            let account = session.profile?.linkedAccounts.first { $0.id == session.patientID }
+            let age = account?.dateOfBirth?.ageDescription(at: result.date)
+            let opening = ResultExplainer.prompt(for: result, age: age) + "\n\n" + ResultExplainer.purposeRequest
             try await stream(chat.streamResponse(to: opening)) { purpose = $0 }
             try await stream(chat.streamResponse(to: ResultExplainer.meaningRequest)) { meaning = $0 }
             if ResultExplainer.hasValuesOutOfRange(result) {
