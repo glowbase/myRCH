@@ -139,6 +139,16 @@ struct CachedPortalService: PortalService {
         await cache.remove(prefixes: ["medications|\(patientID)"])
     }
 
+    func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        do {
+            try await base.removeMedication(medication, for: patientID)
+        } catch {
+            await cache.remove(prefixes: ["medications|\(patientID)"])
+            throw error
+        }
+        await cache.remove(prefixes: ["medications|\(patientID)"])
+    }
+
     func messages(for patientID: String) async throws -> [Message] {
         try await cached("messages|\(patientID)") { try await base.messages(for: patientID) }
     }
