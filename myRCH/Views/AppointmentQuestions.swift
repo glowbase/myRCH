@@ -1,5 +1,18 @@
 import SwiftUI
 
+extension View {
+    /// Lets rows inside this scroll view use `swipeActions` outside a List.
+    /// iOS 27 only; on earlier versions the swipe simply isn't offered.
+    @ViewBuilder
+    func swipeActionsContainerIfAvailable() -> some View {
+        if #available(iOS 27, *) {
+            swipeActionsContainer()
+        } else {
+            self
+        }
+    }
+}
+
 enum AppointmentQuestions {
     static let instructions = """
         You are helping a parent prepare questions for their child's \
@@ -56,8 +69,6 @@ struct AppointmentQuestionsCard: View {
     @State private var newQuestion = ""
     @State private var isSuggesting = false
     @State private var failure: String?
-    /// Shows a delete button on each question.
-    @State private var isEditing = false
     @FocusState private var isTyping: Bool
 
     private var store: AppointmentQuestionsStore { .shared }
@@ -68,17 +79,9 @@ struct AppointmentQuestionsCard: View {
     var body: some View {
         let questions = store.questions(for: key)
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Questions to ask")
-                    .font(.title3.bold())
-                    .foregroundStyle(Theme.ink)
-                Spacer()
-                if !questions.isEmpty {
-                    Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
-                        .font(.subheadline.weight(.semibold))
-                        .tint(Theme.brand)
-                }
-            }
+            Text("Questions to ask")
+                .font(.title3.bold())
+                .foregroundStyle(Theme.ink)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(questions) { question in
                     row(question)
@@ -95,7 +98,10 @@ struct AppointmentQuestionsCard: View {
                     suggestButton
                 }
             }
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+            .background(Color(.secondarySystemGroupedBackground))
+            // Rows have their own background (so a swipe slides the row,
+            // not just its text), so round the card by clipping.
+            .clipShape(.rect(cornerRadius: Theme.cardRadius))
             if let failure {
                 Label(failure, systemImage: "exclamationmark.bubble")
                     .font(.footnote)
@@ -105,38 +111,26 @@ struct AppointmentQuestionsCard: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Saved on this iPhone only. Tick each one off as you ask it.")
+                Text("Saved on this iPhone only. Tick each one off as you ask it, or swipe left to delete.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
         .animation(.default, value: questions)
-        .animation(.default, value: isEditing)
-        // Nothing left to edit.
-        .onChange(of: questions.isEmpty) { if questions.isEmpty { isEditing = false } }
     }
 
-    /// Tapping ticks a question off; in Edit mode, it deletes it instead.
+    /// Tap to tick a question off; swipe left to delete it. Swiping needs
+    /// the screen's scroll view to be a swipe container (iOS 27), so the
+    /// long-press menu stays as the way to delete on iOS 26.
     private func row(_ question: AppointmentQuestionsStore.Question) -> some View {
         Button {
-            if isEditing {
-                store.remove(question, from: key)
-            } else {
-                store.toggleAsked(question, in: key)
-            }
+            store.toggleAsked(question, in: key)
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Group {
-                    if isEditing {
-                        Image(systemName: "minus.circle.fill")
-                            .foregroundStyle(.white, Theme.red)
-                    } else {
-                        Image(systemName: question.isAsked ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(question.isAsked ? Theme.green : Color.secondary)
-                    }
-                }
-                .font(.title3)
-                .contentTransition(.symbolEffect(.replace))
+                Image(systemName: question.isAsked ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(question.isAsked ? Theme.green : Color.secondary)
+                    .font(.title3)
+                    .contentTransition(.symbolEffect(.replace))
                 Text(question.text)
                     .font(.subheadline)
                     .foregroundStyle(question.isAsked ? .secondary : .primary)
@@ -153,11 +147,16 @@ struct AppointmentQuestionsCard: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .contentShape(.rect)
+            .background(Color(.secondarySystemGroupedBackground))
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(question.isAsked && !isEditing ? .isSelected : [])
-        .accessibilityHint(isEditing ? "Deletes this question" : "")
+        .accessibilityAddTraits(question.isAsked ? .isSelected : [])
         .accessibilityAction(named: "Delete") { store.remove(question, from: key) }
+        .swipeActions {
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                store.remove(question, from: key)
+            }
+        }
         .contextMenu {
             Button("Delete", systemImage: "trash", role: .destructive) {
                 store.remove(question, from: key)
