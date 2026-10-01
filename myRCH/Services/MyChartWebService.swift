@@ -1749,7 +1749,12 @@ actor MyChartWebService: PortalService {
             // The portal gives one name holding strength and form; split
             // them out. Ones the family added follow the Add Medication
             // screen's format; prescriptions follow the pharmacy's.
-            let isPatientReported = item["isPatientReported"] as? Bool ?? false
+            // A live proxy account showed `isPatientReported` false on
+            // everything; the family's additions were the only ones with
+            // `isClinicReported` false (and `isPendingUpdate` and
+            // `showPendingUndoAddButton` true, awaiting review).
+            let isPatientReported = item["isPatientReported"] as? Bool == true
+                || item["isClinicReported"] as? Bool == false
             let parts = isPatientReported ? Medication.splitReportedName(name) : Medication.splitPrescriptionName(name)
             return Medication(
                 id: Self.string(item, "id") ?? Self.string(item, "prescriptionNumber") ?? "med-\(index)",
