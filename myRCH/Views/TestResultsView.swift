@@ -268,6 +268,7 @@ struct TestResultDetailView: View {
     @State private var result: TestResult
     @State private var showsAdditionalInfo = true
     @State private var openDocument: ResultDocument?
+    @State private var showsExplanation = false
     /// Past values of each component, shown in a dropdown under its card.
     @State private var trends: [ComponentTrend] = []
 
@@ -290,6 +291,14 @@ struct TestResultDetailView: View {
         .navigationTitle("Test Details")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $openDocument) { DocumentPreviewSheet(document: $0, result: result) }
+        .sheet(isPresented: $showsExplanation) { ResultExplanationSheet(result: result) }
+        .toolbar {
+            if ResultExplainer.isSupported {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Explain Result", systemImage: "sparkles") { showsExplanation = true }
+                }
+            }
+        }
         .task(id: result.id) {
             // Keep the summary on screen if the details can't be fetched.
             if let detailed = try? await session.service.testResultDetails(result, for: session.patientID) {

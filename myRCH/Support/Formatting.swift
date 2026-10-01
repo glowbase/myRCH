@@ -29,8 +29,11 @@ extension Date {
     }
 
     /// Age from this date of birth, e.g. "12 months" under two, otherwise "8 years".
-    var ageDescription: String {
-        let parts = Calendar.current.dateComponents([.year, .month], from: self, to: .now)
+    var ageDescription: String { ageDescription(at: .now) }
+
+    /// Age on a given day, e.g. when a test was collected.
+    func ageDescription(at date: Date) -> String {
+        let parts = Calendar.current.dateComponents([.year, .month], from: self, to: date)
         let years = parts.year ?? 0
         if years >= 2 { return "\(years) years" }
         let months = years * 12 + (parts.month ?? 0)
