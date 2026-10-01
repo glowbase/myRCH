@@ -13,7 +13,7 @@ enum ResultExplainer {
     static let model = SystemLanguageModel(guardrails: .permissiveContentTransformations)
 
     static let purposeRequest = "In two or three short sentences, explain what this test checks and why a doctor might order it. Reply with only the explanation."
-    static let meaningRequest = "Now, in two to four short sentences, explain what these particular results likely mean. Reply with only the explanation."
+    static let meaningRequest = "Now, in two to four short sentences, explain what these particular results likely mean, including what any comments say. Reply with only the explanation."
 
     /// Whether to offer the button at all: hidden on devices that can never
     /// run Apple Intelligence, shown otherwise (the sheet explains if it's
@@ -30,11 +30,18 @@ enum ResultExplainer {
         Never diagnose, never suggest treatment, and never say a result is \
         definitely fine or definitely serious. Normal ranges in children vary \
         with age, so a value just outside the range is often not a concern. \
-        Only describe the results you are given; don't invent values.
+        Only describe the results you are given; don't invent values. \
+        Lab and care team comments matter: explain each one in plain words. \
+        Labs often name germs they looked for but didn't find. "Not \
+        isolated", "not detected", "not seen" and "no growth" mean the germ \
+        was NOT found, which is usually reassuring, so say that clearly and \
+        never describe it as an infection.
         """
 
-    /// The model's context window is small, so long reports are cut short.
+    /// The model's context window is small, so long reports and comments are
+    /// cut short.
     private static let reportLimit = 2_500
+    private static let commentLimit = 600
 
     /// Describes the result for the model: what was tested and each value
     /// against its range. No names or identifiers are included.
@@ -52,7 +59,13 @@ enum ResultExplainer {
         lines.append("Status: \(result.status)")
 
         let organisms = result.components.compactMap(\.organism)
-        let measured = result.components.filter { $0.organism == nil }
+        // The lab's "Comment" lines are notes, not values, so they get their
+        // own section rather than reading as a measurement.
+        let isLabComment = { (component: ResultComponent) in
+            component.name.localizedCaseInsensitiveCompare("Comment") == .orderedSame
+        }
+        let labComments = result.components.filter(isLabComment).compactMap(\.valueText)
+        let measured = result.components.filter { $0.organism == nil && !isLabComment($0) }
         if !measured.isEmpty {
             lines.append("")
             lines.append("Results:")
@@ -64,6 +77,16 @@ enum ResultExplainer {
             lines += organisms.map { organism in
                 "- \(organism.name)" + (organism.growthText.map { " (colony count: \($0))" } ?? "")
             }
+        }
+        if !labComments.isEmpty {
+            lines.append("")
+            lines.append("Lab comments:")
+            lines += labComments.map { "- \(String($0.prefix(commentLimit)))" }
+        }
+        if !result.comments.isEmpty {
+            lines.append("")
+            lines.append("Comments from the care team:")
+            lines += result.comments.map { "- \(String($0.text.prefix(commentLimit)))" }
         }
         if let summary = result.summary, !summary.isEmpty {
             lines.append("")
