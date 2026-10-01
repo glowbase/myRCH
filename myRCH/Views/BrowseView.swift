@@ -49,9 +49,38 @@ struct BrowseView: View {
                         .buttonStyle(.plain)
                     }
                 }
+                if OnDeviceAI.isSupported {
+                    NavigationLink { MedicalWordsView() } label: { medicalWordsCard }
+                        .buttonStyle(.plain)
+                        .padding(.top, 8)
+                }
             }
             .padding()
         }
+    }
+
+    private var medicalWordsCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "character.book.closed.fill")
+                .font(.title2)
+                .foregroundStyle(Theme.brand)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Medical Words")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text("Look up a word or abbreviation from a letter or result.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
     }
 }
 
@@ -172,9 +201,17 @@ private struct SearchResultsList: View {
                     }
                 }
             }
+            // Searching for a word often means not knowing what it is.
+            if OnDeviceAI.isSupported {
+                Section("Medical Words") {
+                    NavigationLink { MedicalWordsView(initialTerm: query) } label: {
+                        Label("Explain “\(query)”", systemImage: "character.book.closed")
+                    }
+                }
+            }
         }
         .overlay {
-            if nothing, index != nil {
+            if nothing, index != nil, !OnDeviceAI.isSupported {
                 ContentUnavailableView.search(text: query)
             }
         }
