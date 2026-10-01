@@ -160,6 +160,80 @@ struct AIDisclaimer: View {
     }
 }
 
+/// A button that writes a short on-device summary in place, under whatever
+/// it's summarising (a trend, a chart). Hidden on devices that can't run
+/// Apple Intelligence.
+struct AIInlineSummary: View {
+    let buttonTitle: String
+    /// The feature's own rules, added to `OnDeviceAI.baseInstructions`.
+    let instructions: String
+    let prompt: () async -> String
+
+    @State private var text: String?
+    @State private var isWriting = false
+    @State private var failure: String?
+
+    var body: some View {
+        if OnDeviceAI.isSupported {
+            VStack(alignment: .leading, spacing: 8) {
+                if let text {
+                    Label {
+                        Text(text)
+                            .font(.subheadline)
+                            .textSelection(.enabled)
+                            .contentTransition(.opacity)
+                    } icon: {
+                        Image(systemName: "sparkles").foregroundStyle(Theme.brand)
+                    }
+                    if !isWriting {
+                        Text("Written on this iPhone by Apple Intelligence. It can make mistakes, so check with the care team.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let failure {
+                    Label(failure, systemImage: "exclamationmark.bubble")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if text == nil || failure != nil {
+                    Button {
+                        Task { await write() }
+                    } label: {
+                        Label(isWriting ? "Writing…" : buttonTitle, systemImage: "sparkles")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .tint(Theme.brand)
+                    .disabled(isWriting)
+                }
+            }
+            .animation(.default, value: text)
+        }
+    }
+
+    private func write() async {
+        if let reason = OnDeviceAI.unavailableReason {
+            failure = reason
+            return
+        }
+        isWriting = true
+        failure = nil
+        defer { isWriting = false }
+        let chat = LanguageModelSession(model: OnDeviceAI.model,
+                                        instructions: OnDeviceAI.instructions(instructions))
+        do {
+            for try await snapshot in chat.streamResponse(to: await prompt()) {
+                text = snapshot.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        } catch {
+            OnDeviceAI.logFailure(buttonTitle, error)
+            text = nil
+            failure = "Couldn't write a summary. Try again, or ask the care team."
+        }
+    }
+}
+
 /// The ✨ toolbar button that opens an explanation, hidden on devices that
 /// can't run Apple Intelligence.
 struct AIExplainToolbarItem: ToolbarContent {
