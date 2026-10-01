@@ -5,6 +5,7 @@ private actor MockAddedMedications {
     static let shared = MockAddedMedications()
     private(set) var items: [Medication] = []
     func add(_ medication: Medication) { items.append(medication) }
+    func remove(id: String) { items.removeAll { $0.id == id } }
 }
 
 /// In-memory backend with realistic sample data mirroring the portal
@@ -356,6 +357,11 @@ struct MockPortalService: PortalService {
             instructions: "", prescriber: "", isActive: true,
             form: MyChartWebService.medicationForm(name: name, sig: nil),
             prescribedDate: startDate, isPatientReported: true, productForm: parts.form, sourceName: name))
+    }
+
+    func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        await delay()
+        await MockAddedMedications.shared.remove(id: medication.id)
     }
 
     /// Flat summaries used by the dashboard and notifications, derived from the

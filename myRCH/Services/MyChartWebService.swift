@@ -38,6 +38,9 @@ enum MyChartError: LocalizedError {
     case decoding(action: String, snippet: String)
     /// An action like Bookmark came back without `isSuccess`.
     case actionFailed(String)
+    /// The portal request for this hasn't been captured yet, so the app
+    /// doesn't send one. Names what can't be done, e.g. "Removing medications".
+    case notInAppYet(String)
 
     var errorDescription: String? {
         switch self {
@@ -51,6 +54,7 @@ enum MyChartError: LocalizedError {
         case let .portalError(code): "The portal rejected the sign-in (error \(code ?? "unknown"))."
         case .sessionExpired: "Your session expired. Please sign in again."
         case let .actionFailed(action): "The portal couldn't complete that (\(action)). Please try again."
+        case let .notInAppYet(what): "\(what) isn't available in the app yet. You can do it on the My RCH Portal website."
         case let .decoding(action, snippet):
             "Couldn't read the response for \(action). Raw JSON: \(snippet)"
         }
@@ -746,6 +750,13 @@ actor MyChartWebService: PortalService {
         if reply["isSuccess"] as? Bool == false || !(reply["errors"] as? [Any] ?? []).isEmpty {
             throw MyChartError.actionFailed("SubmitMedicationUpdate")
         }
+    }
+
+    /// Not captured yet. The medications page offers removal for ones the
+    /// family added (`showPendingUndoDeleteButton` follows it), but the
+    /// request hasn't been recorded, so none is guessed at.
+    func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        throw MyChartError.notInAppYet("Removing medications")
     }
 
     /// Latest message of each conversation, for the dashboard and notifications.

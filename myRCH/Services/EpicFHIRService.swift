@@ -58,6 +58,7 @@ struct EpicFHIRService: PortalService {
     func medications(for patientID: String) async throws -> [Medication] { try notImplemented() }
     func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] { try notImplemented() }
     func addMedication(named name: String, startDate: Date, for patientID: String) async throws { try notImplemented() }
+    func removeMedication(_ medication: Medication, for patientID: String) async throws { try notImplemented() }
     func messages(for patientID: String) async throws -> [Message] { try notImplemented() }
     func conversations(in folder: MessageFolder, for patientID: String) async throws -> [Conversation] { try notImplemented() }
     func conversation(id: String, for patientID: String) async throws -> Conversation { try notImplemented() }

@@ -33,6 +33,8 @@ protocol PortalService: Sendable {
     /// Adds a medication the family reports taking, from `startDate`. The
     /// care team reviews it at the next visit.
     func addMedication(named name: String, startDate: Date, for patientID: String) async throws
+    /// Removes a medication the family added (`isPatientReported`).
+    func removeMedication(_ medication: Medication, for patientID: String) async throws
     func messages(for patientID: String) async throws -> [Message]
 
     /// Message threads with the care team, in one of the Messages folders.
