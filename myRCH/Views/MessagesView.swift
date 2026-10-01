@@ -641,6 +641,10 @@ struct ConversationDetailView: View {
                         .foregroundStyle(Theme.orange)
                 }
 
+                // Outside the focused-only block: opening the sheet drops
+                // focus, which would otherwise remove the button and its sheet.
+                MessageHelpButton(draft: $reply, conversation: conversation)
+
                 if !attachments.isEmpty || uploadingCount > 0 {
                     attachmentChips
                 }
@@ -942,6 +946,7 @@ private struct NewMessageSheet: View {
                 Section {
                     TextField("Write your message…", text: $body_, axis: .vertical)
                         .lineLimit(6...14)
+                    MessageHelpButton(draft: $body_, recipient: recipient)
                 } header: {
                     Text("Message")
                 } footer: {
