@@ -1,22 +1,20 @@
 import FoundationModels
+import OSLog
 import SwiftUI
-
-// MARK: - Model output
-
-/// A plain-language explanation of a test result, generated on device.
-/// Properties generate in declaration order, so the purpose streams first.
-@Generable
-nonisolated struct ResultExplanation {
-    @Guide(description: "Two or three short sentences, in plain language for a parent, on what this test checks and why a doctor might order it.")
-    var purpose: String
-
-    @Guide(description: "Two to four short sentences, in plain language for a parent, on what these particular results likely mean. Calm and factual, without diagnosing.")
-    var meaning: String
-}
 
 // MARK: - Prompting
 
 enum ResultExplainer {
+    static let logger = Logger(subsystem: "com.glowbase.myRCH", category: "ResultExplainer")
+
+    /// Results routinely mention infections, organisms and abnormal findings,
+    /// which the default guardrails reject. The permissive mode allows them,
+    /// but only for plain-text responses, so each section is asked for as text.
+    static let model = SystemLanguageModel(guardrails: .permissiveContentTransformations)
+
+    static let purposeRequest = "In two or three short sentences, explain what this test checks and why a doctor might order it. Reply with only the explanation."
+    static let meaningRequest = "Now, in two to four short sentences, explain what these particular results likely mean. Reply with only the explanation."
+
     /// Whether to offer the button at all: hidden on devices that can never
     /// run Apple Intelligence, shown otherwise (the sheet explains if it's
     /// switched off or still downloading).
@@ -58,7 +56,7 @@ enum ResultExplainer {
         if !measured.isEmpty {
             lines.append("")
             lines.append("Results:")
-            lines += measured.map(describe)
+            lines += measured.map { describe($0) }
         }
         if !organisms.isEmpty {
             lines.append("")
@@ -74,11 +72,8 @@ enum ResultExplainer {
         }
         if result.components.isEmpty, result.summary == nil {
             lines.append("")
-            lines.append("No values are available, only the test name. Explain what the test is for, and say the results are in the attached report or on the portal.")
+            lines.append("No values are available in the app, only the test name. The results are in the attached report or on the portal.")
         }
-
-        lines.append("")
-        lines.append("Explain what this test is for and what these results likely mean.")
         return lines.joined(separator: "\n")
     }
 
@@ -119,7 +114,8 @@ struct ResultExplanationSheet: View {
     }
 
     @State private var phase: Phase = .generating
-    @State private var explanation: ResultExplanation.PartiallyGenerated?
+    @State private var purpose: String?
+    @State private var meaning: String?
     /// Bumped by "Try again" to restart the task.
     @State private var attempt = 0
 
@@ -162,8 +158,8 @@ struct ResultExplanationSheet: View {
                 Button("Try again") { attempt += 1 }
             }
         case .generating, .done:
-            section("What this test is for", systemImage: "questionmark.circle.fill", text: explanation?.purpose)
-            section("What the result likely means", systemImage: "text.magnifyingglass", text: explanation?.meaning)
+            section("What this test is for", systemImage: "questionmark.circle.fill", text: purpose)
+            section("What the result likely means", systemImage: "text.magnifyingglass", text: meaning)
             disclaimer
         }
     }
@@ -203,7 +199,7 @@ struct ResultExplanationSheet: View {
     }
 
     private func generate() async {
-        switch SystemLanguageModel.default.availability {
+        switch ResultExplainer.model.availability {
         case .available:
             break
         case .unavailable(.appleIntelligenceNotEnabled):
@@ -218,19 +214,29 @@ struct ResultExplanationSheet: View {
         }
 
         phase = .generating
-        explanation = nil
-        let session = LanguageModelSession(instructions: ResultExplainer.instructions)
-        let stream = session.streamResponse(to: ResultExplainer.prompt(for: result),
-                                            generating: ResultExplanation.self)
+        purpose = nil
+        meaning = nil
+        // One session, two turns: the second request sees the result from
+        // the first, so it doesn't need repeating.
+        let session = LanguageModelSession(model: ResultExplainer.model,
+                                           instructions: ResultExplainer.instructions)
         do {
-            for try await snapshot in stream {
-                explanation = snapshot.content
-            }
+            let opening = ResultExplainer.prompt(for: result) + "\n\n" + ResultExplainer.purposeRequest
+            try await stream(session.streamResponse(to: opening)) { purpose = $0 }
+            try await stream(session.streamResponse(to: ResultExplainer.meaningRequest)) { meaning = $0 }
             phase = .done
         } catch is CancellationError {
             // The sheet closed; nothing to show.
         } catch {
+            ResultExplainer.logger.error("Explanation failed for \(result.name, privacy: .public): \(String(describing: error), privacy: .public)")
             phase = .failed
+        }
+    }
+
+    private func stream(_ response: LanguageModelSession.ResponseStream<String>,
+                        into update: (String) -> Void) async throws {
+        for try await snapshot in response {
+            update(snapshot.content.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }
 }
