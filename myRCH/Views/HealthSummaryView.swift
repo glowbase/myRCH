@@ -191,6 +191,7 @@ struct ImmunisationDetailView: View {
 
     /// Nil until loaded. Falls back to the list's dates if details fail.
     @State private var doses: [ImmunisationDose]?
+    @State private var showsExplanation = false
 
     var body: some View {
         List {
@@ -229,6 +230,12 @@ struct ImmunisationDetailView: View {
         }
         .navigationTitle("Immunisation")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            AIExplainToolbarItem(title: "Explain Immunisation") { showsExplanation = true }
+        }
+        .sheet(isPresented: $showsExplanation) {
+            ImmunisationExplanationSheet(group: group, doses: doses ?? [])
+        }
         .task(id: group.vaccineID) { await load() }
     }
 
