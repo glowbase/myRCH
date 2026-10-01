@@ -1667,7 +1667,8 @@ actor MyChartWebService: PortalService {
 
     /// Report HTML to plain text: one line per paragraph/row, blank
     /// paragraphs (`&nbsp;`) kept as single blank lines between sections.
-    private nonisolated static func plainText(fromHTML html: String) -> String {
+    /// Also used to give documents' text to the on-device model.
+    nonisolated static func plainText(fromHTML html: String) -> String {
         let text = html
             .replacingOccurrences(of: "\r\n", with: "\n")
             // Markup-only content: embedded CSS and comments.
