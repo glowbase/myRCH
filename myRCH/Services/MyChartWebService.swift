@@ -770,7 +770,7 @@ actor MyChartWebService: PortalService {
         request.setValue(config.url("Clinical/Medications").absoluteString, forHTTPHeaderField: "Referer")
         if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
         request.httpBody = Self.formEncode([
-            "name": medication.portalName ?? medication.sourceName ?? medication.displayName,
+            "name": medication.portalName ?? medication.sourceName ?? medication.name,
             "action": "4",
             "referenceID": medication.id,
             "IsFilteredList": "false"
