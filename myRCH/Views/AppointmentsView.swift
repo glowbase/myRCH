@@ -723,7 +723,7 @@ struct VisitDocumentView: View {
     @Environment(Session.self) private var session
 
     var body: some View {
-        PortalDocumentView(title: document.title, id: document.id) {
+        PortalDocumentView(title: document.title, id: document.id, explains: .visitDocument(document)) {
             try await session.service.visitDocumentHTML(document, for: patientID)
         }
     }
@@ -738,6 +738,8 @@ struct PortalDocumentView: View {
     let id: String
     /// Names the shared PDF, e.g. "Referral Letter – 22 Sep 2026". Defaults to the title.
     var shareName: String? = nil
+    /// Offers an on-device explanation of the document when set.
+    var explains: ExplainableDocument? = nil
     let loadHTML: () async throws -> String
     @Environment(\.openURL) private var openURL
 
@@ -746,6 +748,9 @@ struct PortalDocumentView: View {
     /// The document as a paginated PDF, ready for the share sheet (which
     /// includes Print, AirDrop, Mail, Messages and Save to Files).
     @State private var pdfURL: URL?
+    /// Kept for the explanation, which reads the document's text.
+    @State private var html: String?
+    @State private var showsExplanation = false
 
     var body: some View {
         Group {
@@ -779,6 +784,14 @@ struct PortalDocumentView: View {
                     }
                 }
             }
+            if let explains, html != nil {
+                AIExplainToolbarItem(title: explains.buttonTitle) { showsExplanation = true }
+            }
+        }
+        .sheet(isPresented: $showsExplanation) {
+            if let explains, let html {
+                DocumentExplanationSheet(document: explains, html: html)
+            }
         }
         .task(id: id) { await load() }
         // The PDF is a copy of health data, so don't leave it behind.
@@ -791,6 +804,7 @@ struct PortalDocumentView: View {
         failure = nil
         do {
             let html = try await loadHTML()
+            self.html = html
             pdfURL = DocumentPDF.write(html: html, named: shareName ?? title)
             var configuration = WebPage.Configuration()
             configuration.defaultNavigationPreferences.allowsContentJavaScript = false

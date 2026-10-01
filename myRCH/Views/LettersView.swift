@@ -22,7 +22,8 @@ struct LettersView: View {
                         ForEach(group.letters) { letter in
                             NavigationLink {
                                 PortalDocumentView(title: letter.title, id: letter.id,
-                                                   shareName: "\(letter.title) – \(letter.date.mediumDate)") {
+                                                   shareName: "\(letter.title) – \(letter.date.mediumDate)",
+                                                   explains: .letter(letter)) {
                                     try await session.service.letterHTML(letter, for: patientID)
                                 }
                             } label: {
