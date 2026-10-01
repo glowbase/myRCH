@@ -293,11 +293,7 @@ struct TestResultDetailView: View {
         .sheet(item: $openDocument) { DocumentPreviewSheet(document: $0, result: result) }
         .sheet(isPresented: $showsExplanation) { ResultExplanationSheet(result: result) }
         .toolbar {
-            if ResultExplainer.isSupported {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Explain Result", systemImage: "sparkles") { showsExplanation = true }
-                }
-            }
+            AIExplainToolbarItem(title: "Explain Result") { showsExplanation = true }
         }
         .task(id: result.id) {
             // Keep the summary on screen if the details can't be fetched.
