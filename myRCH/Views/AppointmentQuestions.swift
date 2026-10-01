@@ -56,6 +56,8 @@ struct AppointmentQuestionsCard: View {
     @State private var newQuestion = ""
     @State private var isSuggesting = false
     @State private var failure: String?
+    /// Shows a delete button on each question.
+    @State private var isEditing = false
     @FocusState private var isTyping: Bool
 
     private var store: AppointmentQuestionsStore { .shared }
@@ -66,9 +68,17 @@ struct AppointmentQuestionsCard: View {
     var body: some View {
         let questions = store.questions(for: key)
         VStack(alignment: .leading, spacing: 12) {
-            Text("Questions to ask")
-                .font(.title3.bold())
-                .foregroundStyle(Theme.ink)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Questions to ask")
+                    .font(.title3.bold())
+                    .foregroundStyle(Theme.ink)
+                Spacer()
+                if !questions.isEmpty {
+                    Button(isEditing ? "Done" : "Edit") { isEditing.toggle() }
+                        .font(.subheadline.weight(.semibold))
+                        .tint(Theme.brand)
+                }
+            }
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(questions) { question in
                     row(question)
@@ -101,17 +111,32 @@ struct AppointmentQuestionsCard: View {
             }
         }
         .animation(.default, value: questions)
+        .animation(.default, value: isEditing)
+        // Nothing left to edit.
+        .onChange(of: questions.isEmpty) { if questions.isEmpty { isEditing = false } }
     }
 
+    /// Tapping ticks a question off; in Edit mode, it deletes it instead.
     private func row(_ question: AppointmentQuestionsStore.Question) -> some View {
         Button {
-            store.toggleAsked(question, in: key)
+            if isEditing {
+                store.remove(question, from: key)
+            } else {
+                store.toggleAsked(question, in: key)
+            }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 14) {
-                Image(systemName: question.isAsked ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(question.isAsked ? Theme.green : Color.secondary)
-                    .contentTransition(.symbolEffect(.replace))
+                Group {
+                    if isEditing {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundStyle(.white, Theme.red)
+                    } else {
+                        Image(systemName: question.isAsked ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(question.isAsked ? Theme.green : Color.secondary)
+                    }
+                }
+                .font(.title3)
+                .contentTransition(.symbolEffect(.replace))
                 Text(question.text)
                     .font(.subheadline)
                     .foregroundStyle(question.isAsked ? .secondary : .primary)
@@ -130,7 +155,9 @@ struct AppointmentQuestionsCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(question.isAsked ? .isSelected : [])
+        .accessibilityAddTraits(question.isAsked && !isEditing ? .isSelected : [])
+        .accessibilityHint(isEditing ? "Deletes this question" : "")
+        .accessibilityAction(named: "Delete") { store.remove(question, from: key) }
         .contextMenu {
             Button("Delete", systemImage: "trash", role: .destructive) {
                 store.remove(question, from: key)
