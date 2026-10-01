@@ -15,6 +15,17 @@ enum ResultExplainer {
     static let purposeRequest = "In two or three short sentences, explain what this test checks and why a doctor might order it. Reply with only the explanation."
     static let meaningRequest = "Now, in two to four short sentences, explain what these particular results likely mean, including what any comments say. Reply with only the explanation."
     /// Only asked when something is outside its range.
+    /// Ties the result to the child's recorded conditions, e.g. why zinc
+    /// matters in cystic fibrosis. The conditions only go in this last
+    /// request, so they can't colour the general explanation above.
+    static func conditionsRequest(_ conditions: [HealthIssue]) -> String {
+        let names = conditions.prefix(conditionLimit).map(\.name).joined(separator: "; ")
+        return "Now, the child's recorded conditions are: \(names). In two to four short sentences, explain what this result can mean for a child with the condition or conditions it relates to, such as why this test is often checked with that condition. Only mention conditions that genuinely relate to this test; if none do, say in one sentence that this result isn't usually linked to them. Reply with only the explanation."
+    }
+
+    /// Enough for any real problem list without crowding the context window.
+    private static let conditionLimit = 10
+
     static let causesRequest = "Now, for each result outside its normal range, in two to four short sentences in total, describe the common reasons a child's level can be low or high (as it is here), and what it can affect in a child's body if it stays that way. These are general possibilities, not what this child has. Reply with only the explanation."
 
     /// Whether any measured value (not a culture) is outside its range, so
@@ -148,6 +159,7 @@ enum ResultExplainer {
 struct ResultExplanationSheet: View {
     let result: TestResult
     @Environment(\.dismiss) private var dismiss
+    @Environment(Session.self) private var session
 
     private enum Phase {
         case generating
@@ -160,6 +172,9 @@ struct ResultExplanationSheet: View {
     @State private var purpose: String?
     @State private var meaning: String?
     @State private var causes: String?
+    @State private var conditionContext: String?
+    /// The child's diagnoses from the portal, loaded with the explanation.
+    @State private var conditions: [HealthIssue] = []
     /// Bumped by "Try again" to restart the task.
     @State private var attempt = 0
 
@@ -207,8 +222,20 @@ struct ResultExplanationSheet: View {
             if ResultExplainer.hasValuesOutOfRange(result) {
                 section("Possible causes and effects", systemImage: "arrow.triangle.branch", text: causes)
             }
+            if !conditions.isEmpty {
+                section(conditionsTitle, systemImage: "heart.text.clipboard", text: conditionContext)
+            }
             disclaimer
         }
+    }
+
+    /// Names the condition when there's only one; the portal's own wording,
+    /// since lowercasing would mangle acronyms like "CKD".
+    private var conditionsTitle: String {
+        if conditions.count == 1, let name = conditions.first?.name {
+            return "What this means with \(name)"
+        }
+        return "What this means with your child's conditions"
     }
 
     /// Shows a placeholder until the model reaches this section, then its
@@ -264,16 +291,26 @@ struct ResultExplanationSheet: View {
         purpose = nil
         meaning = nil
         causes = nil
-        // One session, a turn per section: later requests see the result
-        // from the first, so it doesn't need repeating.
-        let session = LanguageModelSession(model: ResultExplainer.model,
-                                           instructions: ResultExplainer.instructions)
+        conditionContext = nil
+        // Cached by the service, so usually instant. Without them the
+        // explanation still works, just without the conditions card.
+        conditions = (try? await session.service.healthIssues(for: session.patientID)) ?? []
+
+        // One conversation, a turn per section: later requests see the
+        // result from the first, so it doesn't need repeating.
+        let chat = LanguageModelSession(model: ResultExplainer.model,
+                                        instructions: ResultExplainer.instructions)
         do {
             let opening = ResultExplainer.prompt(for: result) + "\n\n" + ResultExplainer.purposeRequest
-            try await stream(session.streamResponse(to: opening)) { purpose = $0 }
-            try await stream(session.streamResponse(to: ResultExplainer.meaningRequest)) { meaning = $0 }
+            try await stream(chat.streamResponse(to: opening)) { purpose = $0 }
+            try await stream(chat.streamResponse(to: ResultExplainer.meaningRequest)) { meaning = $0 }
             if ResultExplainer.hasValuesOutOfRange(result) {
-                try await stream(session.streamResponse(to: ResultExplainer.causesRequest)) { causes = $0 }
+                try await stream(chat.streamResponse(to: ResultExplainer.causesRequest)) { causes = $0 }
+            }
+            if !conditions.isEmpty {
+                try await stream(chat.streamResponse(to: ResultExplainer.conditionsRequest(conditions))) {
+                    conditionContext = $0
+                }
             }
             phase = .done
         } catch is CancellationError {
