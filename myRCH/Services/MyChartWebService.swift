@@ -752,10 +752,16 @@ actor MyChartWebService: PortalService {
     /// added (still awaiting review): a legacy form POST to
     /// `Clinical/Medications/SubmitUpdate?noCache=…` with `name` (the
     /// portal's raw name), `action=4`, `referenceID` and
-    /// `IsFilteredList=false`. The reply wasn't captured, and `referenceID`
-    /// is taken to be the list's `id`, so success is checked by reloading
-    /// the list and making sure the medication has gone.
+    /// `IsFilteredList=false`. `referenceID`
+    /// is the pending update's `updateInformation.referenceID`, not the
+    /// medication's `id`. A refusal answers `{"success": false}`. Success is
+    /// also checked by reloading the list and making sure it has gone.
     func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        // Only pending additions carry the id; anything else can't be
+        // removed this way.
+        guard let referenceID = medication.updateReferenceID else {
+            throw MyChartError.actionFailed("SubmitUpdate")
+        }
         await ensureContext(patientID)
         let path = "Clinical/Medications/SubmitUpdate"
         var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
@@ -772,7 +778,7 @@ actor MyChartWebService: PortalService {
         request.httpBody = Self.formEncode([
             "name": medication.portalName ?? medication.sourceName ?? medication.name,
             "action": "4",
-            "referenceID": medication.id,
+            "referenceID": referenceID,
             "IsFilteredList": "false"
         ]).data(using: .utf8)
 
@@ -783,7 +789,7 @@ actor MyChartWebService: PortalService {
         if text.contains("Authentication/Login") { throw MyChartError.sessionExpired }
         guard (200..<300).contains(status) else { throw MyChartError.actionFailed("SubmitUpdate") }
         if let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           reply["isSuccess"] as? Bool == false || reply["Success"] as? Bool == false {
+           reply["success"] as? Bool == false {
             throw MyChartError.actionFailed("SubmitUpdate")
         }
 
@@ -1816,7 +1822,8 @@ actor MyChartWebService: PortalService {
                 isPatientReported: isPatientReported,
                 productForm: parts.form,
                 sourceName: name,
-                portalName: Self.string(item, "name")
+                portalName: Self.string(item, "name"),
+                updateReferenceID: Self.string(item["updateInformation"] as? [String: Any] ?? [:], "referenceID")
             )
         }
     }
