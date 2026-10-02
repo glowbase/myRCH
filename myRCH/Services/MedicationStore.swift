@@ -609,6 +609,9 @@ final class MedicationStore {
             record["med"] = ref.med
             fields["text"] = note.text
             fields["date"] = note.date
+        case .question:
+            // Visit questions are filled by AppointmentQuestionsStore.
+            return false
         }
         return true
     }
@@ -649,6 +652,8 @@ final class MedicationStore {
                 entry.notes.removeAll { $0.id == id }
                 entry.notes.append(MedicationNote(id: id, text: text, date: date))
             }
+        case .question:
+            return
         }
         save()
         saveSharing()
@@ -660,7 +665,7 @@ final class MedicationStore {
         let parts = recordName.split(separator: ".", maxSplits: 2).map(String.init)
         guard parts.count >= 2, let kind = CareSync.Kind(rawValue: parts[0]) else { return }
         switch kind {
-        case .schedule:
+        case .schedule, .question:
             return
         case .dose, .asNeeded:
             guard parts.count == 3, let stamp = Int(parts[2]) else { return }
