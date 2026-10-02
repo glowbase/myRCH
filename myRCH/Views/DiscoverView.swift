@@ -567,18 +567,6 @@ struct FactSheetListView: View {
                 alphabeticalList
             }
         }
-        // Only when the site's categories have loaded (both libraries have them).
-        .safeAreaInset(edge: .top) {
-            if !categories.isEmpty, searchText.isEmpty {
-                Picker("View", selection: $mode) {
-                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
-        }
         .overlay {
             if store.factSheets[library] == nil {
                 if let failure {
@@ -608,9 +596,25 @@ struct FactSheetListView: View {
         }
     }
 
+    /// The A–Z / Categories switch, only once the site's categories have
+    /// loaded. It scrolls with the content, under the large title; pinned
+    /// above it, its bar covered the title.
+    @ViewBuilder
+    private var modePicker: some View {
+        if !categories.isEmpty, searchText.isEmpty {
+            Picker("View", selection: $mode) {
+                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
     /// Cards side by side, like Browse.
     private var categoryGrid: some View {
         ScrollView {
+            modePicker
+                .padding(.horizontal)
+                .padding(.top, 8)
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(categories) { category in
                     NavigationLink {
@@ -628,6 +632,13 @@ struct FactSheetListView: View {
 
     private var alphabeticalList: some View {
         List {
+            if !categories.isEmpty, searchText.isEmpty {
+                Section {
+                    modePicker
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                }
+            }
             ForEach(byLetter, id: \.letter) { group in
                 Section(group.letter) {
                     ForEach(group.sheets) { sheet in
