@@ -754,6 +754,20 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
+        // A Discover alert: open its post or fact sheet.
+        let post = info[DiscoverAlerts.postKey] as? Int
+        let sheet = (info[DiscoverAlerts.sheetKey] as? String).flatMap(URL.init(string:))
+        if post != nil || sheet != nil {
+            nonisolated(unsafe) let completionHandler = completionHandler
+            let open: @Sendable () -> Void = {
+                MainActor.assumeIsolated {
+                    RCHContentStore.shared.openLink = post.map { .post($0) } ?? sheet.map { .sheet($0) }
+                }
+                completionHandler()
+            }
+            if Thread.isMainThread { open() } else { DispatchQueue.main.async(execute: open) }
+            return
+        }
         // Reminders delivered before grouping carried a medication "key";
         // its patient is the part before the first "|".
         let patientID = (info["patientID"] as? String)

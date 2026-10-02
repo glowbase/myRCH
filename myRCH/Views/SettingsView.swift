@@ -41,6 +41,8 @@ struct SettingsView: View {
     @State private var appLock = AppLock.shared
     @AppStorage(MedicationStore.snoozeMinutesKey) private var snoozeMinutes = 10
     @AppStorage(MedicationStore.followUpMinutesKey) private var followUpMinutes = 30
+    @AppStorage(DiscoverAlerts.newsKey) private var alertsForNews = false
+    @AppStorage(DiscoverAlerts.factSheetsKey) private var alertsForFactSheets = false
     @Environment(MedicationStore.self) private var medicationStore
     /// From the portal's record header, for the profile row.
     @State private var urNumber: String?
@@ -179,6 +181,18 @@ struct SettingsView: View {
 
     // MARK: - Preferences
 
+    /// Asks for notification permission when an alert's turned on, and
+    /// schedules (or cancels) the background check.
+    private func discoverAlertsChanged(turnedOn: Bool) {
+        DiscoverAlerts.schedule()
+        guard turnedOn else { return }
+        Task {
+            // Gives the next check something to compare with.
+            await RCHContentStore.shared.refresh(minimumInterval: 0)
+            _ = await DiscoverAlerts.requestPermission()
+        }
+    }
+
     @ViewBuilder
     private var preferencesSection: some View {
         Section {
@@ -218,6 +232,20 @@ struct SettingsView: View {
         }
         .onChange(of: snoozeMinutes) { NotificationPresenter.shared.registerCategories() }
         .onChange(of: followUpMinutes) { medicationStore.refreshNotifications() }
+        Section {
+            Toggle(isOn: $alertsForNews) {
+                SettingsRow("New RCH News", symbol: "newspaper.fill", color: Theme.brand)
+            }
+            Toggle(isOn: $alertsForFactSheets) {
+                SettingsRow("New Fact Sheets", symbol: "doc.text.fill", color: Theme.green)
+            }
+        } header: {
+            Text("Discover Alerts")
+        } footer: {
+            Text("A notification when RCH News posts a story, or Kids or Teen Health Info adds a fact sheet. iOS checks every few hours, when Background App Refresh is on for myRCH.")
+        }
+        .onChange(of: alertsForNews) { _, isOn in discoverAlertsChanged(turnedOn: isOn) }
+        .onChange(of: alertsForFactSheets) { _, isOn in discoverAlertsChanged(turnedOn: isOn) }
         Section {
             ShortcutsLink()
                 .shortcutsLinkStyle(.automaticOutline)

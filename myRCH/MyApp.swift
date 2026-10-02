@@ -46,6 +46,11 @@ import UIKit
                 // visit, and fact sheets over Wi-Fi in the background.
                 Task { await RCHContentStore.shared.refresh() }
             }
+            // Next check for new Discover articles, if alerts are on.
+            if phase == .background { DiscoverAlerts.schedule() }
+        }
+        .backgroundTask(.appRefresh(DiscoverAlerts.taskID)) {
+            await DiscoverAlerts.checkInBackground()
         }
     }
 }
