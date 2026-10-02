@@ -25,14 +25,14 @@ struct MedicationSummaryCard: View {
         for medication in medications {
             for dose in store.doses(for: key(medication)) where dose.status == nil {
                 if let current = best, current.time <= dose.scheduled { continue }
-                best = (medication.commonName ?? medication.displayName, dose.scheduled)
+                best = (medication.reminderName, dose.scheduled)
             }
         }
         return best
     }
 
     private var names: String {
-        let shown = medications.prefix(3).map { $0.commonName ?? $0.displayName }
+        let shown = medications.prefix(3).map(\.reminderName)
         let extra = medications.count - shown.count
         return (shown + (extra > 0 ? ["+\(extra) more"] : [])).joined(separator: " · ")
     }
