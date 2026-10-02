@@ -184,14 +184,18 @@ nonisolated enum RCHContent {
         for match in HTMLText.matches(pattern, in: String(html[start.lowerBound...])) {
             guard let url = URL(string: match[0], relativeTo: site)?.absoluteURL else { continue }
             let text = HTMLText.plain(match[1])
-            // "Acne (see >> Pimples and skin health)"
-            if let see = text.range(of: " (see") {
-                aliases.append((String(text[..<see.lowerBound]), url))
-            } else {
+            // A cross-reference: "Acne (see >> Pimples and skin health)".
+            // Some have no name before it (" (see >> …)", trimmed to
+            // "(see >> …)"); those are skipped. Either way it never stands in
+            // for the sheet itself, which is listed under its own name.
+            if let see = text.range(of: "(see") {
+                let alias = text[..<see.lowerBound].trimmingCharacters(in: .whitespaces)
+                if !alias.isEmpty { aliases.append((alias, url)) }
+            } else if !text.isEmpty, sheets[url] == nil {
                 sheets[url] = FactSheet(title: text, url: url, library: library)
             }
         }
-        for alias in aliases {
+        for alias in aliases where sheets[alias.url]?.aliases.contains(alias.title) == false {
             sheets[alias.url]?.aliases.append(alias.title)
         }
         return sheets.values.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -294,6 +298,8 @@ final class RCHContentStore {
     private(set) var latestNews: [NewsPost] = []
     private(set) var factSheets: [FactSheet.Library: [FactSheet]] = [:]
     private(set) var newsError: String?
+    /// Why a library's list couldn't load, when there's no saved copy.
+    private(set) var factSheetErrors: [FactSheet.Library: String] = [:]
     /// True when the last refresh couldn't reach the site and the saved
     /// copy is showing.
     private(set) var isOffline = false
@@ -438,11 +444,15 @@ final class RCHContentStore {
             let known = Set(previous.map(\.url))
             let added = previous.isEmpty ? [] : fresh.filter { !known.contains($0.url) }
             factSheets[library] = fresh
+            factSheetErrors[library] = nil
             listsLoaded.insert(library)
             save()
             return added
         } catch {
-            guard factSheets[library]?.isEmpty == false else { throw error }
+            guard factSheets[library]?.isEmpty == false else {
+                factSheetErrors[library] = error.localizedDescription
+                throw error
+            }
             isOffline = true
             return []
         }
@@ -539,11 +549,15 @@ final class RCHContentStore {
         try? data.write(to: indexURL, options: .atomic)
     }
 
+    /// The library's featured sheets, matched on the URL's last part (e.g.
+    /// "Croup"; `URL.path` drops the trailing slash, so a "/Croup/" match
+    /// never worked). If the site has renamed them, the first few A–Z, so
+    /// the section is never left empty.
     func featured(_ library: FactSheet.Library) -> [FactSheet] {
         let sheets = factSheets[library] ?? []
-        return library.featuredPaths.compactMap { path in
-            sheets.first { $0.url.path.removingPercentEncoding?.contains("/\(path)/") == true
-                           || $0.url.path.contains("/\(path)/") }
+        let matched = library.featuredPaths.compactMap { path in
+            sheets.first { $0.url.lastPathComponent == path }
         }
+        return matched.isEmpty ? Array(sheets.prefix(3)) : matched
     }
 }

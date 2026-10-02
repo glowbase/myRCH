@@ -127,7 +127,15 @@ struct DiscoverView: View {
             }
             let featured = store.featured(library)
             if featured.isEmpty {
-                skeletonRows(3)
+                if store.factSheetErrors[library] != nil {
+                    Label("Couldn't load \(library.title). Pull down to try again.", systemImage: "wifi.exclamationmark")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 12)
+                } else {
+                    skeletonRows(3)
+                }
             }
             ForEach(Array(featured.prefix(3).enumerated()), id: \.element.id) { index, sheet in
                 if index > 0 { Divider().padding(.leading, 80) }
