@@ -48,7 +48,7 @@ struct SharedRemindersView: View {
                         .font(.system(size: 40))
                     Text("Share \(childName)'s Reminders")
                         .font(.system(.title2, design: .rounded).bold())
-                    Text("Another parent or carer gets the same medication reminders on their iPhone. Doses either of you log, and your notes, show on both.")
+                    Text("Another parent or carer gets the same medication reminders on their iPhone. Doses either of you log, your notes, and questions to ask at upcoming visits show on both.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -72,7 +72,7 @@ struct SharedRemindersView: View {
 
             Section {
             } footer: {
-                Text("Stored in iCloud and shared only with the people you invite. Medicine names, notes and times are encrypted. The other person needs myRCH and their own My RCH Portal login with access to \(childName).")
+                Text("Stored in iCloud and shared only with the people you invite. Medicine names, notes, questions and times are encrypted. The other person needs myRCH and their own My RCH Portal login with access to \(childName).")
             }
         }
         .navigationTitle("Share Reminders")
@@ -120,7 +120,7 @@ struct SharedRemindersView: View {
         Section {
             if role != .participant {
                 ShareLink(item: ReminderShareItem(patientID: patientID, childName: childName, existing: share),
-                          preview: SharePreview("\(childName)'s medication reminders",
+                          preview: SharePreview("\(childName)'s reminders and visit questions",
                                                 image: Image(systemName: "pills.fill"))) {
                     Label(share == nil ? "Invite Someone" : "Manage Sharing", systemImage: "person.badge.plus")
                 }

@@ -73,7 +73,16 @@ struct AppointmentQuestionsCard: View {
 
     private var store: AppointmentQuestionsStore { .shared }
     private var key: String {
-        AppointmentQuestionsStore.key(patientID: session.patientID, appointmentID: appointment.id)
+        AppointmentQuestionsStore.key(patientID: session.patientID, appointment: appointment)
+    }
+
+    /// Whether the other parent sees these too.
+    private var isShared: Bool {
+        CareSync.shared.role(forPatient: session.patientID) != nil
+    }
+
+    private var savedNote: String {
+        isShared ? "Shared with your child's other carer." : "Saved on this iPhone. Shared when you share reminders."
     }
 
     var body: some View {
@@ -123,16 +132,17 @@ struct AppointmentQuestionsCard: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else if questions.contains(where: \.isSuggested) {
-                Text("✨ Suggested by Apple Intelligence on this iPhone. Saved on this iPhone only.")
+                Text("✨ Suggested by Apple Intelligence on this iPhone. \(savedNote)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                Text("Saved on this iPhone only. Tick each one off as you ask it, or swipe left to delete.")
+                Text("Tick each one off as you ask it, or swipe left to delete. \(savedNote)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
         .animation(.default, value: questions)
+        .onAppear { store.migrateLegacy(patientID: session.patientID, appointment: appointment) }
     }
 
     /// Tap to tick a question off; swipe left to delete it. Swiping needs
