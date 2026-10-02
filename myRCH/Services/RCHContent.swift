@@ -1,10 +1,11 @@
+import CryptoKit
 import Foundation
 import Observation
 
 // MARK: - Models
 
 /// A post from RCH News (blogs.rch.org.au/news).
-nonisolated struct NewsPost: Identifiable, Hashable, Sendable {
+nonisolated struct NewsPost: Identifiable, Hashable, Sendable, Codable {
     let id: Int
     var title: String
     /// The post's excerpt as plain text.
@@ -44,8 +45,8 @@ nonisolated enum NewsCategory: Int, CaseIterable, Identifiable, Sendable {
 }
 
 /// A fact sheet from Kids Health Info or Teen Health Info.
-nonisolated struct FactSheet: Identifiable, Hashable, Sendable {
-    enum Library: String, CaseIterable, Identifiable, Sendable {
+nonisolated struct FactSheet: Identifiable, Hashable, Sendable, Codable {
+    enum Library: String, CaseIterable, Identifiable, Sendable, Codable {
         case kids, teens
 
         var id: String { rawValue }
@@ -202,8 +203,8 @@ nonisolated enum RCHContent {
     /// recent advice" line, without the site's menus, scripts or
     /// translation buttons.
     @concurrent
-    static func factSheetHTML(_ sheet: FactSheet) async throws -> String {
-        let (data, _) = try await URLSession.shared.data(from: sheet.url)
+    static func factSheetHTML(_ sheet: FactSheet, session: URLSession = .shared) async throws -> String {
+        let (data, _) = try await session.data(from: sheet.url)
         let page = String(decoding: data, as: UTF8.self)
         // The on-screen title; the app shows its own above the content.
         let titleEnd = page.range(of: "<h1 class=\"hidden-print\">").flatMap {
@@ -281,8 +282,11 @@ nonisolated enum HTMLText {
 
 // MARK: - Store
 
-/// Discover's content, loaded once and kept for the session. It isn't a
-/// child's record, so it's the same for everyone and survives switching.
+/// Discover's content, with a copy saved on the iPhone so it works offline.
+/// It isn't a child's record, so it's the same for everyone and survives
+/// switching. News and the A–Z lists refresh each time the app opens; the
+/// fact sheets themselves download over Wi-Fi and refresh every so often,
+/// and any sheet that's opened refreshes then.
 @Observable
 final class RCHContentStore {
     static let shared = RCHContentStore()
@@ -290,24 +294,227 @@ final class RCHContentStore {
     private(set) var latestNews: [NewsPost] = []
     private(set) var factSheets: [FactSheet.Library: [FactSheet]] = [:]
     private(set) var newsError: String?
+    /// True when the last refresh couldn't reach the site and the saved
+    /// copy is showing.
+    private(set) var isOffline = false
+    /// When news was last refreshed from the site.
+    private(set) var newsSavedAt: Date?
 
-    private var loadedAt: Date?
+    /// What a refresh found that wasn't there before, for notifications.
+    /// Empty the first time, when there's nothing to compare against.
+    struct Updates {
+        var posts: [NewsPost] = []
+        var sheets: [FactSheet] = []
+    }
 
-    /// Latest news, reloaded if older than 30 minutes.
-    func loadNews(force: Bool = false) async {
-        if !force, let loadedAt, Date.now.timeIntervalSince(loadedAt) < 30 * 60, !latestNews.isEmpty { return }
+    private struct Saved: Codable {
+        var news: [NewsPost] = []
+        var newsSavedAt: Date?
+        /// By library, e.g. "kids".
+        var sheets: [String: [FactSheet]] = [:]
+        /// When each sheet's page was last saved, by its URL.
+        var sheetSavedAt: [String: Date] = [:]
+    }
+
+    @ObservationIgnored private var sheetSavedAt: [String: Date] = [:]
+    @ObservationIgnored private var newsLoadedAt: Date?
+    @ObservationIgnored private var listsLoaded: Set<FactSheet.Library> = []
+    @ObservationIgnored private var lastRefresh: Date?
+    @ObservationIgnored private var isDownloading = false
+
+    /// Opened sheets older than this refresh in the background.
+    private static let openedSheetMaxAge: TimeInterval = 24 * 60 * 60
+    /// The whole library is re-fetched this often: sheets rarely change, and
+    /// there are hundreds, so not every visit.
+    private static let librarySheetMaxAge: TimeInterval = 14 * 24 * 60 * 60
+
+    /// Re-downloadable, so kept out of iCloud backups.
+    @ObservationIgnored private let folder: URL = {
+        var folder = URL.applicationSupportDirectory.appending(path: "Discover", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: folder.appending(path: "sheets"), withIntermediateDirectories: true)
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? folder.setResourceValues(values)
+        return folder
+    }()
+
+    private var indexURL: URL { folder.appending(path: "discover.json") }
+
+    /// Fact sheets download only on Wi-Fi (not mobile data or Low Data Mode).
+    private static let wifiSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.allowsExpensiveNetworkAccess = false
+        configuration.allowsConstrainedNetworkAccess = false
+        return URLSession(configuration: configuration)
+    }()
+
+    init() {
+        guard let data = try? Data(contentsOf: indexURL),
+              let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
+        latestNews = saved.news
+        newsSavedAt = saved.newsSavedAt
+        for library in FactSheet.Library.allCases {
+            if let sheets = saved.sheets[library.rawValue] { factSheets[library] = sheets }
+        }
+        sheetSavedAt = saved.sheetSavedAt
+    }
+
+    // MARK: Refreshing
+
+    /// Refreshes news and both A–Z lists, then carries on downloading fact
+    /// sheets in the background. Called each time the app opens; skipped
+    /// if it ran in the last few minutes.
+    @discardableResult
+    func refresh(minimumInterval: TimeInterval = 5 * 60, downloadsSheets: Bool = true) async -> Updates {
+        if let lastRefresh, Date.now.timeIntervalSince(lastRefresh) < minimumInterval { return Updates() }
+        lastRefresh = .now
+        var updates = Updates()
+        updates.posts = await loadNews(force: true)
+        for library in FactSheet.Library.allCases {
+            updates.sheets += (try? await loadFactSheets(library, force: true)) ?? []
+        }
+        if downloadsSheets { Task { await downloadLibraries() } }
+        return updates
+    }
+
+    /// Latest news, reloaded if older than 30 minutes. Returns posts that
+    /// are new since the last copy.
+    @discardableResult
+    func loadNews(force: Bool = false) async -> [NewsPost] {
+        if !force, let newsLoadedAt, Date.now.timeIntervalSince(newsLoadedAt) < 30 * 60, !latestNews.isEmpty { return [] }
         do {
-            latestNews = try await RCHContent.news()
+            let fresh = try await RCHContent.news()
+            let known = Set(latestNews.map(\.id))
+            // Newer than the oldest one already seen, so a post that drops
+            // back into the latest few (e.g. after another's deleted) isn't new.
+            let oldest = latestNews.map(\.date).min() ?? .distantFuture
+            let added = fresh.filter { !known.contains($0.id) && $0.date >= oldest }
+            latestNews = fresh
             newsError = nil
-            loadedAt = .now
+            isOffline = false
+            newsLoadedAt = .now
+            newsSavedAt = .now
+            save()
+            return added
         } catch {
-            if latestNews.isEmpty { newsError = error.localizedDescription }
+            // Keep showing the saved copy; only an empty screen gets the error.
+            if latestNews.isEmpty { newsError = error.localizedDescription } else { isOffline = true }
+            return []
         }
     }
 
-    func loadFactSheets(_ library: FactSheet.Library) async throws {
-        guard factSheets[library] == nil else { return }
-        factSheets[library] = try await RCHContent.factSheets(library)
+    /// A library's A–Z list, from the site once per session (or when
+    /// forced), else the saved copy. Returns sheets new since the last copy.
+    @discardableResult
+    func loadFactSheets(_ library: FactSheet.Library, force: Bool = false) async throws -> [FactSheet] {
+        if !force, listsLoaded.contains(library) { return [] }
+        do {
+            let fresh = try await RCHContent.factSheets(library)
+            // An empty list means the page changed shape; keep the saved one.
+            guard !fresh.isEmpty else { return [] }
+            let previous = factSheets[library] ?? []
+            let known = Set(previous.map(\.url))
+            let added = previous.isEmpty ? [] : fresh.filter { !known.contains($0.url) }
+            factSheets[library] = fresh
+            listsLoaded.insert(library)
+            save()
+            return added
+        } catch {
+            guard factSheets[library]?.isEmpty == false else { throw error }
+            isOffline = true
+            return []
+        }
+    }
+
+    // MARK: Fact sheet pages
+
+    /// A sheet's content: the saved copy straight away (refreshed in the
+    /// background if it's more than a day old), else from the site.
+    func sheetHTML(_ sheet: FactSheet) async throws -> String {
+        if let saved = savedHTML(sheet) {
+            if isStale(sheet, maxAge: Self.openedSheetMaxAge) {
+                Task { _ = try? await fetchSheet(sheet, session: .shared) }
+            }
+            return saved
+        }
+        return try await fetchSheet(sheet, session: .shared)
+    }
+
+    /// Saves every sheet in both libraries that's missing or due a refresh,
+    /// four at a time, over Wi-Fi only. Stops after a run of failures (no
+    /// Wi-Fi, or offline) and picks up again on a later visit.
+    func downloadLibraries() async {
+        guard !isDownloading else { return }
+        isDownloading = true
+        defer { isDownloading = false }
+        let due = FactSheet.Library.allCases.flatMap { factSheets[$0] ?? [] }
+            .filter { isStale($0, maxAge: Self.librarySheetMaxAge) }
+        guard !due.isEmpty else { return }
+
+        let session = Self.wifiSession
+        var queue = due.makeIterator()
+        var saved = 0
+        var failuresInARow = 0
+        await withTaskGroup(of: (FactSheet, String?).self) { group in
+            func addNext() {
+                guard let sheet = queue.next() else { return }
+                group.addTask { (sheet, try? await RCHContent.factSheetHTML(sheet, session: session)) }
+            }
+            for _ in 0..<4 { addNext() }
+            for await (sheet, html) in group {
+                if let html {
+                    store(html, for: sheet)
+                    failuresInARow = 0
+                    saved += 1
+                    // The index isn't rewritten for every one of hundreds.
+                    if saved.isMultiple(of: 25) { save() }
+                } else {
+                    failuresInARow += 1
+                    if failuresInARow >= 5 {
+                        group.cancelAll()
+                        break
+                    }
+                }
+                addNext()
+            }
+        }
+        save()
+    }
+
+    private func fetchSheet(_ sheet: FactSheet, session: URLSession) async throws -> String {
+        let html = try await RCHContent.factSheetHTML(sheet, session: session)
+        store(html, for: sheet)
+        save()
+        return html
+    }
+
+    private func store(_ html: String, for sheet: FactSheet) {
+        try? Data(html.utf8).write(to: fileURL(sheet), options: .atomic)
+        sheetSavedAt[sheet.url.absoluteString] = .now
+    }
+
+    private func savedHTML(_ sheet: FactSheet) -> String? {
+        (try? Data(contentsOf: fileURL(sheet))).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    private func isStale(_ sheet: FactSheet, maxAge: TimeInterval) -> Bool {
+        guard savedHTML(sheet) != nil, let date = sheetSavedAt[sheet.url.absoluteString] else { return true }
+        return Date.now.timeIntervalSince(date) > maxAge
+    }
+
+    /// Named by a hash of the sheet's URL.
+    private func fileURL(_ sheet: FactSheet) -> URL {
+        let name = SHA256.hash(data: Data(sheet.url.absoluteString.utf8)).prefix(16)
+            .map { String(format: "%02x", $0) }.joined()
+        return folder.appending(path: "sheets/\(name).html")
+    }
+
+    private func save() {
+        var sheets: [String: [FactSheet]] = [:]
+        for (library, list) in factSheets { sheets[library.rawValue] = list }
+        let saved = Saved(news: latestNews, newsSavedAt: newsSavedAt, sheets: sheets, sheetSavedAt: sheetSavedAt)
+        guard let data = try? JSONEncoder().encode(saved) else { return }
+        try? data.write(to: indexURL, options: .atomic)
     }
 
     func featured(_ library: FactSheet.Library) -> [FactSheet] {

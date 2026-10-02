@@ -35,10 +35,10 @@ struct DiscoverView: View {
         .background(Color(.systemBackground))
         .navigationTitle("Discover")
         .searchable(text: $searchText, prompt: "Search news and fact sheets")
-        .refreshable { await store.loadNews(force: true) }
+        .refreshable { await store.refresh(minimumInterval: 0) }
         .task { await store.loadNews() }
         .task {
-            for library in FactSheet.Library.allCases { try? await store.loadFactSheets(library) }
+            for library in FactSheet.Library.allCases { _ = try? await store.loadFactSheets(library) }
         }
     }
 
@@ -76,6 +76,15 @@ struct DiscoverView: View {
     private var spotlight: some View {
         VStack(alignment: .leading, spacing: 0) {
             DiscoverSectionHeader(title: "Spotlight")
+            if store.isOffline {
+                Label(store.newsSavedAt.map { "Offline. Showing the copy saved \($0.formatted(.relative(presentation: .named)))." }
+                      ?? "Offline. Showing the saved copy.",
+                      systemImage: "wifi.slash")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 8)
+            }
             if store.latestNews.isEmpty {
                 placeholder(error: store.newsError)
             } else {
@@ -578,7 +587,8 @@ struct FactSheetArticleView: View {
 
     var body: some View {
         ArticleReader(title: sheet.title, shareURL: sheet.url) {
-            let body = try await RCHContent.factSheetHTML(sheet)
+            // The saved copy when there is one, so it opens offline.
+            let body = try await RCHContentStore.shared.sheetHTML(sheet)
             return ArticlePage.html(title: sheet.title, byline: "\(sheet.library.title) fact sheet",
                                     heroURL: nil, body: body)
         }

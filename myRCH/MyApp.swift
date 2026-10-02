@@ -42,6 +42,9 @@ import UIKit
                 // Live Activities can only start while the app is open.
                 WidgetPublisher.shared.dosesChanged()
                 Task { await careSync.syncNow() }
+                // Discover's saved copy: news and fact sheet lists each
+                // visit, and fact sheets over Wi-Fi in the background.
+                Task { await RCHContentStore.shared.refresh() }
             }
         }
     }
