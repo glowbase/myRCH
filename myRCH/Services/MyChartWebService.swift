@@ -1787,8 +1787,11 @@ actor MyChartWebService: PortalService {
         return prescriptions.enumerated().map { index, item in
             let name = Self.medicationName(Self.string(item, "name") ?? "Unknown medicine")
             // patientFriendlyName is the plain-language name, e.g. "Hypersal";
-            // only useful when it differs from the prescription name.
-            let friendly = Self.string(item, "patientFriendlyName")
+            // only useful when it differs from the prescription name. The
+            // live portal sends it as {caption, captionType, text}; a plain
+            // string is still accepted.
+            let friendly = (item["patientFriendlyName"] as? [String: Any]).flatMap { Self.string($0, "text") }
+                ?? Self.string(item, "patientFriendlyName")
             let provider = (item["authorizingProvider"] as? [String: Any])
                 ?? (item["orderingProvider"] as? [String: Any])
             let refill = item["refillDetails"] as? [String: Any] ?? [:]
@@ -1812,7 +1815,10 @@ actor MyChartWebService: PortalService {
                 // These come from the current-medications list, so treat them
                 // as active unless the portal flags a pending removal.
                 isActive: !(item["showPendingUndoDeleteButton"] as? Bool ?? false),
-                commonName: friendly == name || friendly == parts.name ? nil : friendly,
+                commonName: friendly.flatMap { friendly in
+                    [name, parts.name, Self.string(item, "name") ?? ""]
+                        .contains { $0.caseInsensitiveCompare(friendly) == .orderedSame } ? nil : friendly
+                },
                 form: Self.medicationForm(name: name, sig: Self.string(item, "sig")),
                 prescribedDate: Self.portalDate(Self.string(item, "startDate"))
                     ?? Self.portalDate(Self.string(item, "dateToDisplay")),

@@ -377,16 +377,10 @@ private struct ScheduledDoseRow: View {
             Text(item.dose.scheduled.formatted(date: .omitted, time: .shortened))
                 .font(.subheadline.weight(.semibold).monospacedDigit())
                 .frame(minWidth: 64, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.medication.commonName ?? item.medication.displayName)
-                    .font(.headline)
-                if item.medication.commonName != nil {
-                    Text(item.medication.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
+            // The name families know (e.g. "Augmentin Duo"), without the
+            // prescription's full name and strength.
+            Text(item.medication.commonName ?? item.medication.displayName)
+                .font(.headline)
             Spacer()
             status
                 // A little bounce and tap when a dose is logged, like Health.
