@@ -29,6 +29,9 @@ struct DiscoverView: View {
                     .padding()
             }
         }
+        // Room past the closing note, so the tab bar and bottom search field
+        // don't sit over it at the end of the scroll.
+        .contentMargins(.bottom, 40, for: .scrollContent)
         .background(Color(.systemBackground))
         .navigationTitle("Discover")
         .searchable(text: $searchText, prompt: "Search news and fact sheets")
@@ -95,6 +98,9 @@ struct DiscoverView: View {
                                   color: NewsCategory.news.color) {
                 NewsListView(category: .news)
             }
+            if store.latestNews.isEmpty, store.newsError == nil {
+                skeletonRows(3)
+            }
             ForEach(Array(store.latestNews.dropFirst(2).prefix(3).enumerated()), id: \.element.id) { index, post in
                 if index > 0 { Divider().padding(.leading, 80) }
                 NavigationLink { NewsArticleView(post: post) } label: {
@@ -112,7 +118,7 @@ struct DiscoverView: View {
             }
             let featured = store.featured(library)
             if featured.isEmpty {
-                ProgressView().frame(maxWidth: .infinity, minHeight: 80)
+                skeletonRows(3)
             }
             ForEach(Array(featured.prefix(3).enumerated()), id: \.element.id) { index, sheet in
                 if index > 0 { Divider().padding(.leading, 80) }
@@ -124,13 +130,20 @@ struct DiscoverView: View {
         }
     }
 
+    private func skeletonRows(_ count: Int) -> some View {
+        ForEach(0..<count, id: \.self) { index in
+            if index > 0 { Divider().padding(.leading, 80) }
+            ContentRow.placeholder
+        }
+    }
+
     @ViewBuilder
     private func placeholder(error: String?) -> some View {
         if let error {
             ContentUnavailableView("Couldn't load news", systemImage: "wifi.exclamationmark",
                                    description: Text(error))
         } else {
-            ProgressView().frame(maxWidth: .infinity, minHeight: 200)
+            SpotlightSkeleton()
         }
     }
 }
@@ -247,6 +260,47 @@ private struct SpotlightCard: View {
     }
 }
 
+/// The Spotlight card's shape while news loads.
+private struct SpotlightSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Placeholder headline for the latest news")
+                .font(.title3.bold())
+            Text("Placeholder summary of the story, two lines long")
+                .font(.subheadline)
+            RoundedRectangle(cornerRadius: Theme.cardRadius)
+                .fill(Color(.tertiarySystemFill))
+                .aspectRatio(16 / 10, contentMode: .fit)
+                .padding(.top, 8)
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 4)
+        .redacted(reason: .placeholder)
+        .accessibilityHidden(true)
+    }
+}
+
+/// An article's title and paragraphs, greyed out while it loads.
+private struct ArticleSkeleton: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Placeholder article title")
+                .font(.title.bold())
+            Text("Placeholder byline")
+                .font(.subheadline)
+            ForEach(0..<3, id: \.self) { _ in
+                Text("Placeholder paragraph text that fills the width of the screen and runs onto several lines, the way an article's opening paragraph does.")
+                    .font(.body)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .redacted(reason: .placeholder)
+        .accessibilityLabel("Loading")
+    }
+}
+
 /// A list row: a rounded thumbnail (or an icon tile for fact sheets, which
 /// have no pictures), a bold title and a grey line under it.
 struct ContentRow: View {
@@ -270,6 +324,22 @@ struct ContentRow: View {
         imageURL = nil
         systemImage = "doc.text.fill"
         color = sheet.library.color
+    }
+
+    /// Stand-in text for the loading skeleton; redact it where it's used.
+    private init() {
+        title = "Placeholder title for an article"
+        subtitle = "Placeholder summary of the article"
+        imageURL = nil
+        systemImage = "doc.text.fill"
+        color = .gray
+    }
+
+    /// A row-shaped skeleton, greyed out like the rest of the app's.
+    static var placeholder: some View {
+        ContentRow()
+            .redacted(reason: .placeholder)
+            .accessibilityHidden(true)
     }
 
     var body: some View {
@@ -390,8 +460,9 @@ struct NewsListView: View {
                 NavigationLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
                     .onAppear { if post.id == posts.last?.id { Task { await loadMore() } } }
             }
+            // A screenful of skeleton rows at first; one row when loading more.
             if isLoading {
-                ProgressView().frame(maxWidth: .infinity)
+                ForEach(0..<(posts.isEmpty ? 6 : 1), id: \.self) { _ in ContentRow.placeholder }
             }
         }
         .listStyle(.plain)
@@ -464,7 +535,17 @@ struct FactSheetListView: View {
                     ContentUnavailableView("Couldn't load fact sheets", systemImage: "wifi.exclamationmark",
                                            description: Text(failure))
                 } else {
-                    ProgressView()
+                    // Titles greyed out, the shape of the A–Z list.
+                    List {
+                        Section("A") {
+                            ForEach(0..<10, id: \.self) { index in
+                                Text(index.isMultiple(of: 2) ? "Placeholder fact sheet" : "Placeholder fact sheet title")
+                            }
+                        }
+                    }
+                    .redacted(reason: .placeholder)
+                    .disabled(true)
+                    .accessibilityHidden(true)
                 }
             } else if sheets.isEmpty {
                 ContentUnavailableView.search(text: searchText)
@@ -518,9 +599,11 @@ private struct ArticleReader: View {
     var body: some View {
         Group {
             if let page {
+                // Inside the safe area: under the tab bar, the article's last
+                // lines (e.g. "Please always seek the most recent advice")
+                // were hidden behind it.
                 WebView(page)
                     .webViewLinkPreviews(.disabled)
-                    .ignoresSafeArea(edges: .bottom)
             } else if let failure {
                 ContentUnavailableView {
                     Label("Couldn't open article", systemImage: "doc.questionmark")
@@ -530,7 +613,7 @@ private struct ArticleReader: View {
                     Button("Open in Safari") { openURL(shareURL) }
                 }
             } else {
-                ProgressView()
+                ArticleSkeleton()
             }
         }
         .navigationTitle(title)
@@ -628,6 +711,11 @@ struct HomeArticlesSection: View {
             }
             .padding(.horizontal, 4)
             .padding(.bottom, 4)
+            if store.latestNews.isEmpty, store.newsError == nil {
+                ContentRow.placeholder
+                Divider().padding(.leading, 84)
+                ContentRow.placeholder
+            }
             ForEach(Array(store.latestNews.prefix(2).enumerated()), id: \.element.id) { index, post in
                 if index > 0 { Divider().padding(.leading, 84) }
                 NavigationLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
