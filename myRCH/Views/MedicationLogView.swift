@@ -48,7 +48,7 @@ struct MedicationLogSections: View {
             ForEach(asNeeded(on: selectedDay)) { entry in
                 HStack {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
-                    Text(entry.medication.commonName ?? entry.medication.displayName)
+                    Text(entry.medication.reminderName)
                     Spacer()
                     Text(entry.log.scheduled.formatted(date: .omitted, time: .shortened))
                         .font(.subheadline.monospacedDigit())
@@ -377,9 +377,10 @@ private struct ScheduledDoseRow: View {
             Text(item.dose.scheduled.formatted(date: .omitted, time: .shortened))
                 .font(.subheadline.weight(.semibold).monospacedDigit())
                 .frame(minWidth: 64, alignment: .leading)
-            // The name families know (e.g. "Augmentin Duo"), without the
-            // prescription's full name and strength.
-            Text(item.medication.commonName ?? item.medication.displayName)
+            // The short name, as in the medication list: the brand name when
+            // the portal gives one, else the name without its strength
+            // ("Amoxicillin-Clavulanic Acid", not "… 400 mg-57 mg/5 mL").
+            Text(item.medication.reminderName)
                 .font(.headline)
             Spacer()
             status
