@@ -344,6 +344,9 @@ struct Medication: Identifiable, Hashable {
     /// The portal's raw name, before the app tidies its capitalisation;
     /// sent back when removing the medication.
     var portalName: String? = nil
+    /// For an addition still awaiting review, the portal's id for that
+    /// pending update (`updateInformation.referenceID`), which removes it.
+    var updateReferenceID: String? = nil
 }
 
 extension Medication {
