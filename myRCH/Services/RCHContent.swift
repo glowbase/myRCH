@@ -97,6 +97,29 @@ nonisolated struct FactSheet: Identifiable, Hashable, Sendable, Codable {
     /// skin health". Searchable, but not shown as their own rows.
     var aliases: [String] = []
     var id: URL { url }
+
+    /// The URL's last part in lower case, e.g. "croup": the site links the
+    /// same sheet with different capitalisation in different places.
+    var key: String { url.lastPathComponent.lowercased() }
+}
+
+/// One of a library's categories, e.g. "Respiratory", as the site's
+/// "View by Category" lists them.
+nonisolated struct FactSheetCategory: Identifiable, Hashable, Sendable, Codable {
+    var name: String
+    var sheets: [FactSheet]
+    var id: String { name }
+}
+
+/// Everything a library's index page lists.
+nonisolated struct FactSheetIndex: Sendable {
+    var sheets: [FactSheet]
+    var categories: [FactSheetCategory]
+    /// The site's "Top 10 visited" list, most visited first (Kids only).
+    var topVisited: [FactSheet]
+    /// The list's heading, e.g. "Top 10 visited Kids Health Info fact
+    /// sheets in August 2026".
+    var topVisitedHeading: String?
 }
 
 // MARK: - Loading
@@ -171,11 +194,69 @@ nonisolated enum RCHContent {
 
     // MARK: Fact sheets
 
-    /// Every sheet in a library, A–Z, with its aliases folded in.
+    /// A library's index page: every sheet A–Z with its aliases folded in,
+    /// the categories, and (for Kids) the top 10 visited.
     @concurrent
-    static func factSheets(_ library: Library) async throws -> [FactSheet] {
+    static func factSheetIndex(_ library: Library) async throws -> FactSheetIndex {
         let (data, _) = try await URLSession.shared.data(from: library.indexURL)
         let html = String(decoding: data, as: UTF8.self)
+        let sheets = factSheets(in: html, library: library)
+        let byKey = Dictionary(sheets.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        let top = topVisited(in: html, library: library, byKey: byKey)
+        return FactSheetIndex(sheets: sheets,
+                              categories: categories(in: html, library: library, byKey: byKey),
+                              topVisited: top.sheets, topVisitedHeading: top.heading)
+    }
+
+    /// The site's own sheet for a link, else one made from the link (a
+    /// category can list a sheet the A–Z doesn't, or one from the other
+    /// library).
+    private static func sheet(href: String, title: String, library: Library,
+                              byKey: [String: FactSheet]) -> FactSheet? {
+        // One top-10 link reads "https://www.https://www.rch.org.au/…", so
+        // only the fact sheet path is trusted.
+        guard let path = HTMLText.matches(#"(/(?:kidsinfo/fact_sheets|teeninfo/fact-sheets)/[^/'"?#]+)"#,
+                                          in: href).first?.first,
+              let url = URL(string: path + "/", relativeTo: site)?.absoluteURL else { return nil }
+        if let known = byKey[url.lastPathComponent.lowercased()] { return known }
+        let title = HTMLText.plain(title)
+        guard !title.isEmpty else { return nil }
+        return FactSheet(title: title, url: url, library: path.hasPrefix("/teeninfo") ? .teens : library)
+    }
+
+    /// "View by Category": accordions of an `<h2>` name and a list of links.
+    private static func categories(in html: String, library: Library,
+                                   byKey: [String: FactSheet]) -> [FactSheetCategory] {
+        guard let start = html.range(of: "class=\"cat-panel\"") else { return [] }
+        let panel = String(html[start.lowerBound...])
+        return HTMLText.matches(##"<h2><a href="#">(.*?)</a></h2>.*?<ul>(.*?)</ul>"##, in: panel).compactMap { match in
+            let name = HTMLText.plain(match[0])
+            var seen: Set<String> = []
+            let sheets = HTMLText.matches(#"<li><a href=['"]([^'"]+)['"]>(.*?)</a></li>"#, in: match[1]).compactMap { link in
+                sheet(href: link[0], title: link[1], library: library, byKey: byKey)
+            }.filter { seen.insert($0.key).inserted }
+            guard !name.isEmpty, !sheets.isEmpty else { return nil }
+            return FactSheetCategory(name: name, sheets: sheets)
+        }
+    }
+
+    /// The green "Top 10 visited … in <month>" box, in order.
+    private static func topVisited(in html: String, library: Library,
+                                   byKey: [String: FactSheet]) -> (sheets: [FactSheet], heading: String?) {
+        guard let start = html.range(of: "Top 10 visited") else { return ([], nil) }
+        let rest = html[start.lowerBound...]
+        let end = rest.range(of: "<script")?.lowerBound ?? rest.endIndex
+        let box = String(rest[..<end])
+        let heading = box.range(of: "</h3>").map { HTMLText.plain(String(box[..<$0.lowerBound])) }
+        var seen: Set<String> = []
+        let sheets = HTMLText.matches(#"<a href="([^"]+)"[^>]*>(.*?)</a>"#, in: box).compactMap { link in
+            sheet(href: link[0], title: link[1], library: library, byKey: byKey)
+        }.filter { seen.insert($0.key).inserted }
+        return (sheets, heading)
+    }
+
+    /// Every sheet in a library, A–Z, with its aliases folded in.
+    private static func factSheets(in html: String, library: Library) -> [FactSheet] {
         // The letter tabs; the rest of the page links to other things.
         guard let start = html.range(of: "tabnav-letter-blocks") else { return [] }
         let pattern = "<li><a href=['\"](\(NSRegularExpression.escapedPattern(for: library.pathPrefix))[^'\"]+)['\"]>(.*?)</a></li>"
@@ -297,6 +378,12 @@ final class RCHContentStore {
 
     private(set) var latestNews: [NewsPost] = []
     private(set) var factSheets: [FactSheet.Library: [FactSheet]] = [:]
+    /// Each library's categories, as the site's "View by Category" lists them.
+    private(set) var categories: [FactSheet.Library: [FactSheetCategory]] = [:]
+    /// The site's top 10 visited sheets, most visited first (Kids only).
+    private(set) var topVisited: [FactSheet.Library: [FactSheet]] = [:]
+    /// e.g. "Top 10 visited Kids Health Info fact sheets in August 2026".
+    private(set) var topVisitedHeadings: [FactSheet.Library: String] = [:]
     private(set) var newsError: String?
     /// Why a library's list couldn't load, when there's no saved copy.
     private(set) var factSheetErrors: [FactSheet.Library: String] = [:]
@@ -342,6 +429,10 @@ final class RCHContentStore {
         var sheets: [String: [FactSheet]] = [:]
         /// When each sheet's page was last saved, by its URL.
         var sheetSavedAt: [String: Date] = [:]
+        // Optional, so copies saved before these were added still load.
+        var categories: [String: [FactSheetCategory]]?
+        var topVisited: [String: [FactSheet]]?
+        var topVisitedHeadings: [String: String]?
     }
 
     @ObservationIgnored private var sheetSavedAt: [String: Date] = [:]
@@ -382,7 +473,11 @@ final class RCHContentStore {
         latestNews = saved.news
         newsSavedAt = saved.newsSavedAt
         for library in FactSheet.Library.allCases {
-            if let sheets = saved.sheets[library.rawValue] { factSheets[library] = sheets }
+            let key = library.rawValue
+            if let sheets = saved.sheets[key] { factSheets[library] = sheets }
+            if let list = saved.categories?[key] { categories[library] = list }
+            if let top = saved.topVisited?[key] { topVisited[library] = top }
+            if let heading = saved.topVisitedHeadings?[key] { topVisitedHeadings[library] = heading }
         }
         sheetSavedAt = saved.sheetSavedAt
     }
@@ -437,13 +532,20 @@ final class RCHContentStore {
     func loadFactSheets(_ library: FactSheet.Library, force: Bool = false) async throws -> [FactSheet] {
         if !force, listsLoaded.contains(library) { return [] }
         do {
-            let fresh = try await RCHContent.factSheets(library)
+            let index = try await RCHContent.factSheetIndex(library)
+            let fresh = index.sheets
             // An empty list means the page changed shape; keep the saved one.
             guard !fresh.isEmpty else { return [] }
             let previous = factSheets[library] ?? []
             let known = Set(previous.map(\.url))
             let added = previous.isEmpty ? [] : fresh.filter { !known.contains($0.url) }
             factSheets[library] = fresh
+            // Kept if this visit's page didn't have them, rather than lost.
+            if !index.categories.isEmpty { categories[library] = index.categories }
+            if !index.topVisited.isEmpty {
+                topVisited[library] = index.topVisited
+                topVisitedHeadings[library] = index.topVisitedHeading
+            }
             factSheetErrors[library] = nil
             listsLoaded.insert(library)
             save()
@@ -542,9 +644,12 @@ final class RCHContentStore {
     }
 
     private func save() {
-        var sheets: [String: [FactSheet]] = [:]
-        for (library, list) in factSheets { sheets[library.rawValue] = list }
-        let saved = Saved(news: latestNews, newsSavedAt: newsSavedAt, sheets: sheets, sheetSavedAt: sheetSavedAt)
+        func byName<T>(_ values: [FactSheet.Library: T]) -> [String: T] {
+            Dictionary(uniqueKeysWithValues: values.map { ($0.key.rawValue, $0.value) })
+        }
+        let saved = Saved(news: latestNews, newsSavedAt: newsSavedAt, sheets: byName(factSheets),
+                          sheetSavedAt: sheetSavedAt, categories: byName(categories),
+                          topVisited: byName(topVisited), topVisitedHeadings: byName(topVisitedHeadings))
         guard let data = try? JSONEncoder().encode(saved) else { return }
         try? data.write(to: indexURL, options: .atomic)
     }
@@ -559,5 +664,19 @@ final class RCHContentStore {
             sheets.first { $0.url.lastPathComponent == path }
         }
         return matched.isEmpty ? Array(sheets.prefix(3)) : matched
+    }
+
+    /// What the Discover page lists for a library: the site's top five
+    /// most-visited when it has them (Kids), else the featured sheets.
+    func discoverSheets(_ library: FactSheet.Library) -> [FactSheet] {
+        if let top = topVisited[library], !top.isEmpty { return Array(top.prefix(5)) }
+        return Array(featured(library).prefix(3))
+    }
+
+    /// "Most visited in August 2026", from the top 10's heading.
+    func topVisitedCaption(_ library: FactSheet.Library) -> String? {
+        guard topVisited[library]?.isEmpty == false, let heading = topVisitedHeadings[library],
+              let range = heading.range(of: " in ", options: .backwards) else { return nil }
+        return "Most visited in \(heading[range.upperBound...])"
     }
 }
