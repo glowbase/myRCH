@@ -739,9 +739,15 @@ struct NewsArticleView: View {
 struct FactSheetArticleView: View {
     let sheet: FactSheet
 
+    /// The summary to show, carrying the page's text with it.
+    private struct Glance: Identifiable {
+        let text: String
+        var id: String { text }
+    }
+
     /// The page's text, for the summary; set once it's loaded.
     @State private var plainText: String?
-    @State private var showsGlance = false
+    @State private var glance: Glance?
 
     var body: some View {
         // The library's colour, as the light-mode shade the page's icons and
@@ -749,7 +755,7 @@ struct FactSheetArticleView: View {
         let accent = UIColor(sheet.library.color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
         let offersGlance = OnDeviceAI.isSupported
         ArticleReader(title: sheet.title, shareURL: sheet.url,
-                      onGlance: offersGlance ? { if plainText != nil { showsGlance = true } } : nil) {
+                      onGlance: offersGlance ? { if let plainText { glance = Glance(text: plainText) } } : nil) {
             // The saved copy when there is one, so it opens offline.
             let body = try await RCHContentStore.shared.sheetHTML(sheet)
             let formatted = FactSheetFormatter.format(body, accent: accent)
@@ -758,8 +764,11 @@ struct FactSheetArticleView: View {
                                            accentHex: accent.hexString, formatted: formatted,
                                            offersGlance: offersGlance)
         }
-        .sheet(isPresented: $showsGlance) {
-            if let plainText { FactSheetGlanceSheet(sheet: sheet, text: plainText) }
+        // By item, so the sheet gets the text it opened with. With a Bool,
+        // its content was built from an earlier redraw, before the text
+        // loaded, and came up blank.
+        .sheet(item: $glance) { glance in
+            FactSheetGlanceSheet(sheet: sheet, text: glance.text)
         }
     }
 }
