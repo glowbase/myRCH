@@ -125,7 +125,15 @@ struct DiscoverView: View {
             DiscoverSectionHeader(title: library.title, systemImage: library.systemImage, color: library.color) {
                 FactSheetListView(library: library)
             }
-            let featured = store.featured(library)
+            // Kids: the site's top five most-visited; Teen: featured sheets.
+            let featured = store.discoverSheets(library)
+            if let caption = store.topVisitedCaption(library) {
+                Label(caption, systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 4)
+            }
             if featured.isEmpty {
                 if store.factSheetErrors[library] != nil {
                     Label("Couldn't load \(library.title). Pull down to try again.", systemImage: "wifi.exclamationmark")
@@ -137,7 +145,7 @@ struct DiscoverView: View {
                     skeletonRows(3)
                 }
             }
-            ForEach(Array(featured.prefix(3).enumerated()), id: \.element.id) { index, sheet in
+            ForEach(Array(featured.enumerated()), id: \.element.id) { index, sheet in
                 if index > 0 { Divider().padding(.leading, 80) }
                 NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
                     ContentRow(sheet: sheet)
@@ -339,7 +347,8 @@ struct ContentRow: View {
         title = sheet.title
         subtitle = "\(sheet.library.title) fact sheet"
         imageURL = nil
-        systemImage = "doc.text.fill"
+        // Suggests the topic, e.g. a thermometer for fever.
+        systemImage = sheet.systemImage
         color = sheet.library.color
     }
 
@@ -513,13 +522,24 @@ struct NewsListView: View {
     }
 }
 
-/// A library's sheets A–Z, by letter, searchable by name or alias.
+/// A library's sheets A–Z by letter, or by category like Browse, with a
+/// switch at the top. Search covers every sheet, by name or alias.
 struct FactSheetListView: View {
     let library: FactSheet.Library
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case alphabetical = "A–Z"
+        case categories = "Categories"
+        var id: String { rawValue }
+    }
 
     @State private var store = RCHContentStore.shared
     @State private var searchText = ""
     @State private var failure: String?
+    /// Remembered between visits.
+    @AppStorage("factSheetListMode") private var mode: Mode = .alphabetical
+
+    private var categories: [FactSheetCategory] { store.categories[library] ?? [] }
 
     private var sheets: [FactSheet] {
         let all = store.factSheets[library] ?? []
@@ -538,12 +558,44 @@ struct FactSheetListView: View {
 
     var body: some View {
         List {
-            ForEach(byLetter, id: \.letter) { group in
-                Section(group.letter) {
-                    ForEach(group.sheets) { sheet in
-                        NavigationLink(sheet.title) { FactSheetArticleView(sheet: sheet) }
+            // Searching lists every match A–Z, whichever view is chosen.
+            if mode == .categories, searchText.isEmpty, !categories.isEmpty {
+                ForEach(categories) { category in
+                    let style = category.style(in: library)
+                    NavigationLink {
+                        FactSheetCategoryView(category: category, library: library)
+                    } label: {
+                        HStack {
+                            SettingsRow(category.name, symbol: style.symbol, color: style.color)
+                            Spacer()
+                            Text("\(category.sheets.count)")
+                                .foregroundStyle(.secondary)
+                                .accessibilityLabel("\(category.sheets.count) fact sheets")
+                        }
                     }
                 }
+            } else {
+                ForEach(byLetter, id: \.letter) { group in
+                    Section(group.letter) {
+                        ForEach(group.sheets) { sheet in
+                            NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                                FactSheetRow(sheet: sheet)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Only when the site's categories have loaded (both libraries have them).
+        .safeAreaInset(edge: .top) {
+            if !categories.isEmpty, searchText.isEmpty {
+                Picker("View", selection: $mode) {
+                    ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
             }
         }
         .overlay {
@@ -573,6 +625,38 @@ struct FactSheetListView: View {
         .task {
             do { try await store.loadFactSheets(library) } catch { failure = error.localizedDescription }
         }
+    }
+}
+
+/// A fact sheet in a list: its topic icon in the library's colour, then
+/// its title.
+struct FactSheetRow: View {
+    let sheet: FactSheet
+
+    var body: some View {
+        Label {
+            Text(sheet.title)
+        } icon: {
+            Image(systemName: sheet.systemImage)
+                .foregroundStyle(sheet.library.color)
+        }
+    }
+}
+
+/// One category's sheets, A–Z.
+struct FactSheetCategoryView: View {
+    let category: FactSheetCategory
+    let library: FactSheet.Library
+
+    var body: some View {
+        List {
+            ForEach(category.sheets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }) { sheet in
+                NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                    FactSheetRow(sheet: sheet)
+                }
+            }
+        }
+        .navigationTitle(category.name)
     }
 }
 
