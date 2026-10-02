@@ -556,34 +556,15 @@ struct FactSheetListView: View {
             .sorted { $0.letter < $1.letter }
     }
 
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: 2)
+
     var body: some View {
-        List {
+        Group {
             // Searching lists every match A–Z, whichever view is chosen.
             if mode == .categories, searchText.isEmpty, !categories.isEmpty {
-                ForEach(categories) { category in
-                    let style = category.style(in: library)
-                    NavigationLink {
-                        FactSheetCategoryView(category: category, library: library)
-                    } label: {
-                        HStack {
-                            SettingsRow(category.name, symbol: style.symbol, color: style.color)
-                            Spacer()
-                            Text("\(category.sheets.count)")
-                                .foregroundStyle(.secondary)
-                                .accessibilityLabel("\(category.sheets.count) fact sheets")
-                        }
-                    }
-                }
+                categoryGrid
             } else {
-                ForEach(byLetter, id: \.letter) { group in
-                    Section(group.letter) {
-                        ForEach(group.sheets) { sheet in
-                            NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
-                                FactSheetRow(sheet: sheet)
-                            }
-                        }
-                    }
-                }
+                alphabeticalList
             }
         }
         // Only when the site's categories have loaded (both libraries have them).
@@ -625,6 +606,74 @@ struct FactSheetListView: View {
         .task {
             do { try await store.loadFactSheets(library) } catch { failure = error.localizedDescription }
         }
+    }
+
+    /// Cards side by side, like Browse.
+    private var categoryGrid: some View {
+        ScrollView {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(categories) { category in
+                    NavigationLink {
+                        FactSheetCategoryView(category: category, library: library)
+                    } label: {
+                        CategoryTile(category: category, library: library)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private var alphabeticalList: some View {
+        List {
+            ForEach(byLetter, id: \.letter) { group in
+                Section(group.letter) {
+                    ForEach(group.sheets) { sheet in
+                        NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                            FactSheetRow(sheet: sheet)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A category as a Browse-style card: its coloured icon above the name,
+/// and how many pages it has.
+private struct CategoryTile: View {
+    let category: FactSheetCategory
+    let library: FactSheet.Library
+
+    var body: some View {
+        let style = category.style(in: library)
+        let count = category.sheets.count
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: style.symbol)
+                .foregroundStyle(style.color)
+                .font(.system(size: 30))
+                .frame(height: 36, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                // Two lines for the longer ones ("Navigating the health
+                // system"), with room kept so the cards stay level.
+                Text(category.name)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+                Text("\(count) page\(count == 1 ? "" : "s")")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
+        .accessibilityElement(children: .combine)
     }
 }
 
