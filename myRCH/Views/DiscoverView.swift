@@ -734,15 +734,32 @@ struct NewsArticleView: View {
     }
 }
 
+/// A fact sheet in the app's own layout (see `FactSheetFormatter`), with an
+/// "At a glance" summary written on device.
 struct FactSheetArticleView: View {
     let sheet: FactSheet
 
+    /// The page's text, for the summary; set once it's loaded.
+    @State private var plainText: String?
+    @State private var showsGlance = false
+
     var body: some View {
-        ArticleReader(title: sheet.title, shareURL: sheet.url) {
+        // The library's colour, as the light-mode shade the page's icons and
+        // tints are drawn in.
+        let accent = UIColor(sheet.library.color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        let offersGlance = OnDeviceAI.isSupported
+        ArticleReader(title: sheet.title, shareURL: sheet.url,
+                      onGlance: offersGlance ? { if plainText != nil { showsGlance = true } } : nil) {
             // The saved copy when there is one, so it opens offline.
             let body = try await RCHContentStore.shared.sheetHTML(sheet)
-            return ArticlePage.html(title: sheet.title, byline: "\(sheet.library.title) fact sheet",
-                                    heroURL: nil, body: body)
+            let formatted = FactSheetFormatter.format(body, accent: accent)
+            plainText = formatted.plainText
+            return FactSheetFormatter.page(title: sheet.title, library: sheet.library, accent: accent,
+                                           accentHex: accent.hexString, formatted: formatted,
+                                           offersGlance: offersGlance)
+        }
+        .sheet(isPresented: $showsGlance) {
+            if let plainText { FactSheetGlanceSheet(sheet: sheet, text: plainText) }
         }
     }
 }
@@ -752,6 +769,9 @@ struct FactSheetArticleView: View {
 private struct ArticleReader: View {
     let title: String
     let shareURL: URL
+    /// Opens an "At a glance" summary, from the toolbar or the page's own
+    /// button. Nil for articles without one.
+    var onGlance: (() -> Void)? = nil
     let loadHTML: () async throws -> String
     @Environment(\.openURL) private var openURL
 
@@ -781,6 +801,11 @@ private struct ArticleReader: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if let onGlance, page != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("At a Glance", systemImage: "sparkles", action: onGlance)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 ShareLink(item: shareURL)
             }
@@ -793,7 +818,8 @@ private struct ArticleReader: View {
             let html = try await loadHTML()
             var configuration = WebPage.Configuration()
             configuration.defaultNavigationPreferences.allowsContentJavaScript = false
-            let page = WebPage(configuration: configuration, navigationDecider: SafariLinkDecider(openURL: openURL))
+            let decider = SafariLinkDecider(openURL: openURL, onGlance: onGlance)
+            let page = WebPage(configuration: configuration, navigationDecider: decider)
             // The site as base URL, so its relative images and links work.
             page.load(html: html, baseURL: RCHContent.site)
             self.page = page
@@ -805,11 +831,17 @@ private struct ArticleReader: View {
 
 private struct SafariLinkDecider: WebPage.NavigationDeciding {
     let openURL: OpenURLAction
+    var onGlance: (() -> Void)? = nil
 
     mutating func decidePolicy(for action: WebPage.NavigationAction,
                                preferences: inout WebPage.NavigationPreferences) async -> WKNavigationActionPolicy {
         if action.navigationType == .linkActivated, let url = action.request.url {
-            openURL(url)
+            // The page's "At a glance" button opens the summary in the app.
+            if url.scheme == FactSheetGlance.linkURL.scheme {
+                onGlance?()
+            } else {
+                openURL(url)
+            }
             return .cancel
         }
         return .allow
