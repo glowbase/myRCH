@@ -69,6 +69,7 @@ struct RootView: View {
     @Environment(Session.self) private var session
     @Environment(MedicationStore.self) private var store
     @State private var linked: LinkedScreen?
+    @State private var content = RCHContentStore.shared
 
     var body: some View {
         @Bindable var store = store
@@ -97,6 +98,27 @@ struct RootView: View {
                     }
                 }
                 .onOpenURL { open($0, profile: profile) }
+                // A tapped Discover alert opens its article.
+                .sheet(item: $content.openLink) { link in
+                    NavigationStack {
+                        discoverView(link)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { content.openLink = nil }
+                                }
+                            }
+                    }
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func discoverView(_ link: RCHContentStore.Link) -> some View {
+        switch link {
+        case let .post(id):
+            if let post = content.post(id: id) { NewsArticleView(post: post) } else { DiscoverView() }
+        case let .sheet(url):
+            if let sheet = content.sheet(url: url) { FactSheetArticleView(sheet: sheet) } else { DiscoverView() }
         }
     }
 

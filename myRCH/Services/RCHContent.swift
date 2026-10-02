@@ -300,6 +300,28 @@ final class RCHContentStore {
     /// When news was last refreshed from the site.
     private(set) var newsSavedAt: Date?
 
+    /// A post or sheet to open from a tapped notification.
+    enum Link: Identifiable, Hashable {
+        case post(Int)
+        case sheet(URL)
+
+        var id: String {
+            switch self {
+            case let .post(id): "post-\(id)"
+            case let .sheet(url): url.absoluteString
+            }
+        }
+    }
+
+    /// Set when a Discover notification is tapped; RootView opens it.
+    var openLink: Link?
+
+    func post(id: Int) -> NewsPost? { latestNews.first { $0.id == id } }
+
+    func sheet(url: URL) -> FactSheet? {
+        FactSheet.Library.allCases.lazy.compactMap { self.factSheets[$0]?.first { $0.url == url } }.first
+    }
+
     /// What a refresh found that wasn't there before, for notifications.
     /// Empty the first time, when there's nothing to compare against.
     struct Updates {
