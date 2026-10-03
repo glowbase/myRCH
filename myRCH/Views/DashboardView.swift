@@ -191,10 +191,16 @@ struct DashboardView: View {
         content
         // The child's name as a large title, shrinking into the bar on scroll.
         .navigationTitle(session.activeAccount?.name ?? profile.preferredName)
+        // Under the small title once collapsed (the large title uses the
+        // tappable `factsLine` below instead).
+        .navigationSubtitle(factsText)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             // Age and UR number under the large title; the UR stays tappable.
-            ToolbarItem(placement: .largeSubtitle) { factsLine }
+            ToolbarItem(placement: .largeSubtitle) {
+                factsLine
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     NotificationsView(patientID: session.patientID)
@@ -285,6 +291,13 @@ struct DashboardView: View {
     /// Full name for the UR sheet.
     private var displayName: String {
         fullName ?? session.activeAccount?.name ?? profile.fullName
+    }
+
+    /// `factsLine` as plain text, for the collapsed title's subtitle.
+    private var factsText: String {
+        [session.activeAccount?.dateOfBirth?.ageDescription, mrn.map { "UR \($0)" }]
+            .compactMap(\.self)
+            .joined(separator: " · ")
     }
 
     /// e.g. "8 years · UR 12345678". Tapping the UR number shows it full size.
