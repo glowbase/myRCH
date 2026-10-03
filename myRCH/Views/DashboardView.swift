@@ -131,6 +131,10 @@ struct DashboardView: View {
     /// The child's records to search, loaded when a search starts (cached
     /// by the service).
     @State private var searchIndex: SearchIndex?
+    /// The search bar is showing (opened from the toolbar button).
+    @State private var showsSearch = false
+    /// The search field is active, keyboard up.
+    @State private var isSearching = false
 
     var body: some View {
         chrome(
@@ -143,9 +147,14 @@ struct DashboardView: View {
                                       index: searchIndex)
                 }
             }
-            // Under the large title, staying in the bar once it collapses.
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Search records and health info")
+            // Only while searching: the toolbar's magnifying glass opens it,
+            // focused, under the title.
+            .modifier(HomeSearchField(isShown: showsSearch, text: $searchText, isSearching: $isSearching))
+            // Cancel clears the search and ends it: back to the plain page.
+            // (Opening a result keeps the text, so that never closes it.)
+            .onChange(of: isSearching) { _, searching in
+                if !searching, searchText.isEmpty { showsSearch = false }
+            }
             .task(id: searchText.isEmpty) {
                 guard !searchText.isEmpty, searchIndex == nil else { return }
                 searchIndex = await SearchIndex.load(service: session.service, patientID: session.patientID)
@@ -205,6 +214,12 @@ struct DashboardView: View {
                 factsLine
                     .padding(.top, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Opposite the bell and avatar, so the bar isn't lopsided.
+            ToolbarItem(placement: .topBarLeading) {
+                // The field focuses itself once it's there (see HomeSearchField).
+                Button("Search", systemImage: "magnifyingglass") { showsSearch = true }
+                .foregroundStyle(Theme.brand)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -599,6 +614,27 @@ struct DashboardView: View {
 }
 
 // MARK: - Subviews
+
+/// Home's search bar, attached only while it's open, so the page has no
+/// search field until the toolbar button asks for one.
+private struct HomeSearchField: ViewModifier {
+    let isShown: Bool
+    @Binding var text: String
+    @Binding var isSearching: Bool
+
+    func body(content: Content) -> some View {
+        if isShown {
+            content
+                .searchable(text: $text, isPresented: $isSearching,
+                            placement: .navigationBarDrawer(displayMode: .always),
+                            prompt: "Search records and health info")
+                // Focus once the field exists, keyboard up.
+                .task { isSearching = true }
+        } else {
+            content
+        }
+    }
+}
 
 /// The UR number in large monospaced digits, for reading out or showing to
 /// staff. Like a Wallet pass, it turns the screen up to full brightness while
