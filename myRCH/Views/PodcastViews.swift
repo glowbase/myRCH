@@ -1,4 +1,5 @@
 import AVFoundation
+import MediaPlayer
 import SwiftUI
 
 // MARK: - Model helpers
@@ -56,7 +57,8 @@ extension PodcastEpisode {
 // MARK: - Player
 
 /// Plays one episode at a time, carrying on while the rest of the app is
-/// browsed.
+/// browsed, in the background and with the phone locked. The lock screen,
+/// Control Centre and headphones show the episode and control it.
 @Observable
 final class PodcastPlayer {
     static let shared = PodcastPlayer()
@@ -71,12 +73,21 @@ final class PodcastPlayer {
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
+    @ObservationIgnored private var statusObserver: NSKeyValueObservation?
+    @ObservationIgnored private var artwork: MPMediaItemArtwork?
 
     private init() {
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.update(time) }
         }
+        // Follows the player itself, so a pause from elsewhere (a phone
+        // call, headphones unplugged, another app's audio) shows in the app.
+        statusObserver = player.observe(\.timeControlStatus) { [weak self] player, _ in
+            let playing = player.timeControlStatus != .paused
+            Task { @MainActor [weak self] in self?.setPlaying(playing) }
+        }
+        setUpRemoteCommands()
     }
 
     func isCurrent(_ episode: PodcastEpisode) -> Bool { self.episode?.id == episode.id }
@@ -84,8 +95,7 @@ final class PodcastPlayer {
     /// Plays or pauses the episode, starting it if another one's loaded.
     func toggle(_ episode: PodcastEpisode) {
         guard isCurrent(episode) else { return play(episode) }
-        if isPlaying { player.pause() } else { player.play() }
-        isPlaying.toggle()
+        if isPlaying { pause() } else { resume() }
     }
 
     func skip(by seconds: TimeInterval) {
@@ -95,18 +105,32 @@ final class PodcastPlayer {
     func seek(to seconds: TimeInterval) {
         elapsed = seconds
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        updateNowPlaying()
+    }
+
+    private func pause() {
+        player.pause()
+        setPlaying(false)
+    }
+
+    private func resume() {
+        // Back on after another app took the audio.
+        try? AVAudioSession.sharedInstance().setActive(true)
+        player.play()
+        setPlaying(true)
     }
 
     private func play(_ episode: PodcastEpisode) {
-        // Spoken audio, so it plays with the silent switch on.
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+        // Spoken audio, so it plays with the silent switch on, and in the
+        // background with the "audio" background mode.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, policy: .longFormAudio)
         try? AVAudioSession.sharedInstance().setActive(true)
         let item = AVPlayerItem(url: episode.audioURL)
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
                                                              object: item, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.isPlaying = false
+                self?.setPlaying(false)
                 self?.seek(to: 0)
             }
         }
@@ -114,15 +138,107 @@ final class PodcastPlayer {
         elapsed = 0
         // The feed's length until the file's own is known.
         duration = episode.duration ?? 0
+        artwork = nil
         player.replaceCurrentItem(with: item)
         player.play()
-        isPlaying = true
+        setPlaying(true)
+        Task { await loadArtwork(for: episode) }
+    }
+
+    private func setPlaying(_ playing: Bool) {
+        guard isPlaying != playing else { return }
+        isPlaying = playing
+        updateNowPlaying()
     }
 
     private func update(_ time: CMTime) {
-        if let length = player.currentItem?.duration.seconds, length.isFinite, length > 0 { duration = length }
+        if let length = player.currentItem?.duration.seconds, length.isFinite, length > 0, length != duration {
+            duration = length
+            updateNowPlaying()
+        }
         guard !isScrubbing, time.seconds.isFinite else { return }
         elapsed = time.seconds
+    }
+
+    // MARK: Lock screen
+
+    /// Play, pause, skip and scrub from the lock screen, Control Centre and
+    /// headphones.
+    private func setUpRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        center.playCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.episode != nil else { return .noActionableNowPlayingItem }
+                self.resume()
+                return .success
+            }
+        }
+        center.pauseCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.pause()
+                return .success
+            }
+        }
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let episode = self.episode else { return .noActionableNowPlayingItem }
+                self.toggle(episode)
+                return .success
+            }
+        }
+        center.skipBackwardCommand.preferredIntervals = [15]
+        center.skipBackwardCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.skip(by: -15)
+                return .success
+            }
+        }
+        center.skipForwardCommand.preferredIntervals = [30]
+        center.skipForwardCommand.addTarget { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.skip(by: 30)
+                return .success
+            }
+        }
+        center.changePlaybackPositionCommand.addTarget { [weak self] event in
+            guard let position = (event as? MPChangePlaybackPositionCommandEvent)?.positionTime else {
+                return .commandFailed
+            }
+            return MainActor.assumeIsolated {
+                self?.seek(to: position)
+                return .success
+            }
+        }
+    }
+
+    /// The episode's title, artwork and position, for the lock screen. The
+    /// system moves the position along itself from the rate.
+    private func updateNowPlaying() {
+        guard let episode else {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+            return
+        }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: episode.title,
+            MPMediaItemPropertyArtist: "The Royal Children's Hospital, Melbourne",
+            MPMediaItemPropertyAlbumTitle: Podcast.title,
+            MPMediaItemPropertyMediaType: MPMediaType.podcast.rawValue,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
+            MPNowPlayingInfoPropertyPlaybackRate: isPlaying ? 1.0 : 0.0
+        ]
+        if duration > 0 { info[MPMediaItemPropertyPlaybackDuration] = duration }
+        if let artwork { info[MPMediaItemPropertyArtwork] = artwork }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+
+    private func loadArtwork(for episode: PodcastEpisode) async {
+        guard let url = episode.imageURL(size: 600),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data), isCurrent(episode) else { return }
+        // Called off the main thread by the system, so it only uses the
+        // image it's handed.
+        artwork = MPMediaItemArtwork(boundsSize: image.size) { @Sendable [image] _ in image }
+        updateNowPlaying()
     }
 }
 
