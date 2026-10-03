@@ -316,11 +316,9 @@ struct DashboardView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// A diagnosis or allergy, styled like Discover's categories in the
-    /// grouped card colour (the default grey vanishes on Home's background).
+    /// A diagnosis or allergy, styled like Discover's categories.
     private func healthChip(_ title: String, systemImage: String, color: Color) -> some View {
-        CategoryChip(title: title, systemImage: systemImage, color: color,
-                     background: Color(.secondarySystemGroupedBackground))
+        CategoryChip(title: title, systemImage: systemImage, color: color)
     }
 
     /// Full name for the UR sheet.
