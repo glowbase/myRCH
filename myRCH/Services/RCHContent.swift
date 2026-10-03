@@ -121,6 +121,34 @@ nonisolated struct FactSheet: Identifiable, Hashable, Sendable, Codable {
     var key: String { url.lastPathComponent.lowercased() }
 }
 
+/// An episode of the Kids Health Info podcast (rch.org.au/kidsinfo/Podcast),
+/// from its feed.
+nonisolated struct PodcastEpisode: Identifiable, Hashable, Sendable, Codable {
+    /// The feed's guid.
+    let id: String
+    var title: String
+    /// The show notes as plain text, for lists and search.
+    var summary: String
+    var date: Date
+    var duration: TimeInterval?
+    var audioURL: URL
+    var imageURL: URL?
+    /// The show notes as the feed has them, with links.
+    var notesHTML: String
+}
+
+/// The podcast's own details, for its section on Discover.
+nonisolated enum Podcast {
+    static let title = "Kids Health Info Podcast"
+    static let blurb = "Experts from the RCH talk through common child health topics, based on the Kids Health Info fact sheets."
+    static let systemImage = "headphones"
+    static let pageURL = URL(string: "https://www.rch.org.au/kidsinfo/Podcast/")!
+    /// Where the page's episodes come from (the show is hosted on Megaphone).
+    static let feedURL = URL(string: "https://feeds.megaphone.fm/kidshealthinfo")!
+    static let applePodcastsURL = URL(string: "https://podcasts.apple.com/au/podcast/kids-health-info/id1522239706")!
+    static let spotifyURL = URL(string: "https://open.spotify.com/show/2K0EDmu0uN3eO6O30Rs9Gn")!
+}
+
 /// One of a library's categories, e.g. "Respiratory", as the site's
 /// "View by Category" lists them.
 nonisolated struct FactSheetCategory: Identifiable, Hashable, Sendable, Codable {
@@ -303,6 +331,19 @@ nonisolated enum RCHContent {
 
     typealias Library = FactSheet.Library
 
+    // MARK: Podcast
+
+    /// Every episode in the podcast's feed, newest first.
+    @concurrent
+    static func podcastEpisodes() async throws -> [PodcastEpisode] {
+        let (data, _) = try await URLSession.shared.data(from: Podcast.feedURL)
+        let reader = PodcastFeedReader()
+        let parser = XMLParser(data: data)
+        parser.delegate = reader
+        guard parser.parse() else { throw parser.parserError ?? URLError(.cannotParseResponse) }
+        return reader.episodes.sorted { $0.date > $1.date }
+    }
+
     /// The sheet's own content: from under its title to the "seek the most
     /// recent advice" line, without the site's menus, scripts or
     /// translation buttons.
@@ -326,6 +367,77 @@ nonisolated enum RCHContent {
             body = body.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
         }
         return body
+    }
+}
+
+// MARK: - Podcast feed
+
+/// Reads the podcast's RSS feed: each `<item>`'s title, notes, date,
+/// length, audio and artwork. The channel's own title and image are skipped.
+private nonisolated final class PodcastFeedReader: NSObject, XMLParserDelegate {
+    private(set) var episodes: [PodcastEpisode] = []
+
+    private var item: [String: String]?
+    private var text = ""
+
+    /// e.g. "Wed, 23 Sep 2026 20:00:00 -0000".
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        return formatter
+    }()
+
+    func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?,
+                qualifiedName: String?, attributes: [String: String] = [:]) {
+        text = ""
+        switch elementName {
+        case "item": item = [:]
+        case "enclosure": item?["audio"] = attributes["url"]
+        case "itunes:image": item?["image"] = attributes["href"]
+        default: break
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) { text += string }
+
+    func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
+        text += String(decoding: CDATABlock, as: UTF8.self)
+    }
+
+    func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?,
+                qualifiedName: String?) {
+        guard item != nil else { return }
+        let value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch elementName {
+        case "title", "description", "content:encoded", "pubDate", "itunes:duration", "guid":
+            item?[elementName] = value
+        case "item":
+            if let item, let episode = Self.episode(item) { episodes.append(episode) }
+            self.item = nil
+        default: break
+        }
+    }
+
+    private static func episode(_ item: [String: String]) -> PodcastEpisode? {
+        guard let title = item["title"], !title.isEmpty,
+              let audio = item["audio"].flatMap(URL.init(string:)) else { return nil }
+        let notes = item["content:encoded"] ?? item["description"] ?? ""
+        return PodcastEpisode(id: item["guid"] ?? audio.absoluteString,
+                              title: HTMLText.plain(title),
+                              summary: HTMLText.plain(notes),
+                              date: item["pubDate"].flatMap(dateFormatter.date(from:)) ?? .distantPast,
+                              duration: item["itunes:duration"].flatMap(duration),
+                              audioURL: audio,
+                              imageURL: item["image"].flatMap(URL.init(string:)),
+                              notesHTML: notes)
+    }
+
+    /// Seconds ("1282"), or "mm:ss" / "hh:mm:ss".
+    private static func duration(_ text: String) -> TimeInterval? {
+        let parts = text.split(separator: ":").compactMap { Double($0) }
+        guard !parts.isEmpty, parts.count <= 3 else { return nil }
+        return parts.reduce(0) { $0 * 60 + $1 }
     }
 }
 
@@ -404,6 +516,10 @@ final class RCHContentStore {
     /// e.g. "Top 10 visited Kids Health Info fact sheets in August 2026".
     private(set) var topVisitedHeadings: [FactSheet.Library: String] = [:]
     private(set) var newsError: String?
+    /// The podcast's episodes, newest first.
+    private(set) var podcastEpisodes: [PodcastEpisode] = []
+    /// Why the podcast couldn't load, when there's no saved copy.
+    private(set) var podcastError: String?
     /// Why a library's list couldn't load, when there's no saved copy.
     private(set) var factSheetErrors: [FactSheet.Library: String] = [:]
     /// True when the last refresh couldn't reach the site and the saved
@@ -452,10 +568,12 @@ final class RCHContentStore {
         var categories: [String: [FactSheetCategory]]?
         var topVisited: [String: [FactSheet]]?
         var topVisitedHeadings: [String: String]?
+        var podcast: [PodcastEpisode]?
     }
 
     @ObservationIgnored private var sheetSavedAt: [String: Date] = [:]
     @ObservationIgnored private var newsLoadedAt: Date?
+    @ObservationIgnored private var podcastLoaded = false
     @ObservationIgnored private var listsLoaded: Set<FactSheet.Library> = []
     @ObservationIgnored private var lastRefresh: Date?
     @ObservationIgnored private var isDownloading = false
@@ -493,6 +611,7 @@ final class RCHContentStore {
               let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return }
         latestNews = saved.news
         newsSavedAt = saved.newsSavedAt
+        podcastEpisodes = saved.podcast ?? []
         for library in FactSheet.Library.allCases {
             let key = library.rawValue
             if let sheets = saved.sheets[key] { factSheets[library] = sheets }
@@ -514,6 +633,7 @@ final class RCHContentStore {
         lastRefresh = .now
         var updates = Updates()
         updates.posts = await loadNews(force: true)
+        await loadPodcast(force: true)
         for library in FactSheet.Library.allCases {
             updates.sheets += (try? await loadFactSheets(library, force: true)) ?? []
         }
@@ -544,6 +664,23 @@ final class RCHContentStore {
             // Keep showing the saved copy; only an empty screen gets the error.
             if latestNews.isEmpty { newsError = error.localizedDescription } else { isOffline = true }
             return []
+        }
+    }
+
+    /// The podcast's episodes, from the feed once per session (or when
+    /// forced), else the saved copy.
+    func loadPodcast(force: Bool = false) async {
+        if !force, podcastLoaded { return }
+        do {
+            let fresh = try await RCHContent.podcastEpisodes()
+            // An empty feed means it changed shape; keep the saved one.
+            guard !fresh.isEmpty else { return }
+            podcastEpisodes = fresh
+            podcastError = nil
+            podcastLoaded = true
+            save()
+        } catch {
+            if podcastEpisodes.isEmpty { podcastError = error.localizedDescription }
         }
     }
 
@@ -681,7 +818,8 @@ final class RCHContentStore {
         }
         let saved = Saved(news: latestNews, newsSavedAt: newsSavedAt, sheets: byName(factSheets),
                           sheetSavedAt: sheetSavedAt, categories: byName(categories),
-                          topVisited: byName(topVisited), topVisitedHeadings: byName(topVisitedHeadings))
+                          topVisited: byName(topVisited), topVisitedHeadings: byName(topVisitedHeadings),
+                          podcast: podcastEpisodes)
         guard let data = try? JSONEncoder().encode(saved) else { return }
         try? data.write(to: indexURL, options: .atomic)
     }
