@@ -260,8 +260,6 @@ nonisolated enum FactSheetFormatter {
 
     // MARK: Page
 
-    /// The whole page: pills (library, review date), the title, the "At a
-    /// glance" button, the content and a short source line.
     /// The category a sheet's filed under on the site, with its icon.
     struct Category {
         var name: String
@@ -269,39 +267,31 @@ nonisolated enum FactSheetFormatter {
         var color: UIColor
     }
 
+    /// The whole page: the title, chips (category, reading time, review
+    /// date), the content and a short source line.
     static func page(title: String, library: FactSheet.Library, accent: UIColor, accentHex: String,
-                     formatted: Result, category: Category?, offersGlance: Bool) -> String {
+                     formatted: Result, category: Category?) -> String {
         // Under the title: what it's filed under, how long it takes to read,
         // and when it was last reviewed.
         let grey = UIColor.secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light))
-        var pills = ""
+        var chips = ""
         if let category {
-            let hex = category.color.hexString
-            pills += "<span class=\"pill\" style=\"color: \(hex); background: color-mix(in srgb, \(hex) 14%, transparent)\">"
-                + "<img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
+            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
         }
         // About 200 words a minute, for a parent reading carefully.
         let words = formatted.plainText.split(whereSeparator: \.isWhitespace).count
         let minutes = max(1, Int((Double(words) / 200).rounded()))
-        pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
+        chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
         if let reviewed = formatted.reviewed {
-            pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">Reviewed \(escape(reviewed))</span>"
+            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">Reviewed \(escape(reviewed))</span>"
         }
-        let glance = offersGlance ? """
-            <a class="glance" href="\(FactSheetGlance.linkURL.absoluteString)">
-            <img class="hicon" src="\(SymbolImage.tile("sparkles", color: accent))" alt="">
-            <span><b>At a glance</b><small>A short summary and the key things to know</small></span>
-            <img class="chevron" src="\(SymbolImage.glyph("chevron.right", color: .systemGray2, size: 14))" alt="">
-            </a>
-            """ : ""
         return """
         <!doctype html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>\(css(accentHex: accentHex))</style></head><body>
+        <style>\(css(accentHex: accentHex))\(sheetCSS)</style></head><body>
         <header>
         <h1 class="title">\(escape(title))</h1>
-        <div class="pills">\(pills)</div>
-        \(glance)
+        <div class="chips">\(chips)</div>
         </header>
         <article>\(formatted.html)</article>
         <p class="source">From The Royal Children’s Hospital \(escape(library.title)). For advice about your child, talk to their doctor or care team.</p>
@@ -386,6 +376,24 @@ nonisolated enum FactSheetFormatter {
                   border-top: 0.5px solid rgba(128,128,128,0.3); }
         """
     }
+
+    /// The fact sheets' own additions to the shared `css` (news keeps its
+    /// pills and library colours).
+    static let sheetCSS = """
+        /* Discover's category chips: a row that scrolls sideways out to the
+           screen edges. Grey on the white page; dark grey in dark mode,
+           where the shared pills' tint barely showed on black. */
+        .chips { display: flex; gap: 10px; overflow-x: auto; margin: 0 -20px 16px; padding: 0 20px;
+                 scrollbar-width: none; touch-action: pan-x pan-y; }
+        .chips::-webkit-scrollbar { display: none; }
+        .chip { flex: none; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+                font-weight: 500; padding: 10px 16px; border-radius: 999px; background: #F2F2F7; }
+        @media (prefers-color-scheme: dark) { .chip { background: #1C1C1E; } }
+        .chip img { width: 18px; height: 18px; }
+        /* Bullets and sub-heading bars in the app's accent, not the library's green. */
+        li::marker { color: var(--brand); }
+        h3 { border-left-color: color-mix(in srgb, var(--brand) 60%, transparent); }
+        """
 
     static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")

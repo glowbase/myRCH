@@ -713,20 +713,37 @@ private struct FactSheetRowLabelStyle: LabelStyle {
     }
 }
 
-/// One category's sheets, A–Z.
+/// One category's sheets, A–Z, searchable by name or alias.
 struct FactSheetCategoryView: View {
     let category: FactSheetCategory
     let library: FactSheet.Library
 
+    @State private var searchText = ""
+
+    private var sheets: [FactSheet] {
+        let sorted = category.sheets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter { sheet in
+            sheet.title.localizedStandardContains(searchText)
+                || sheet.aliases.contains { $0.localizedStandardContains(searchText) }
+        }
+    }
+
     var body: some View {
         List {
-            ForEach(category.sheets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }) { sheet in
+            ForEach(sheets) { sheet in
                 NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
                     FactSheetRow(sheet: sheet)
                 }
             }
         }
+        .overlay {
+            if sheets.isEmpty, !searchText.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            }
+        }
         .navigationTitle(category.name)
+        .searchable(text: $searchText, prompt: "Search \(category.name)")
     }
 }
 
@@ -800,7 +817,9 @@ struct FactSheetArticleView: View {
         // tints are drawn in.
         let accent = UIColor(sheet.library.color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
         let offersGlance = OnDeviceAI.isSupported
-        ArticleReader(title: sheet.title, shareURL: sheet.url,
+        // The library ("Kids Health Info") in the bar; the sheet's own title
+        // heads the page.
+        ArticleReader(title: sheet.library.title, shareURL: sheet.url,
                       onGlance: offersGlance ? { if let plainText { glance = Glance(text: plainText) } } : nil) {
             // The saved copy when there is one, so it opens offline.
             let body = try await RCHContentStore.shared.sheetHTML(sheet)
@@ -808,7 +827,7 @@ struct FactSheetArticleView: View {
             plainText = formatted.plainText
             return FactSheetFormatter.page(title: sheet.title, library: sheet.library, accent: accent,
                                            accentHex: accent.hexString, formatted: formatted,
-                                           category: category, offersGlance: offersGlance)
+                                           category: category)
         }
         // By item, so the sheet gets the text it opened with. With a Bool,
         // its content was built from an earlier redraw, before the text
