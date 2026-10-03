@@ -526,40 +526,63 @@ actor MyChartWebService: PortalService {
         do { pastJSON = try await past } catch { failure = error }
         if upcomingJSON == nil, pastJSON == nil, let failure { throw failure }
 
-        let scheduled = await addingDirections(to: decodeAppointments(upcomingJSON, status: .scheduled), for: patientID)
+        let scheduled = await addingVisitPageDetails(to: decodeAppointments(upcomingJSON, status: .scheduled), for: patientID)
         let completed = decodeAppointments(pastJSON, status: .completed)
         return scheduled + completed
     }
 
-    /// Department directions already read, keyed by Csn ("" when a visit
-    /// page has none), so refreshing the list doesn't reload every page.
-    private var directionsCache: [String: String] = [:]
+    /// What an upcoming visit's own page adds to the visits list.
+    private struct VisitPageDetails {
+        var directions: String?
+        var isOnWaitList: Bool?
+    }
 
-    /// The visits list doesn't say which desk to go to, but each visit's
-    /// page does, under "Directions for <department>". Upcoming in-person
-    /// visits use that as their check-in location.
-    private func addingDirections(to appointments: [Appointment], for patientID: String) async -> [Appointment] {
+    /// Visit pages already read, keyed by Csn, so refreshing the list
+    /// doesn't reload every page.
+    private var visitPageCache: [String: VisitPageDetails] = [:]
+
+    /// The visits list doesn't say which desk to go to or whether the visit
+    /// is on the wait list, but each visit's page does. In-person visits
+    /// use the page's "Directions for <department>" as their check-in
+    /// location when the list doesn't give one.
+    private func addingVisitPageDetails(to appointments: [Appointment], for patientID: String) async -> [Appointment] {
         var result = appointments
-        for index in result.indices where result[index].checkInLocation == nil && !result[index].isTelehealth {
-            result[index].checkInLocation = await visitDirections(csn: result[index].id, for: patientID)
+        for index in result.indices {
+            guard let details = await visitPageDetails(csn: result[index].id, for: patientID) else { continue }
+            if result[index].checkInLocation == nil, !result[index].isTelehealth {
+                result[index].checkInLocation = details.directions
+            }
+            result[index].isOnWaitList = details.isOnWaitList
         }
         return result
     }
 
-    private func visitDirections(csn: String, for patientID: String) async -> String? {
-        if let cached = directionsCache[csn] { return cached.isEmpty ? nil : cached }
+    private func visitPageDetails(csn: String, for patientID: String) async -> VisitPageDetails? {
+        if let cached = visitPageCache[csn] { return cached }
         var components = URLComponents(url: config.url("Visits/visitdetails"), resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "csn", value: csn)]
         guard let url = components?.url else { return nil }
         await ensureContext(patientID)
         guard let (data, _) = try? await session.data(from: url) else { return nil }
         let html = String(decoding: data, as: UTF8.self)
-        // A login page means the session lapsed; don't cache that as "no directions".
+        // A login page means the session lapsed; don't cache that as an empty page.
         if html.contains("Authentication/Login") { return nil }
-        let directions = Self.departmentDirections(in: html)
-        if debugLogResponses, directions == nil { print("↩︎ visit directions: none found on visit page") }
-        directionsCache[csn] = directions ?? ""
-        return directions
+        let details = VisitPageDetails(directions: Self.departmentDirections(in: html),
+                                       isOnWaitList: Self.isOnWaitList(in: html))
+        if debugLogResponses {
+            print("↩︎ visit page: directions \(details.directions == nil ? "none" : "found"), wait list \(details.isOnWaitList.map(String.init) ?? "not found")")
+        }
+        visitPageCache[csn] = details
+        return details
+    }
+
+    /// The page's wait list link offers the opposite of the current setting:
+    /// `<a id="updatewaitlist" data-add="0">Opt out of notifications</a>`
+    /// when the visit is on the list, and `data-add="1"` when it isn't.
+    nonisolated static func isOnWaitList(in html: String) -> Bool? {
+        guard let tag = html.range(of: #"<a\b[^>]*\bid="updatewaitlist"[^>]*>"#, options: .regularExpression),
+              let attribute = html[tag].range(of: #"data-add="[01]""#, options: .regularExpression) else { return nil }
+        return html[attribute].contains("\"0\"")
     }
 
     /// The text of each `instructionContent` inside the page's
@@ -591,6 +614,7 @@ actor MyChartWebService: PortalService {
         guard (json as? [String: Any])?["success"] as? Bool == true else {
             throw MyChartError.actionFailed(path)
         }
+        visitPageCache[csn]?.isOnWaitList = isOn
     }
 
     func testResults(for patientID: String) async throws -> [TestResult] {

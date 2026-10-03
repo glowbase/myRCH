@@ -257,6 +257,8 @@ struct CachedPortalService: PortalService {
 
     func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws {
         try await base.setEarlierVisitAlerts(isOn, appointmentID: appointmentID, for: patientID)
+        // Reopening the visit should show the new setting.
+        await cache.remove(prefixes: ["appointments|\(patientID)"])
     }
 
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {

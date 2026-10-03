@@ -172,7 +172,7 @@ struct AppointmentDetailView: View {
     @Environment(Session.self) private var session
 
     @State private var isCancelled = false
-    @State private var wantsEarlierOffers = false
+    @State private var wantsEarlierOffers: Bool
     @State private var isSavingEarlierOffers = false
     @State private var earlierOffersError: String?
     @State private var completedSteps: Set<Int> = []
@@ -183,6 +183,12 @@ struct AppointmentDetailView: View {
     /// Notes and After Visit Summary, fetched when a past visit opens.
     @State private var documents: [VisitDocument] = []
     @State private var showsRecap = false
+
+    init(appointment: Appointment) {
+        self.appointment = appointment
+        // Starts from the portal's setting; off when it couldn't be read.
+        _wantsEarlierOffers = State(initialValue: appointment.isOnWaitList ?? false)
+    }
 
     private var isUpcoming: Bool { appointment.status == .scheduled && !isCancelled }
 
