@@ -116,17 +116,16 @@ nonisolated enum NewsFormatter {
     static func page(post: NewsPost, category: Category?, accent: UIColor, accentHex: String,
                      formatted: Result) -> String {
         let escape = FactSheetFormatter.escape
-        let grey = UIColor.secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light))
         // Discover-style chips: category, date, then reading time.
         var chips = ""
         if let category {
-            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
+            chips += "<span class=\"chip\">\(SymbolImage.chipIcon(category.symbol, color: category.color))\(escape(category.name))</span>"
         }
         let date = post.date.formatted(date: .long, time: .omitted)
-        chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">\(escape(date))</span>"
+        chips += "<span class=\"chip\">\(SymbolImage.chipIcon("calendar", color: .secondaryLabel))\(escape(date))</span>"
         let words = formatted.plainText.split(whereSeparator: \.isWhitespace).count
         let minutes = max(1, Int((Double(words) / 200).rounded()))
-        chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
+        chips += "<span class=\"chip\">\(SymbolImage.chipIcon("clock", color: .secondaryLabel))\(minutes) min read</span>"
 
         return """
         <!doctype html><html><head>

@@ -273,18 +273,17 @@ nonisolated enum FactSheetFormatter {
                      formatted: Result, category: Category?) -> String {
         // Under the title: what it's filed under, when it was last
         // reviewed, and how long it takes to read.
-        let grey = UIColor.secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light))
         var chips = ""
         if let category {
-            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
+            chips += "<span class=\"chip\">\(SymbolImage.chipIcon(category.symbol, color: category.color))\(escape(category.name))</span>"
         }
         if let reviewed = formatted.reviewed {
-            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">Reviewed \(escape(reviewed))</span>"
+            chips += "<span class=\"chip\">\(SymbolImage.chipIcon("calendar", color: .secondaryLabel))Reviewed \(escape(reviewed))</span>"
         }
         // About 200 words a minute, for a parent reading carefully.
         let words = formatted.plainText.split(whereSeparator: \.isWhitespace).count
         let minutes = max(1, Int((Double(words) / 200).rounded()))
-        chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
+        chips += "<span class=\"chip\">\(SymbolImage.chipIcon("clock", color: .secondaryLabel))\(minutes) min read</span>"
         return """
         <!doctype html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -324,6 +323,7 @@ nonisolated enum FactSheetFormatter {
         .chip { flex: none; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
                 font-weight: 500; padding: 10px 16px; border-radius: 999px; background: #F2F2F7; }
         @media (prefers-color-scheme: dark) { .chip { background: #1C1C1E; } }
+        .chip picture { display: flex; }
         .chip img { width: 18px; height: 18px; }
         h1.title { font-size: 1.9em; line-height: 1.15; margin: 8px 0 12px; letter-spacing: -0.01em; }
         .glance { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit;
@@ -424,6 +424,24 @@ nonisolated enum SymbolImage {
         render(size: CGSize(width: size, height: size)) { rect in
             draw(name, color: color, pointSize: size * 0.85, in: rect)
         }
+    }
+
+    /// A chip's icon as HTML: the colour's light shade, swapped for its dark
+    /// shade in dark mode, where the light one was too dim on the dark chip.
+    static func chipIcon(_ name: String, color: UIColor) -> String {
+        let lightShade = color.resolvedColor(with: .init(userInterfaceStyle: .light))
+        var darkShade = color.resolvedColor(with: .init(userInterfaceStyle: .dark))
+        // The RCH brand colours (news categories) have one shade; lifted a
+        // third of the way to white, like `Theme.brandText`'s dark teal.
+        if darkShade.hexString == lightShade.hexString {
+            var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+            darkShade.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+            func lift(_ value: CGFloat) -> CGFloat { value + (1 - value) * 0.35 }
+            darkShade = UIColor(red: lift(red), green: lift(green), blue: lift(blue), alpha: alpha)
+        }
+        let light = glyph(name, color: lightShade)
+        let dark = glyph(name, color: darkShade)
+        return "<picture><source media=\"(prefers-color-scheme: dark)\" srcset=\"\(dark)\"><img src=\"\(light)\" alt=\"\"></picture>"
     }
 
     private static func draw(_ name: String, color: UIColor, pointSize: CGFloat, in rect: CGRect) {
