@@ -173,6 +173,8 @@ struct AppointmentDetailView: View {
 
     @State private var isCancelled = false
     @State private var wantsEarlierOffers = false
+    @State private var isSavingEarlierOffers = false
+    @State private var earlierOffersError: String?
     @State private var completedSteps: Set<Int> = []
     @State private var showsChangeOptions = false
     @State private var showsCancelConfirmation = false
@@ -394,10 +396,36 @@ struct AppointmentDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Toggle("Notify me of earlier times", isOn: $wantsEarlierOffers)
+                if isSavingEarlierOffers {
+                    ProgressView()
+                }
+                Toggle("Notify me of earlier times", isOn: Binding(
+                    get: { wantsEarlierOffers },
+                    set: { isOn in Task { await setEarlierOffers(isOn) } }))
                     .labelsHidden()
                     .tint(Theme.brand)
+                    .disabled(isSavingEarlierOffers)
             }
+        }
+        .alert("Couldn't update the wait list", isPresented: Binding(
+            get: { earlierOffersError != nil },
+            set: { if !$0 { earlierOffersError = nil } })) {
+            Button("OK") { earlierOffersError = nil }
+        } message: {
+            Text(earlierOffersError ?? "")
+        }
+    }
+
+    /// Flips the switch straight away, and back again if the portal refuses.
+    private func setEarlierOffers(_ isOn: Bool) async {
+        wantsEarlierOffers = isOn
+        isSavingEarlierOffers = true
+        defer { isSavingEarlierOffers = false }
+        do {
+            try await session.service.setEarlierVisitAlerts(isOn, appointmentID: appointment.id, for: session.patientID)
+        } catch {
+            wantsEarlierOffers = !isOn
+            earlierOffersError = error.localizedDescription
         }
     }
 

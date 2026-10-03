@@ -255,6 +255,10 @@ struct CachedPortalService: PortalService {
         await cache.remove(prefixes: ["goals|\(patientID)"])
     }
 
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws {
+        try await base.setEarlierVisitAlerts(isOn, appointmentID: appointmentID, for: patientID)
+    }
+
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
         try await cached("exploreMore|\(patientID)") { try await base.exploreMore(for: patientID) }
     }

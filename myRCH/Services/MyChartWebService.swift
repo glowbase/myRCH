@@ -526,9 +526,71 @@ actor MyChartWebService: PortalService {
         do { pastJSON = try await past } catch { failure = error }
         if upcomingJSON == nil, pastJSON == nil, let failure { throw failure }
 
-        let scheduled = decodeAppointments(upcomingJSON, status: .scheduled)
+        let scheduled = await addingDirections(to: decodeAppointments(upcomingJSON, status: .scheduled), for: patientID)
         let completed = decodeAppointments(pastJSON, status: .completed)
         return scheduled + completed
+    }
+
+    /// Department directions already read, keyed by Csn ("" when a visit
+    /// page has none), so refreshing the list doesn't reload every page.
+    private var directionsCache: [String: String] = [:]
+
+    /// The visits list doesn't say which desk to go to, but each visit's
+    /// page does, under "Directions for <department>". Upcoming in-person
+    /// visits use that as their check-in location.
+    private func addingDirections(to appointments: [Appointment], for patientID: String) async -> [Appointment] {
+        var result = appointments
+        for index in result.indices where result[index].checkInLocation == nil && !result[index].isTelehealth {
+            result[index].checkInLocation = await visitDirections(csn: result[index].id, for: patientID)
+        }
+        return result
+    }
+
+    private func visitDirections(csn: String, for patientID: String) async -> String? {
+        if let cached = directionsCache[csn] { return cached.isEmpty ? nil : cached }
+        var components = URLComponents(url: config.url("Visits/visitdetails"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "csn", value: csn)]
+        guard let url = components?.url else { return nil }
+        await ensureContext(patientID)
+        guard let (data, _) = try? await session.data(from: url) else { return nil }
+        let html = String(decoding: data, as: UTF8.self)
+        // A login page means the session lapsed; don't cache that as "no directions".
+        if html.contains("Authentication/Login") { return nil }
+        let directions = Self.departmentDirections(in: html)
+        if debugLogResponses, directions == nil { print("↩︎ visit directions: none found on visit page") }
+        directionsCache[csn] = directions ?? ""
+        return directions
+    }
+
+    /// The text of each `instructionContent` inside the page's
+    /// `departmentdirections` block, e.g. "RCH Specialist Clinics Desk A1-
+    /// Red Desk (Ground Floor)".
+    nonisolated static func departmentDirections(in html: String) -> String? {
+        guard let start = html.range(of: #"class="departmentdirections""#) else { return nil }
+        // The block ends at the next section heading, if there is one.
+        let rest = html[start.upperBound...]
+        let block = rest.range(of: "<h2").map { rest[..<$0.lowerBound] } ?? rest
+        guard let regex = try? NSRegularExpression(pattern: #"class="instructionContent"[^>]*>([\s\S]*?)</div>"#) else { return nil }
+        let text = String(block)
+        let lines = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: text) else { return nil }
+            let line = plainText(fromHTML: String(text[range]))
+            return line.isEmpty ? nil : line
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// Captured from the visit page's "Notify me of earlier visits" option:
+    /// `addRemove` is 1 to join the wait list and 2 to opt out, and the
+    /// reply is `{"success": true}`.
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID csn: String, for patientID: String) async throws {
+        let path = "Scheduling/AutoWaitList/AddAppointmentToWaitList"
+        let json = try await postLegacy(for: patientID, path: path, query: [:],
+                                        form: ["csn": csn, "addRemove": isOn ? "1" : "2"],
+                                        savesToDevice: false)
+        guard (json as? [String: Any])?["success"] as? Bool == true else {
+            throw MyChartError.actionFailed(path)
+        }
     }
 
     func testResults(for patientID: String) async throws -> [TestResult] {
@@ -1356,11 +1418,13 @@ actor MyChartWebService: PortalService {
     /// string, the body is form-encoded, and `noCache` defeats caching the way
     /// the site's own jQuery calls do.
     private func postLegacy(for patientID: String, path: String,
-                            query: [String: String], form: [String: String] = [:]) async throws -> Any {
+                            query: [String: String], form: [String: String] = [:],
+                            savesToDevice: Bool = true) async throws -> Any {
         // Saved copy first (if enabled in Settings), before any context switch.
+        // Actions that change something skip the device cache both ways.
         let diskKey = PortalDiskCache.shared.key(patientID: patientID, endpoint: path,
                                                  parameters: query.merging(form) { a, _ in a })
-        if let saved = PortalDiskCache.shared.read(diskKey),
+        if savesToDevice, let saved = PortalDiskCache.shared.read(diskKey),
            let json = try? JSONSerialization.jsonObject(with: saved) {
             if debugLogResponses { print("→ \(path): from device cache") }
             return json
@@ -1409,7 +1473,7 @@ actor MyChartWebService: PortalService {
             if text.contains("Authentication/Login") { throw MyChartError.sessionExpired }
             throw MyChartError.decoding(action: path, snippet: String(text.prefix(200)))
         }
-        PortalDiskCache.shared.write(data, for: diskKey)
+        if savesToDevice { PortalDiskCache.shared.write(data, for: diskKey) }
         return json
     }
 

@@ -616,6 +616,7 @@ struct MockPortalService: PortalService {
     /// Demo mode keeps goals on the device only, so the portal list is empty.
     func patientGoals(for patientID: String) async throws -> [PortalGoal] { [] }
     func setPatientGoal(_ text: String, for patientID: String) async throws { await delay() }
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws { await delay() }
 
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
         func link(_ title: String, _ url: String) -> (title: String, url: URL)? {

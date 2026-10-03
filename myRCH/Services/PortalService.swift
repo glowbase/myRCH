@@ -77,6 +77,9 @@ protocol PortalService: Sendable {
     func patientGoals(for patientID: String) async throws -> [PortalGoal]
     /// Sets the shared goal, replacing any that's there.
     func setPatientGoal(_ text: String, for patientID: String) async throws
+    /// Adds an upcoming visit to the portal's wait list for earlier times,
+    /// or takes it off.
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
 }
