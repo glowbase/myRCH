@@ -289,9 +289,56 @@ actor MyChartWebService: PortalService {
             return
         }
         // LinkUrl is relative, e.g. inside.asp?mode=proxyswitch&action=switchcontext&eid=…
-        _ = try? await session.data(from: config.url(subject.linkURL))
+        let landing = try? await session.data(from: config.url(subject.linkURL)).1
+        if debugLogResponses { print("↩︎ Context → \(subject.name) (landed at \(landing.map(Self.landingDescription) ?? "nowhere"))") }
+        // In the browser the switch is a full page load, which hands out a
+        // new anti-forgery token; the old one sends api/ calls to Home/Error.
+        await refreshAPIToken()
         currentContextID = patientID
-        if debugLogResponses { print("↩︎ Context → \(subject.name)") }
+        contextGeneration += 1
+    }
+
+    /// Bumped on every switch, so a burst of requests failing together
+    /// recovers with one switch rather than one each.
+    private var contextGeneration = 0
+
+    /// Re-reads the api/ token from the app page named as Referer, as at sign-in.
+    private func refreshAPIToken() async {
+        if let (data, _) = try? await session.data(from: config.url("app/health-summary")) {
+            let html = String(decoding: data, as: UTF8.self)
+            if let token = Self.formInputs(in: html, containerID: "__CSRFContainer")["__RequestVerificationToken"]
+                ?? Self.extractToken(from: html), !token.isEmpty {
+                if debugLogResponses { print("↩︎ CSRF token: refreshed from app/health-summary (\(token == apiToken ? "unchanged" : "changed"))") }
+                apiToken = token
+                return
+            }
+        }
+        if let token = try? await fetchCSRFToken() { apiToken = token }
+    }
+
+    /// The portal answered with its error page: the session's context or token
+    /// went stale. Switch again with a fresh account list (its links may have
+    /// expired) and token, unless another request already did since `generation`.
+    private func recoverContext(_ patientID: String, seenGeneration generation: Int) async {
+        if generation == contextGeneration {
+            if debugLogResponses { print("↩︎ Error page: switching context again") }
+            subjectsCache = []
+            currentContextID = nil
+        }
+        await ensureContext(patientID)
+    }
+
+    /// The portal's generic error page, e.g. Home/Error?code=15.
+    private nonisolated static func isErrorPage(_ response: URLResponse) -> Bool {
+        response.url?.path.lowercased().hasSuffix("/home/error") ?? false
+    }
+
+    /// Path plus any error code, for the log.
+    private nonisolated static func landingDescription(_ response: URLResponse) -> String {
+        guard let url = response.url else { return "?" }
+        let code = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "code" }?.value
+        return url.path + (code.map { "?code=\($0)" } ?? "")
     }
 
     /// The self entry has an empty Id; give it a stable stand-in.
@@ -1274,34 +1321,45 @@ actor MyChartWebService: PortalService {
             return json
         }
 
-        await ensureContext(patientID)
+        // Built per attempt, so a retry carries the refreshed token.
+        func send() async throws -> (Data, URLResponse) {
+            var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
+            components.queryItems = (query.merging(["noCache": String(Double.random(in: 0..<1))]) { a, _ in a })
+                .map { URLQueryItem(name: $0.key, value: $0.value) }
 
-        var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
-        components.queryItems = (query.merging(["noCache": String(Double.random(in: 0..<1))]) { a, _ in a })
-            .map { URLQueryItem(name: $0.key, value: $0.value) }
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "POST"
+            request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+            request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+            request.setValue(config.url("Visits").absoluteString, forHTTPHeaderField: "Referer")
+            if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+            if !form.isEmpty {
+                request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+                request.httpBody = Self.formEncode(form).data(using: .utf8)
+            }
 
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
-        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
-        request.setValue(config.url("Visits").absoluteString, forHTTPHeaderField: "Referer")
-        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
-        if !form.isEmpty {
-            request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Self.formEncode(form).data(using: .utf8)
+            let (data, response) = try await session.data(for: request)
+            if debugLogResponses {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("→ \(path): HTTP \(status), \(data.count) bytes")
+            }
+            return (data, response)
         }
 
-        let (data, response) = try await session.data(for: request)
-        if debugLogResponses {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("→ \(path): HTTP \(status), \(data.count) bytes")
+        await ensureContext(patientID)
+        let generation = contextGeneration
+        var (data, response) = try await send()
+        // Once only: a second error page is reported as before.
+        if Self.isErrorPage(response) {
+            await recoverContext(patientID, seenGeneration: generation)
+            (data, response) = try await send()
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) else {
             let text = String(decoding: data, as: UTF8.self)
             if debugLogResponses {
                 // Page title only — enough to tell a login or error page apart.
-                print("   not JSON (\(Self.pageTitle(in: text) ?? "no title")) at \(response.url?.path ?? "?")")
+                print("   not JSON (\(Self.pageTitle(in: text) ?? "no title")) at \(Self.landingDescription(response))")
             }
             if text.contains("Authentication/Login") { throw MyChartError.sessionExpired }
             throw MyChartError.decoding(action: path, snippet: String(text.prefix(200)))
@@ -1324,30 +1382,45 @@ actor MyChartWebService: PortalService {
             return json
         }
 
-        await ensureContext(patientID)
-        var request = URLRequest(url: config.url(action))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Match Safari's captured api/ requests: the React client sends Origin
-        // and the app page as Referer, and no X-Requested-With.
-        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
-        request.setValue(referer ?? config.url("app/health-summary").absoluteString, forHTTPHeaderField: "Referer")
-        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let httpBody = try JSONSerialization.data(withJSONObject: body)
+        // Built per attempt, so a retry carries the refreshed token.
+        func send() async throws -> (Data, URLResponse) {
+            var request = URLRequest(url: config.url(action))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // Match Safari's captured api/ requests: the React client sends Origin
+            // and the app page as Referer, and no X-Requested-With.
+            request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+            request.setValue(referer ?? config.url("app/health-summary").absoluteString, forHTTPHeaderField: "Referer")
+            if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+            request.httpBody = httpBody
 
-        let (data, response) = try await session.data(for: request)
-        if debugLogResponses {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("→ \(action): HTTP \(status) at \(response.url?.path ?? "?")")
-            if status >= 500, let http = response as? HTTPURLResponse {
-                // Epic sometimes explains a failure in headers rather than the body.
-                let headers = http.allHeaderFields
-                    .map { "\($0.key): \($0.value)" }
-                    .filter { !$0.lowercased().hasPrefix("set-cookie") && !$0.lowercased().hasPrefix("content-security-policy") }
-                    .sorted()
-                print("   headers: \(headers)")
+            let (data, response) = try await session.data(for: request)
+            if debugLogResponses {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("→ \(action): HTTP \(status) at \(Self.landingDescription(response))")
+                if status >= 500, let http = response as? HTTPURLResponse {
+                    // Epic sometimes explains a failure in headers rather than the body.
+                    let headers = http.allHeaderFields
+                        .map { "\($0.key): \($0.value)" }
+                        .filter { !$0.lowercased().hasPrefix("set-cookie") && !$0.lowercased().hasPrefix("content-security-policy") }
+                        .sorted()
+                    print("   headers: \(headers)")
+                }
             }
+            return (data, response)
+        }
+
+        await ensureContext(patientID)
+        let generation = contextGeneration
+        var (data, response) = try await send()
+        // Once only: a second error page is reported as before. Reads only:
+        // an action that changes something (e.g. sending a reply) might have
+        // run before the redirect, so it isn't repeated.
+        if Self.isErrorPage(response) {
+            await recoverContext(patientID, seenGeneration: generation)
+            if savesCopy { (data, response) = try await send() }
         }
 
         // Session expiry returns 200 with login-page HTML rather than JSON.
