@@ -3,8 +3,8 @@ import UIKit
 
 // MARK: - Formatting
 
-/// Lays out an RCH News post like the fact sheets: hero photo, title,
-/// pills, an "At a glance" button, then the story with a larger opening
+/// Lays out an RCH News post like the fact sheets: title (no photo above
+/// it), pills, an "At a glance" button, then the story with a larger opening
 /// paragraph, styled quotes, photo galleries as a grid and videos as
 /// links. Shares the fact sheets' styling (`FactSheetFormatter.css`).
 nonisolated enum NewsFormatter {
@@ -42,7 +42,9 @@ nonisolated enum NewsFormatter {
         return Result(html: html, plainText: plainText)
     }
 
-    /// Posts often start with the same photo as the hero; it's shown once.
+    /// Posts often start with the post's featured photo (the one on its
+    /// Discover card). The page leaves it out, so it doesn't just move from
+    /// above the title to straight under it.
     private static func removingHeroCopy(_ html: String, heroURL: URL?) -> String {
         guard let heroURL else { return html }
         // "Pelvic-Pain-Hero-400x224.jpg" and "Pelvic-Pain-Hero.jpg" are the same picture.
@@ -127,7 +129,6 @@ nonisolated enum NewsFormatter {
         let minutes = max(1, Int((Double(words) / 200).rounded()))
         pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
 
-        let hero = post.imageURL.map { "<img class=\"hero\" src=\"\($0.absoluteString)\" alt=\"\">" } ?? ""
         let glance = offersGlance ? """
             <a class="glance" href="\(FactSheetGlance.linkURL.absoluteString)">
             <img class="hicon" src="\(SymbolImage.tile("sparkles", color: accent))" alt="">
@@ -140,7 +141,6 @@ nonisolated enum NewsFormatter {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>\(FactSheetFormatter.css(accentHex: accentHex))\(css)</style></head><body>
         <header>
-        \(hero)
         <h1 class="title">\(escape(post.title))</h1>
         <div class="pills">\(pills)</div>
         \(glance)
@@ -153,7 +153,6 @@ nonisolated enum NewsFormatter {
 
     /// News additions to the shared styling.
     private static let css = """
-        .hero { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 20px; margin: 8px 0 4px; display: block; }
         .news p { margin: 0.75em 0; }
         .lead { font-size: 1.12em; line-height: 1.5; font-weight: 500; }
         .quote { position: relative; padding-left: 30px; font-style: italic; }

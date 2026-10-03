@@ -68,6 +68,14 @@ nonisolated struct FactSheet: Identifiable, Hashable, Sendable, Codable {
             }
         }
 
+        /// A line about the library, under its heading on Discover.
+        var blurb: String? {
+            switch self {
+            case .kids: "Kids Health Info is expert content from the RCH to help your child thrive, from croup to burns."
+            case .teens: "Teen Health Info is health content created for young people, with young people."
+            }
+        }
+
         var systemImage: String {
             switch self {
             case .kids: "figure.and.child.holdinghands"
@@ -695,12 +703,5 @@ final class RCHContentStore {
     func discoverSheets(_ library: FactSheet.Library) -> [FactSheet] {
         if let top = topVisited[library], !top.isEmpty { return Array(top.prefix(5)) }
         return Array(featured(library).prefix(3))
-    }
-
-    /// "Most visited in August 2026", from the top 10's heading.
-    func topVisitedCaption(_ library: FactSheet.Library) -> String? {
-        guard topVisited[library]?.isEmpty == false, let heading = topVisitedHeadings[library],
-              let range = heading.range(of: " in ", options: .backwards) else { return nil }
-        return "Most visited in \(heading[range.upperBound...])"
     }
 }
