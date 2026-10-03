@@ -185,10 +185,10 @@ struct DashboardView: View {
             // under the search bar.
             .padding(.top, 4)
         }
-        // How far the page has scrolled from rest. The large title and search
-        // bar take roughly the first 100pt to collapse.
+        // How far the page has scrolled from rest before the search button
+        // takes over from the search bar.
         .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > 90
+            geometry.contentOffset.y + geometry.contentInsets.top > 60
         } action: { _, isPast in
             withAnimation { isScrolledPastTitle = isPast }
         }
