@@ -70,6 +70,48 @@ final class PodcastPlayer {
     /// True while the scrubber is held, so playback doesn't move it.
     var isScrubbing = false
 
+    /// How far into an episode someone got, so they can finish it later.
+    struct Progress: Codable, Hashable {
+        /// Kept whole, so Discover can list it before the feed loads.
+        var episode: PodcastEpisode
+        var position: TimeInterval
+        var duration: TimeInterval
+        var updatedAt: Date
+
+        var fraction: Double { duration > 0 ? min(position / duration, 1) : 0 }
+        var remaining: TimeInterval { max(duration - position, 0) }
+
+        /// e.g. "12 min left" or "1 hr 6 min left". Built by hand: the
+        /// Australian format's "min." read oddly before "left".
+        var remainingText: String {
+            let minutes = max(Int((remaining / 60).rounded(.up)), 1)
+            let hours = minutes / 60
+            return hours > 0 ? "\(hours) hr \(minutes % 60) min left" : "\(minutes) min left"
+        }
+    }
+
+    /// Started but unfinished episodes, by id.
+    private(set) var progress: [String: Progress] = [:]
+
+    /// Unfinished episodes, most recently listened to first.
+    var inProgress: [Progress] {
+        progress.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    @ObservationIgnored private static let progressKey = "podcastProgress"
+    /// Under this, it hasn't really been started.
+    @ObservationIgnored private static let minimumPosition: TimeInterval = 15
+    /// Within this of the end (the credits), it counts as finished.
+    @ObservationIgnored private static let finishedMargin: TimeInterval = 30
+    /// Only this many are kept, the most recent.
+    @ObservationIgnored private static let maximumKept = 10
+    /// Where the position was last saved, so it's saved every few seconds
+    /// while playing rather than twice a second.
+    @ObservationIgnored private var savedPosition: TimeInterval = 0
+    /// Where a resumed episode is seeking to. Until it gets there the player
+    /// reports the start, which would otherwise overwrite the saved place.
+    @ObservationIgnored private var pendingStart: TimeInterval?
+
     @ObservationIgnored private let player = AVPlayer()
     @ObservationIgnored private var timeObserver: Any?
     @ObservationIgnored private var endObserver: NSObjectProtocol?
@@ -77,6 +119,10 @@ final class PodcastPlayer {
     @ObservationIgnored private var artwork: MPMediaItemArtwork?
 
     private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.progressKey),
+           let saved = try? JSONDecoder().decode([String: Progress].self, from: data) {
+            progress = saved
+        }
         timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
                                                       queue: .main) { [weak self] time in
             MainActor.assumeIsolated { self?.update(time) }
@@ -103,9 +149,17 @@ final class PodcastPlayer {
     }
 
     func seek(to seconds: TimeInterval) {
+        pendingStart = nil
         elapsed = seconds
         player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
         updateNowPlaying()
+        saveProgress()
+    }
+
+    /// Takes an episode off "Finish Where You Left Off".
+    func markFinished(_ episode: PodcastEpisode) {
+        progress[episode.id] = nil
+        storeProgress()
     }
 
     private func pause() {
@@ -132,14 +186,20 @@ final class PodcastPlayer {
             MainActor.assumeIsolated {
                 self?.setPlaying(false)
                 self?.seek(to: 0)
+                self?.markFinished(episode)
             }
         }
+        // Picks up where it was left, if it was.
+        let start = progress[episode.id]?.position ?? 0
         self.episode = episode
-        elapsed = 0
-        // The feed's length until the file's own is known.
-        duration = episode.duration ?? 0
+        elapsed = start
+        savedPosition = start
+        // The saved or feed's length until the file's own is known.
+        duration = progress[episode.id]?.duration ?? episode.duration ?? 0
         artwork = nil
         player.replaceCurrentItem(with: item)
+        pendingStart = start > 0 ? start : nil
+        if start > 0 { player.seek(to: CMTime(seconds: start, preferredTimescale: 600)) }
         player.play()
         setPlaying(true)
         Task { await loadArtwork(for: episode) }
@@ -149,6 +209,9 @@ final class PodcastPlayer {
         guard isPlaying != playing else { return }
         isPlaying = playing
         updateNowPlaying()
+        // Saved on every pause, including a call or the app being closed
+        // from the lock screen.
+        if !playing { saveProgress() }
     }
 
     private func update(_ time: CMTime) {
@@ -157,7 +220,39 @@ final class PodcastPlayer {
             updateNowPlaying()
         }
         guard !isScrubbing, time.seconds.isFinite else { return }
+        if let pendingStart {
+            guard abs(time.seconds - pendingStart) < 3 else { return }
+            self.pendingStart = nil
+        }
         elapsed = time.seconds
+        if abs(elapsed - savedPosition) >= 5 { saveProgress() }
+    }
+
+    // MARK: Progress
+
+    /// Records the current episode's position, or clears it once it's
+    /// nearly over. Barely started ones aren't listed.
+    private func saveProgress() {
+        guard let episode, duration > 0 else { return }
+        savedPosition = elapsed
+        if duration - elapsed <= Self.finishedMargin {
+            progress[episode.id] = nil
+        } else if elapsed >= Self.minimumPosition {
+            progress[episode.id] = Progress(episode: episode, position: elapsed, duration: duration, updatedAt: .now)
+        } else {
+            // Scrubbed back to the start.
+            progress[episode.id] = nil
+        }
+        storeProgress()
+    }
+
+    private func storeProgress() {
+        let kept = inProgress.prefix(Self.maximumKept)
+        if kept.count < progress.count {
+            progress = Dictionary(uniqueKeysWithValues: kept.map { ($0.episode.id, $0) })
+        }
+        guard let data = try? JSONEncoder().encode(progress) else { return }
+        UserDefaults.standard.set(data, forKey: Self.progressKey)
     }
 
     // MARK: Lock screen
@@ -400,12 +495,23 @@ private struct PodcastControls: View {
                     .foregroundStyle(.secondary)
                     .accessibilityHidden(true)
                 }
+            } else if let saved = player.progress[episode.id] {
+                // Not loaded yet, but started before: where play picks up.
+                VStack(spacing: 6) {
+                    ProgressView(value: saved.fraction)
+                        .tint(Podcast.color)
+                    Text(saved.remainingText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
             }
             HStack(spacing: 40) {
                 Button("Back 15 Seconds", systemImage: "gobackward.15") { player.skip(by: -15) }
                     .font(.title)
                     .disabled(!isCurrent)
-                Button(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.circle.fill" : "play.circle.fill") {
+                Button(isPlaying ? "Pause" : (!isCurrent && player.progress[episode.id] != nil ? "Resume" : "Play"),
+                       systemImage: isPlaying ? "pause.circle.fill" : "play.circle.fill") {
                     player.toggle(episode)
                 }
                 .font(.system(size: 64))
@@ -424,5 +530,89 @@ private struct PodcastControls: View {
     private static func time(_ seconds: TimeInterval) -> String {
         let pattern: Duration.TimeFormatStyle.Pattern = seconds >= 3600 ? .hourMinuteSecond : .minuteSecond
         return Duration.seconds(seconds.rounded(.down)).formatted(.time(pattern: pattern))
+    }
+}
+
+// MARK: - Finish where you left off
+
+/// Discover's list of started episodes, most recent first, each with how
+/// much is left and a button to carry on without opening it. Hidden when
+/// there are none.
+struct PodcastResumeSection<Header: View>: View {
+    @ViewBuilder let header: () -> Header
+
+    @State private var player = PodcastPlayer.shared
+
+    var body: some View {
+        let started = Array(player.inProgress.prefix(3))
+        if !started.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                header()
+                ForEach(Array(started.enumerated()), id: \.element.episode.id) { index, saved in
+                    if index > 0 { Divider().padding(.leading, 80) }
+                    PodcastResumeRow(saved: saved)
+                }
+            }
+        }
+    }
+}
+
+/// A started episode: artwork, title, a bar of how far in, and play/pause.
+private struct PodcastResumeRow: View {
+    let saved: PodcastPlayer.Progress
+
+    @State private var player = PodcastPlayer.shared
+
+    var body: some View {
+        let episode = saved.episode
+        let isPlaying = player.isCurrent(episode) && player.isPlaying
+        HStack(spacing: 14) {
+            NavigationLink { PodcastEpisodeView(episode: episode) } label: {
+                HStack(spacing: 14) {
+                    AsyncImage(url: episode.imageURL(size: 200)) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else {
+                            Image(systemName: Podcast.systemImage)
+                                .font(.title)
+                                .foregroundStyle(Podcast.color)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Podcast.color.opacity(0.14))
+                        }
+                    }
+                    .frame(width: 66, height: 66)
+                    .clipShape(.rect(cornerRadius: 14))
+                    .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(episode.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        ProgressView(value: saved.fraction)
+                            .tint(Podcast.color)
+                            .accessibilityHidden(true)
+                        Text(saved.remainingText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            Button(isPlaying ? "Pause" : "Resume", systemImage: isPlaying ? "pause.circle.fill" : "play.circle.fill") {
+                player.toggle(episode)
+            }
+            .labelStyle(.iconOnly)
+            .font(.system(size: 36))
+            .foregroundStyle(Podcast.color)
+            .buttonStyle(.plain)
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 4)
+        .contextMenu {
+            Button("Mark as Finished", systemImage: "checkmark.circle") { player.markFinished(episode) }
+        }
     }
 }

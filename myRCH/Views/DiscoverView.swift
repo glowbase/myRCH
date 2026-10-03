@@ -15,6 +15,10 @@ struct DiscoverView: View {
             if searchText.isEmpty {
                 VStack(alignment: .leading, spacing: 32) {
                     categories
+                    // Started podcast episodes; hidden when there are none.
+                    PodcastResumeSection {
+                        DiscoverSectionHeader(title: "Finish Where You Left Off")
+                    }
                     spotlight
                     newsSection
                     ForEach(FactSheet.Library.allCases) { factSheetSection($0) }
