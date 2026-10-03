@@ -83,6 +83,9 @@ struct Appointment: Identifiable, Hashable {
     var phone: String? = nil
     /// Where to report on arrival, e.g. a clinic desk.
     var checkInLocation: String? = nil
+    /// Whether the visit is on the wait list for earlier times; nil when
+    /// unknown (e.g. the visit page couldn't be read).
+    var isOnWaitList: Bool? = nil
     /// Preparation steps shown before the visit.
     var instructions: [String] = []
     /// After Visit Summary text for past appointments.
