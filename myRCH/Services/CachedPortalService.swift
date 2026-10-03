@@ -235,6 +235,8 @@ struct CachedPortalService: PortalService {
         try await cached("allergies|\(patientID)") { try await base.allergies(for: patientID) }
     }
 
+    var readsAllergies: Bool { base.readsAllergies }
+
     func immunisations(for patientID: String) async throws -> [Immunisation] {
         try await cached("immunisations|\(patientID)") { try await base.immunisations(for: patientID) }
     }

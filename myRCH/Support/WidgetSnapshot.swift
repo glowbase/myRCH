@@ -43,6 +43,9 @@ nonisolated struct WidgetSnapshot: Codable, Sendable {
         var dosesDue = 0
         var dosesLogged = 0
         var allergies: [Allergy] = []
+        /// True only when the app read the child's allergies. Nil (older
+        /// snapshots) or false: unknown, so never shown as "none".
+        var allergiesKnown: Bool?
         var unreadMessages = 0
         var newResults = 0
         /// When the portal data (visit, results, messages) was last loaded.

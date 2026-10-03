@@ -66,6 +66,9 @@ protocol PortalService: Sendable {
 
     func healthIssues(for patientID: String) async throws -> [HealthIssue]
     func allergies(for patientID: String) async throws -> [Allergy]
+    /// False while a backend can't read allergies yet, so screens say so
+    /// rather than showing its empty list as "no known allergies".
+    var readsAllergies: Bool { get }
     func immunisations(for patientID: String) async throws -> [Immunisation]
     /// Hospital announcements and links for the bottom of Home.
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed
@@ -93,6 +96,8 @@ enum PortalError: LocalizedError {
 }
 
 extension PortalService {
+    var readsAllergies: Bool { true }
+
     /// The inbox, for the dashboard and notifications.
     func conversations(for patientID: String) async throws -> [Conversation] {
         try await conversations(in: .inbox, for: patientID)

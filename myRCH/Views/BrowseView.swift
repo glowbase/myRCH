@@ -308,7 +308,6 @@ struct FeatureDestination: View {
         case .medication: MedicationsView(patientID: session.patientID)
         case .immunisations: ImmunisationsView(patientID: session.patientID)
         case .allergies: AllergiesView(patientID: session.patientID)
-        case .healthSummary: HealthSummaryView(patientID: session.patientID)
         case .messages: MessagesView(patientID: session.patientID)
         case .growthCharts: GrowthChartsView(patientID: session.patientID)
         case .letters: LettersView(patientID: session.patientID)

@@ -409,7 +409,11 @@ private struct MedicalIDView: View {
             }
 
             Section("Allergies") {
-                if child.allergies.isEmpty {
+                if child.allergies.isEmpty, child.allergiesKnown != true {
+                    // Not read from the record: say so, never "none".
+                    Text("Not available in the app yet. Check with the care team.")
+                        .foregroundStyle(.orange)
+                } else if child.allergies.isEmpty {
                     Text("No allergies recorded")
                         .foregroundStyle(.secondary)
                 } else {

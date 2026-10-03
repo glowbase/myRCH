@@ -115,11 +115,6 @@ struct SettingsView: View {
                 SettingsRow("Medical ID", symbol: "staroflife.fill", color: .red)
             }
             NavigationLink {
-                HealthSummaryView(patientID: session.patientID)
-            } label: {
-                SettingsRow("Health Summary", symbol: "heart.text.clipboard.fill", color: .pink)
-            }
-            NavigationLink {
                 SharedRemindersView()
             } label: {
                 SettingsRow("Share Medication Reminders", symbol: "person.2.fill", color: Theme.medication)
