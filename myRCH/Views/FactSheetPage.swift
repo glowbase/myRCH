@@ -271,20 +271,20 @@ nonisolated enum FactSheetFormatter {
     /// date), the content and a short source line.
     static func page(title: String, library: FactSheet.Library, accent: UIColor, accentHex: String,
                      formatted: Result, category: Category?) -> String {
-        // Under the title: what it's filed under, how long it takes to read,
-        // and when it was last reviewed.
+        // Under the title: what it's filed under, when it was last
+        // reviewed, and how long it takes to read.
         let grey = UIColor.secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light))
         var chips = ""
         if let category {
             chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
         }
+        if let reviewed = formatted.reviewed {
+            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">Reviewed \(escape(reviewed))</span>"
+        }
         // About 200 words a minute, for a parent reading carefully.
         let words = formatted.plainText.split(whereSeparator: \.isWhitespace).count
         let minutes = max(1, Int((Double(words) / 200).rounded()))
         chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
-        if let reviewed = formatted.reviewed {
-            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">Reviewed \(escape(reviewed))</span>"
-        }
         return """
         <!doctype html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -315,12 +315,16 @@ nonisolated enum FactSheetFormatter {
         li[role="presentation"] { margin: 0; }
         li[role="presentation"]::marker { content: ""; }
         a { color: var(--brand); }
-        .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
-        .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8em; font-weight: 600;
-                padding: 5px 11px; border-radius: 999px; color: var(--accent);
-                background: color-mix(in srgb, var(--accent) 14%, transparent); }
-        .pill.muted { color: var(--text2); background: var(--card); }
-        .pill img { width: 14px; height: 14px; }
+        /* Discover's category chips: a row that scrolls sideways out to the
+           screen edges. Grey on the white page; dark grey in dark mode,
+           where a faint tint barely showed on black. */
+        .chips { display: flex; gap: 10px; overflow-x: auto; margin: 0 -20px 16px; padding: 0 20px;
+                 scrollbar-width: none; touch-action: pan-x pan-y; }
+        .chips::-webkit-scrollbar { display: none; }
+        .chip { flex: none; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
+                font-weight: 500; padding: 10px 16px; border-radius: 999px; background: #F2F2F7; }
+        @media (prefers-color-scheme: dark) { .chip { background: #1C1C1E; } }
+        .chip img { width: 18px; height: 18px; }
         h1.title { font-size: 1.9em; line-height: 1.15; margin: 8px 0 12px; letter-spacing: -0.01em; }
         .glance { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit;
                   padding: 14px 16px; border-radius: 18px; margin-bottom: 8px;
@@ -378,18 +382,8 @@ nonisolated enum FactSheetFormatter {
     }
 
     /// The fact sheets' own additions to the shared `css` (news keeps its
-    /// pills and library colours).
+    /// category colours).
     static let sheetCSS = """
-        /* Discover's category chips: a row that scrolls sideways out to the
-           screen edges. Grey on the white page; dark grey in dark mode,
-           where the shared pills' tint barely showed on black. */
-        .chips { display: flex; gap: 10px; overflow-x: auto; margin: 0 -20px 16px; padding: 0 20px;
-                 scrollbar-width: none; touch-action: pan-x pan-y; }
-        .chips::-webkit-scrollbar { display: none; }
-        .chip { flex: none; display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
-                font-weight: 500; padding: 10px 16px; border-radius: 999px; background: #F2F2F7; }
-        @media (prefers-color-scheme: dark) { .chip { background: #1C1C1E; } }
-        .chip img { width: 18px; height: 18px; }
         /* Bullets and sub-heading bars in the app's accent, not the library's green. */
         li::marker { color: var(--brand); }
         h3 { border-left-color: color-mix(in srgb, var(--brand) 60%, transparent); }

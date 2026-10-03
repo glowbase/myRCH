@@ -4,7 +4,7 @@ import UIKit
 // MARK: - Formatting
 
 /// Lays out an RCH News post like the fact sheets: title (no photo above
-/// it), pills, an "At a glance" button, then the story with a larger opening
+/// it), chips, then the story with a larger opening
 /// paragraph, styled quotes, photo galleries as a grid and videos as
 /// links. Shares the fact sheets' styling (`FactSheetFormatter.css`).
 nonisolated enum NewsFormatter {
@@ -114,36 +114,27 @@ nonisolated enum NewsFormatter {
     }
 
     static func page(post: NewsPost, category: Category?, accent: UIColor, accentHex: String,
-                     formatted: Result, offersGlance: Bool) -> String {
+                     formatted: Result) -> String {
         let escape = FactSheetFormatter.escape
         let grey = UIColor.secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light))
-        var pills = ""
+        // Discover-style chips: category, date, then reading time.
+        var chips = ""
         if let category {
-            let hex = category.color.hexString
-            pills += "<span class=\"pill\" style=\"color: \(hex); background: color-mix(in srgb, \(hex) 14%, transparent)\">"
-                + "<img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
+            chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
         }
         let date = post.date.formatted(date: .long, time: .omitted)
-        pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">\(escape(date))</span>"
+        chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">\(escape(date))</span>"
         let words = formatted.plainText.split(whereSeparator: \.isWhitespace).count
         let minutes = max(1, Int((Double(words) / 200).rounded()))
-        pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
+        chips += "<span class=\"chip\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
 
-        let glance = offersGlance ? """
-            <a class="glance" href="\(FactSheetGlance.linkURL.absoluteString)">
-            <img class="hicon" src="\(SymbolImage.tile("sparkles", color: accent))" alt="">
-            <span><b>At a glance</b><small>A short summary and what it means for families</small></span>
-            <img class="chevron" src="\(SymbolImage.glyph("chevron.right", color: .systemGray2, size: 14))" alt="">
-            </a>
-            """ : ""
         return """
         <!doctype html><html><head>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>\(FactSheetFormatter.css(accentHex: accentHex))\(css)</style></head><body>
         <header>
         <h1 class="title">\(escape(post.title))</h1>
-        <div class="pills">\(pills)</div>
-        \(glance)
+        <div class="chips">\(chips)</div>
         </header>
         <article class="news">\(formatted.html)</article>
         <p class="source">From RCH News, published \(escape(date)).</p>
