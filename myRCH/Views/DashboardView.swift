@@ -191,9 +191,10 @@ struct DashboardView: View {
         content
         // The child's name as a large title, shrinking into the bar on scroll.
         .navigationTitle(session.activeAccount?.name ?? profile.preferredName)
-        .navigationSubtitle(greeting)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            // Age and UR number under the large title; the UR stays tappable.
+            ToolbarItem(placement: .largeSubtitle) { factsLine }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     NotificationsView(patientID: session.patientID)
@@ -246,12 +247,10 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Header (greeting, key facts, diagnosis + allergy pills)
+    // MARK: - Header (diagnosis + allergy pills)
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            factsLine
-
             if isLoading {
                 HStack(spacing: 8) {
                     ForEach(["Placeholder", "Placeholder issue", "Allergy"], id: \.self) { text in
@@ -281,16 +280,6 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: .now)
-        let part = switch hour {
-        case 5..<12: "Good morning"
-        case 12..<17: "Good afternoon"
-        default: "Good evening"
-        }
-        return part
     }
 
     /// Full name for the UR sheet.
