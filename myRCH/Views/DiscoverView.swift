@@ -776,8 +776,7 @@ struct NewsArticleView: View {
             plainText = formatted.plainText
             return NewsFormatter.page(post: post,
                                       category: .init(name: category.title, symbol: category.systemImage, color: accent),
-                                      accent: accent, accentHex: accent.hexString, formatted: formatted,
-                                      offersGlance: offersGlance)
+                                      accent: accent, accentHex: accent.hexString, formatted: formatted)
         }
         .sheet(item: $glance) { glance in
             NewsGlanceSheet(post: post, text: glance.text)
