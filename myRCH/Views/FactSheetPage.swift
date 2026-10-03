@@ -188,7 +188,7 @@ nonisolated enum FactSheetFormatter {
         }
     }
 
-    private static func headingStyle(_ text: String, accent: UIColor) -> (String, UIColor) {
+    static func headingStyle(_ text: String, accent: UIColor) -> (String, UIColor) {
         let rules: [(words: [String], symbol: String, color: UIColor)] = [
             (["when to get help", "when to see", "emergency", "warning"], "exclamationmark.triangle.fill", .systemRed),
             (["sign", "symptom"], "waveform.path.ecg", .systemPink),
@@ -242,7 +242,7 @@ nonisolated enum FactSheetFormatter {
     }
 
     /// Replaces each match of `pattern`; `groups[0]` is the whole match.
-    private static func replacing(_ pattern: String, in text: String, with replacement: ([String]) -> String) -> String {
+    static func replacing(_ pattern: String, in text: String, with replacement: ([String]) -> String) -> String {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators, .caseInsensitive])
         else { return text }
         var result = ""
@@ -309,7 +309,7 @@ nonisolated enum FactSheetFormatter {
         """
     }
 
-    private static func css(accentHex: String) -> String {
+    static func css(accentHex: String) -> String {
         """
         :root { color-scheme: light dark; --accent: \(accentHex); --brand: #219EBD;
                 --card: rgba(120,120,128,0.10); --text2: rgba(60,60,67,0.75); }
@@ -387,7 +387,7 @@ nonisolated enum FactSheetFormatter {
         """
     }
 
-    private static func escape(_ text: String) -> String {
+    static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")

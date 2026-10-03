@@ -732,14 +732,38 @@ struct FactSheetCategoryView: View {
 
 // MARK: - Reading
 
+/// A news post in the app's own layout (see `NewsFormatter`), with an "At a
+/// glance" summary written on device.
 struct NewsArticleView: View {
     let post: NewsPost
 
+    private struct Glance: Identifiable {
+        let text: String
+        var id: String { text }
+    }
+
+    @State private var plainText: String?
+    /// By item, so the sheet gets the text it opened with (see
+    /// `FactSheetArticleView`).
+    @State private var glance: Glance?
+
     var body: some View {
-        ArticleReader(title: post.title, shareURL: post.link) {
-            ArticlePage.html(title: post.title,
-                             byline: post.date.formatted(date: .long, time: .omitted),
-                             heroURL: post.imageURL, body: post.contentHTML)
+        // The category's colour (RCH News, Media Releases, Good Friday
+        // Appeal), as the light-mode shade the page is drawn in.
+        let category = post.primaryCategory ?? .news
+        let accent = UIColor(category.color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        let offersGlance = OnDeviceAI.isSupported
+        ArticleReader(title: post.title, shareURL: post.link,
+                      onGlance: offersGlance ? { if let plainText { glance = Glance(text: plainText) } } : nil) {
+            let formatted = NewsFormatter.format(post.contentHTML, heroURL: post.imageURL, accent: accent)
+            plainText = formatted.plainText
+            return NewsFormatter.page(post: post,
+                                      category: .init(name: category.title, symbol: category.systemImage, color: accent),
+                                      accent: accent, accentHex: accent.hexString, formatted: formatted,
+                                      offersGlance: offersGlance)
+        }
+        .sheet(item: $glance) { glance in
+            NewsGlanceSheet(post: post, text: glance.text)
         }
     }
 }
@@ -876,46 +900,6 @@ private struct SafariLinkDecider: WebPage.NavigationDeciding {
             return .cancel
         }
         return .allow
-    }
-}
-
-nonisolated enum ArticlePage {
-    /// Wraps an article body in a page styled like the app.
-    static func html(title: String, byline: String, heroURL: URL?, body: String) -> String {
-        let hero = heroURL.map { "<img class=\"hero\" src=\"\($0.absoluteString)\" alt=\"\">" } ?? ""
-        return """
-        <!doctype html><html><head>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-        :root { color-scheme: light dark; --brand: #219EBD; }
-        body { font: -apple-system-body; font-family: -apple-system, sans-serif; line-height: 1.5;
-               margin: 0; padding: 12px 20px 48px; -webkit-text-size-adjust: 100%; }
-        h1.title { font-size: 1.75em; line-height: 1.2; margin: 8px 0 4px; }
-        .byline { color: gray; font-size: 0.9em; margin-bottom: 16px; }
-        .hero { width: 100%; border-radius: 16px; margin-bottom: 16px; }
-        h1, h2, h3 { line-height: 1.25; }
-        h2 { font-size: 1.3em; margin-top: 1.6em; }
-        a { color: var(--brand); }
-        img, video, iframe { max-width: 100%; height: auto; border-radius: 12px; }
-        figure { margin: 16px 0; }
-        figcaption { color: gray; font-size: 0.85em; }
-        table { border-collapse: collapse; width: 100%; display: block; overflow-x: auto; }
-        th, td { border: 1px solid rgba(128,128,128,0.35); padding: 6px 8px; text-align: left; }
-        ul, ol { padding-left: 1.3em; }
-        @media (prefers-color-scheme: dark) { :root { --brand: #62C7E0; } }
-        </style></head><body>
-        <h1 class="title">\(escape(title))</h1>
-        <div class="byline">\(escape(byline))</div>
-        \(hero)
-        \(body)
-        </body></html>
-        """
-    }
-
-    private static func escape(_ text: String) -> String {
-        text.replacingOccurrences(of: "&", with: "&amp;")
-            .replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;")
     }
 }
 
