@@ -87,12 +87,19 @@ final class Session {
     /// Signs in again from the Keychain so the app opens straight into the
     /// dashboard. The portal has no long-lived session cookie we can reuse, so
     /// this replays the saved credentials; the remembered device ID normally
-    /// means no verification code is needed.
+    /// means no verification code is needed. The portal sometimes turns a
+    /// good sign-in away, so it's retried twice before giving up. The
+    /// loading screen stays up meanwhile.
     func restoreSession() async {
         defer { isRestoring = false }
         guard useLivePortal, case .signedOut = phase,
               let credentials = Keychain.loadCredentials() else { return }
-        await signIn(username: credentials.username, password: credentials.password)
+        for attempt in 0...2 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+            await signIn(username: credentials.username, password: credentials.password)
+            // Signed in, or waiting for a verification code.
+            guard case .signedOut = phase else { break }
+        }
         // A stale password shouldn't leave an error on a screen the user
         // didn't ask for — just show the login form.
         if case .signedOut = phase { signInError = nil }
