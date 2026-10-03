@@ -129,32 +129,13 @@ struct DashboardView: View {
     /// Pinned sections, in order (see `HomeLayout`).
     @AppStorage(HomeLayout.storageKey) private var homeSections = ""
 
-    /// Home's search: everything from test results to fact sheets.
-    @State private var searchText = ""
-    /// The child's records to search, loaded when a search starts (cached
-    /// by the service).
-    @State private var searchIndex: SearchIndex?
+    /// Home's search (everything from test results to fact sheets), opened
+    /// from the bar under the pills.
+    @State private var showsSearch = false
 
     var body: some View {
-        chrome(
-            Group {
-                if searchText.isEmpty {
-                    dashboard
-                } else {
-                    SearchResultsList(query: searchText,
-                                      features: Feature.browsable.filter { $0.title.localizedCaseInsensitiveContains(searchText) },
-                                      index: searchIndex)
-                }
-            }
-            // Always showing at the top of Home.
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
-                        prompt: "Search records and health info")
-            .task(id: searchText.isEmpty) {
-                guard !searchText.isEmpty, searchIndex == nil else { return }
-                searchIndex = await SearchIndex.load(service: session.service, patientID: session.patientID)
-            }
-            .onChange(of: session.patientID) { searchIndex = nil }
-        )
+        chrome(dashboard)
+            .fullScreenCover(isPresented: $showsSearch) { HomeSearchView() }
     }
 
     private var dashboard: some View {
@@ -287,6 +268,24 @@ struct DashboardView: View {
                 .accessibilityLabel(pillsAccessibilityLabel)
                 .accessibilityHint("Opens the health summary")
             }
+
+            // Under the pills: looks like a search field, opens the search.
+            Button { showsSearch = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                    Text("Search records and health info")
+                    Spacer(minLength: 0)
+                }
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 11)
+                .background(Color(.secondarySystemGroupedBackground), in: .capsule)
+                .contentShape(.capsule)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+            .accessibilityLabel("Search records and health info")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -588,6 +587,61 @@ struct DashboardView: View {
             urNumber: mrn, nextVisit: visit,
             allergies: allergies.map { WidgetSnapshot.Allergy(substance: $0.substance, reaction: $0.reaction) },
             unreadMessages: unreadMessages, newResults: results.filter(\.isUnread).count)
+    }
+}
+
+// MARK: - Search
+
+/// Home's full-screen search, opened from the bar under the pills: the
+/// field focused straight away, results as you type (the same as
+/// Browse's), and Cancel to go back to Home.
+struct HomeSearchView: View {
+    @Environment(Session.self) private var session
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var query = ""
+    @State private var isSearching = false
+    /// The child's records, loaded when a search starts (cached by the service).
+    @State private var index: SearchIndex?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if query.isEmpty {
+                    ContentUnavailableView {
+                        Label("Search Everything", systemImage: "magnifyingglass")
+                    } description: {
+                        Text("Test results, letters, medication, visits and immunisations, plus Kids and Teen Health Info fact sheets and RCH News.")
+                    }
+                } else {
+                    SearchResultsList(query: query,
+                                      features: Feature.browsable.filter { $0.title.localizedCaseInsensitiveContains(query) },
+                                      index: index)
+                }
+            }
+            .navigationTitle("Search")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                }
+            }
+            .searchable(text: $query, isPresented: $isSearching,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search records and health info")
+        }
+        // Focused as soon as it opens, keyboard up.
+        .task { isSearching = true }
+        // Cancel ends the search and clears it: back to Home. (Opening a
+        // result keeps the text, so that never closes the search.)
+        .onChange(of: isSearching) { _, searching in
+            if !searching, query.isEmpty { dismiss() }
+        }
+        .task(id: query.isEmpty) {
+            guard !query.isEmpty, index == nil else { return }
+            index = await SearchIndex.load(service: session.service, patientID: session.patientID)
+        }
     }
 }
 
