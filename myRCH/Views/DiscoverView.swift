@@ -32,7 +32,8 @@ struct DiscoverView: View {
         // Room past the closing note, so the tab bar and bottom search field
         // don't sit over it at the end of the scroll.
         .contentMargins(.bottom, 40, for: .scrollContent)
-        .background(Color(.systemBackground))
+        // Grouped background, like the app's other screens.
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("Discover")
         .searchable(text: $searchText, prompt: "Search news and fact sheets")
         .refreshable { await store.refresh(minimumInterval: 0) }
@@ -90,7 +91,7 @@ struct DiscoverView: View {
             } else {
                 ForEach(Array(store.latestNews.prefix(2).enumerated()), id: \.element.id) { index, post in
                     if index > 0 { Divider() }
-                    NavigationLink { NewsArticleView(post: post) } label: {
+                    ArticleLink { NewsArticleView(post: post) } label: {
                         SpotlightCard(post: post)
                     }
                     .buttonStyle(.plain)
@@ -112,7 +113,7 @@ struct DiscoverView: View {
             }
             ForEach(Array(store.latestNews.dropFirst(2).prefix(3).enumerated()), id: \.element.id) { index, post in
                 if index > 0 { Divider().padding(.leading, 80) }
-                NavigationLink { NewsArticleView(post: post) } label: {
+                ArticleLink { NewsArticleView(post: post) } label: {
                     ContentRow(post: post)
                 }
                 .buttonStyle(.plain)
@@ -147,7 +148,7 @@ struct DiscoverView: View {
             }
             ForEach(Array(featured.enumerated()), id: \.element.id) { index, sheet in
                 if index > 0 { Divider().padding(.leading, 80) }
-                NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                ArticleLink { FactSheetArticleView(sheet: sheet) } label: {
                     ContentRow(sheet: sheet)
                 }
                 .buttonStyle(.plain)
@@ -430,7 +431,7 @@ private struct DiscoverSearchResults: View {
             if !news.isEmpty {
                 DiscoverSectionHeader(title: "News")
                 ForEach(news) { post in
-                    NavigationLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
+                    ArticleLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
                         .buttonStyle(.plain)
                     Divider().padding(.leading, 80)
                 }
@@ -439,7 +440,7 @@ private struct DiscoverSearchResults: View {
                 DiscoverSectionHeader(title: "Fact Sheets")
                     .padding(.top, news.isEmpty ? 0 : 20)
                 ForEach(sheets.prefix(60)) { sheet in
-                    NavigationLink { FactSheetArticleView(sheet: sheet) } label: { ContentRow(sheet: sheet) }
+                    ArticleLink { FactSheetArticleView(sheet: sheet) } label: { ContentRow(sheet: sheet) }
                         .buttonStyle(.plain)
                     Divider().padding(.leading, 80)
                 }
@@ -466,7 +467,7 @@ struct NewsListView: View {
     var body: some View {
         List {
             ForEach(posts) { post in
-                NavigationLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
+                ArticleLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
                     .onAppear { if post.id == posts.last?.id { Task { await loadMore() } } }
             }
             // A screenful of skeleton rows at first; one row when loading more.
@@ -625,7 +626,7 @@ struct FactSheetListView: View {
             ForEach(byLetter, id: \.letter) { group in
                 Section(group.letter) {
                     ForEach(group.sheets) { sheet in
-                        NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                        ArticleLink { FactSheetArticleView(sheet: sheet) } label: {
                             FactSheetRow(sheet: sheet)
                         }
                     }
@@ -703,7 +704,7 @@ struct FactSheetCategoryView: View {
     var body: some View {
         List {
             ForEach(category.sheets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }) { sheet in
-                NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                ArticleLink { FactSheetArticleView(sheet: sheet) } label: {
                     FactSheetRow(sheet: sheet)
                 }
             }
@@ -713,6 +714,43 @@ struct FactSheetCategoryView: View {
 }
 
 // MARK: - Reading
+
+/// Opens an article like the Health app does: as a sheet over the page, with
+/// its own bar (Share, At a Glance) and a close button, rather than pushed
+/// onto the stack.
+struct ArticleLink<Article: View, Label: View>: View {
+    @ViewBuilder let article: () -> Article
+    @ViewBuilder let label: () -> Label
+    @State private var isPresented = false
+
+    var body: some View {
+        Button { isPresented = true } label: {
+            // Not tinted like a button inside a List; the row's own grey
+            // and coloured parts keep their colours.
+            label().foregroundStyle(.primary)
+        }
+        .sheet(isPresented: $isPresented) {
+            ArticleSheet(content: article)
+        }
+    }
+}
+
+/// The sheet's own navigation bar, so the article's toolbar has somewhere to go.
+private struct ArticleSheet<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            content()
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close", systemImage: "xmark") { dismiss() }
+                    }
+                }
+        }
+    }
+}
 
 /// A news post in the app's own layout (see `NewsFormatter`), with an "At a
 /// glance" summary written on device.
