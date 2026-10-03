@@ -17,6 +17,16 @@ nonisolated struct NewsPost: Identifiable, Hashable, Sendable, Codable {
     var thumbnailURL: URL?
     /// The post body as the blog renders it.
     var contentHTML: String
+    /// The blog's category ids (see `NewsCategory`). Optional, so news saved
+    /// before it was added still loads.
+    var categories: [Int]? = nil
+
+    /// The most specific category it's in: a media release or the Good
+    /// Friday Appeal rather than plain news.
+    var primaryCategory: NewsCategory? {
+        let ids = Set(categories ?? [])
+        return [NewsCategory.mediaReleases, .goodFridayAppeal, .news].first { ids.contains($0.rawValue) }
+    }
 }
 
 /// The blog's categories worth browsing on their own.
@@ -140,7 +150,7 @@ nonisolated enum RCHContent {
             URLQueryItem(name: "per_page", value: String(perPage)),
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "_embed", value: "wp:featuredmedia"),
-            URLQueryItem(name: "_fields", value: "id,date_gmt,link,title,excerpt,content,_links,_embedded")
+            URLQueryItem(name: "_fields", value: "id,date_gmt,link,title,excerpt,content,categories,_links,_embedded")
         ]
         if let category {
             components.queryItems?.append(URLQueryItem(name: "categories", value: String(category.rawValue)))
@@ -170,6 +180,7 @@ nonisolated enum RCHContent {
         let title: Rendered
         let excerpt: Rendered
         let content: Rendered
+        let categories: [Int]?
         let _embedded: Embedded?
 
         private static let dateFormat: Date.ParseStrategy = .init(
@@ -188,7 +199,7 @@ nonisolated enum RCHContent {
             return NewsPost(id: id, title: HTMLText.plain(title.rendered), summary: summary,
                             date: (try? Date(date_gmt, strategy: Self.dateFormat)) ?? .now,
                             link: link, imageURL: image, thumbnailURL: thumbnail ?? image,
-                            contentHTML: content.rendered)
+                            contentHTML: content.rendered, categories: categories)
         }
     }
 
