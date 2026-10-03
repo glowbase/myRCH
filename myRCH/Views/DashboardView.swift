@@ -188,7 +188,7 @@ struct DashboardView: View {
         // How far the page has scrolled from rest before the search button
         // takes over from the search bar.
         .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > 60
+            geometry.contentOffset.y + geometry.contentInsets.top > 30
         } action: { _, isPast in
             withAnimation { isScrolledPastTitle = isPast }
         }
