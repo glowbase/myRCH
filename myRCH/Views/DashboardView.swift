@@ -4,7 +4,7 @@ import SwiftUI
 enum Feature: String, Identifiable, CaseIterable {
     case visits, testResults, medication, immunisations, allergies
     case growthCharts, trackHealth, implants, letters
-    case healthSummary, messages, sharing, medicalID
+    case messages, sharing, medicalID
 
     var id: String { rawValue }
 
@@ -14,7 +14,7 @@ enum Feature: String, Identifiable, CaseIterable {
     static let browsable: [Feature] = [
         .visits, .testResults, .medication, .messages,
         .letters, .medicalID, .immunisations, .allergies,
-        .growthCharts, .healthSummary, .sharing,
+        .growthCharts, .sharing,
         .trackHealth, .implants
     ]
 
@@ -29,7 +29,6 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: "Track My Health"
         case .implants: "Implants"
         case .letters: "Letters"
-        case .healthSummary: "Health Summary"
         case .messages: "Messages"
         case .sharing: "Share My Record"
         case .medicalID: "Medical ID"
@@ -50,7 +49,6 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: "waveform.path.ecg"
         case .implants: "cross.case.fill"
         case .letters: "envelope.open.fill"
-        case .healthSummary: "heart.text.clipboard.fill"
         case .messages: "bubble.left.and.bubble.right.fill"
         case .sharing: "person.2.wave.2.fill"
         case .medicalID: "staroflife.fill"
@@ -71,7 +69,6 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: Theme.Section.trackHealth
         case .implants: Theme.Section.implants
         case .letters: Theme.Section.letters
-        case .healthSummary: Theme.Section.healthSummary
         case .messages: Theme.Section.messages
         case .sharing: Theme.Section.sharing
         case .medicalID: Theme.Section.medicalID
@@ -87,7 +84,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: Theme.green
         case .medication: Theme.medication
         case .immunisations: .purple
-        case .allergies, .healthSummary: Theme.red
+        case .allergies: Theme.red
         case .implants: Theme.yellow
         // Navy, not yellow: yellow icons are too faint on white for a screen
         // of letter rows.
@@ -109,6 +106,9 @@ struct DashboardView: View {
     @State private var medications: [Medication] = []
     @State private var issues: [HealthIssue] = []
     @State private var allergies: [Allergy] = []
+    /// False until they've loaded from a backend that can read them, so
+    /// an empty list is never shown as "no known allergies" by mistake.
+    @State private var allergiesKnown = false
     @State private var immunisations: [ImmunisationGroup] = []
     @State private var unreadCount = 0
     @State private var unreadMessages = 0
@@ -292,14 +292,17 @@ struct DashboardView: View {
                 }
                 .redacted(reason: .placeholder)
             } else {
-                NavigationLink(value: Feature.healthSummary) {
+                NavigationLink(value: Feature.medicalID) {
                     // Discover's category chips, wrapping rather than scrolling.
                     FlowLayout(spacing: 10) {
                         ForEach(issues) { issue in
                             // Grey icon, so the allergy chips are the ones that stand out.
                             healthChip(issue.name, systemImage: "heart.text.square.fill", color: .secondary)
                         }
-                        if allergies.isEmpty {
+                        if !allergiesKnown {
+                            // Unknown isn't "none": orange, not the green tick.
+                            healthChip("Allergies not available", systemImage: "questionmark", color: Theme.orange)
+                        } else if allergies.isEmpty {
                             healthChip("No known allergies", systemImage: "checkmark", color: Theme.green)
                         } else {
                             ForEach(allergies) { allergy in
@@ -310,7 +313,7 @@ struct DashboardView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(pillsAccessibilityLabel)
-                .accessibilityHint("Opens the health summary")
+                .accessibilityHint("Opens the medical ID")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -361,7 +364,9 @@ struct DashboardView: View {
 
     private var pillsAccessibilityLabel: String {
         let issueText = issues.isEmpty ? "No health issues" : "Health issues: " + issues.map(\.name).formatted(.list(type: .and))
-        let allergyText = allergies.isEmpty ? "No known allergies" : "Allergies: " + allergies.map(\.substance).formatted(.list(type: .and))
+        let allergyText = !allergiesKnown
+            ? AllergyNotice.text(readsAllergies: session.service.readsAllergies)
+            : allergies.isEmpty ? "No known allergies" : "Allergies: " + allergies.map(\.substance).formatted(.list(type: .and))
         return "\(issueText). \(allergyText)."
     }
 
@@ -587,7 +592,10 @@ struct DashboardView: View {
             medicationStore.linkForSharing(patientID: id, urNumber: ur,
                                            medications: allMedications.map { ($0.id, $0.sharingName) })
         }
-        allergies = await allergiesTask ?? []
+        // Still fetched when unreadable, so the response's shape is logged.
+        let loadedAllergies = await allergiesTask
+        allergiesKnown = service.readsAllergies && loadedAllergies != nil
+        allergies = allergiesKnown ? (loadedAllergies ?? []) : []
         immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])
         explore = await exploreTask
 
@@ -614,6 +622,7 @@ struct DashboardView: View {
             id: session.patientID, name: session.activeAccount?.name ?? profile.preferredName,
             urNumber: mrn, nextVisit: visit,
             allergies: allergies.map { WidgetSnapshot.Allergy(substance: $0.substance, reaction: $0.reaction) },
+            allergiesKnown: allergiesKnown,
             unreadMessages: unreadMessages, newResults: results.filter(\.isUnread).count)
     }
 }

@@ -16,6 +16,21 @@ struct AvatarView: View {
     }
 }
 
+// MARK: - Allergies
+
+/// What to say when a child's allergies aren't known: never "no known
+/// allergies", which a parent or staff member could act on.
+enum AllergyNotice {
+    /// The backend can't read allergies yet (`PortalService.readsAllergies`).
+    static let unavailable = "Allergies aren't available in the app yet. Check with the care team."
+    /// They should load but didn't.
+    static let failed = "Couldn't load allergies. Check with the care team."
+
+    static func text(readsAllergies: Bool) -> String {
+        readsAllergies ? failed : unavailable
+    }
+}
+
 // MARK: - Pills
 
 /// A capsule with a coloured icon, like Health's category buttons: Discover's

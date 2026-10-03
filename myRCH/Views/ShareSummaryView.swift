@@ -9,6 +9,8 @@ struct ShareSummaryView: View {
 
     @State private var header: RecordHeader?
     @State private var allergies: [Allergy] = []
+    /// False when they couldn't be read: the PDF says so, never "none".
+    @State private var allergiesKnown = false
     @State private var conditions: [HealthIssue] = []
     @State private var medications: [Medication] = []
     @State private var immunisations: [ImmunisationGroup] = []
@@ -48,7 +50,8 @@ struct ShareSummaryView: View {
 
             Section {
                 Toggle("UR number and date of birth", isOn: $includesUR)
-                Toggle("Allergies (\(allergies.count))", isOn: $includesAllergies)
+                Toggle(allergiesKnown ? "Allergies (\(allergies.count))" : "Allergies (not available)",
+                       isOn: $includesAllergies)
                 Toggle("Conditions (\(conditions.count))", isOn: $includesConditions)
                 Toggle("Current medication (\(medications.count))", isOn: $includesMedication)
                 Toggle("Immunisations (\(immunisations.count))", isOn: $includesImmunisations)
@@ -166,7 +169,8 @@ struct ShareSummaryView: View {
         if includesConditions {
             lines += RecordContext.block("Conditions", conditions.map { "- \($0.name)" })
         }
-        if includesAllergies {
+        // Unknown allergies are left out, so the paragraph can't call them none.
+        if includesAllergies, allergiesKnown {
             lines += RecordContext.block("Allergies", allergies.map { allergy in
                 let detail = [allergy.reaction, allergy.severity].filter { !$0.isEmpty }.joined(separator: ", ")
                 return "- \(allergy.substance)" + (detail.isEmpty ? "" : " (\(detail))")
@@ -188,7 +192,10 @@ struct ShareSummaryView: View {
         async let medicationsTask = try? service.medications(for: patientID)
         async let immunisationsTask = try? service.immunisations(for: patientID)
         header = await headerTask
-        allergies = await allergiesTask ?? []
+        // Still fetched when unreadable, so the response's shape is logged.
+        let loadedAllergies = await allergiesTask
+        allergiesKnown = service.readsAllergies && loadedAllergies != nil
+        allergies = allergiesKnown ? (loadedAllergies ?? []) : []
         conditions = await issuesTask ?? []
         medications = (await medicationsTask ?? []).filter(\.isActive)
         immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])
@@ -227,7 +234,10 @@ struct ShareSummaryView: View {
         }
 
         if includesAllergies {
-            parts.append(section("Allergies", empty: "No known allergies recorded.", rows: allergies.map { allergy in
+            parts.append(section("Allergies",
+                                 empty: allergiesKnown ? "No known allergies recorded."
+                                     : AllergyNotice.text(readsAllergies: session.service.readsAllergies),
+                                 rows: allergies.map { allergy in
                 let detail = [allergy.reaction, allergy.severity].filter { !$0.isEmpty }.map(e).joined(separator: ", ")
                 return "<b>\(e(allergy.substance))</b>" + (detail.isEmpty ? "" : " – \(detail)")
             }))

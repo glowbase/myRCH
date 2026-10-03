@@ -420,6 +420,19 @@ struct AllergyView: View {
     var body: some View {
         if entry.snapshot?.showsAllergiesOnLockScreen != true {
             EmptyWidget(symbol: "allergens", text: "Turn on in myRCH Settings")
+        } else if let child = entry.child, child.allergies.isEmpty, child.allergiesKnown != true {
+            // Not read from the record: say so, never "no known allergies".
+            VStack(alignment: .leading, spacing: 2) {
+                Label("\(child.name)'s Allergies", systemImage: "questionmark.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(family == .accessoryRectangular ? Color.primary : Color.orange)
+                Text("Not available in the app yet")
+                    .font(family == .accessoryRectangular ? .caption : .subheadline.weight(.semibold))
+                    .lineLimit(2)
+                if family != .accessoryRectangular { Spacer(minLength: 0) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .widgetURL(DeepLink.medicalIDURL(child: child.id))
         } else if let child = entry.child {
             let none = child.allergies.isEmpty
             VStack(alignment: .leading, spacing: 2) {

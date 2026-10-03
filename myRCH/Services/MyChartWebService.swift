@@ -1155,9 +1155,17 @@ actor MyChartWebService: PortalService {
     }
 
     func allergies(for patientID: String) async throws -> [Allergy] {
-        let json = try await postJSON(for: patientID, action: "api/allergies/LoadAllergies")
+        // Captured from the health-summary page, like LoadHealthIssuesData.
+        let json = try await postJSON(for: patientID, action: "api/allergies/LoadAllergies",
+                                      body: ["isHealthSummary": true])
+        // Field names and types only, never values, to map the decoder from.
+        if debugLogResponses { Self.logShape(json, label: "LoadAllergies") }
         return decodeAllergies(json)
     }
+
+    /// Not yet: `decodeAllergies` is unmapped, so its empty list means
+    /// "unknown", not "none". Flip once it reads the portal's response.
+    nonisolated var readsAllergies: Bool { false }
 
     func immunisations(for patientID: String) async throws -> [Immunisation] {
         let json = try await postJSON(for: patientID, action: "api/immunizations/LoadImmunizations")

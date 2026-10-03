@@ -8,7 +8,8 @@ struct MedicalIDView: View {
     @Environment(Session.self) private var session
 
     @State private var header: RecordHeader?
-    @State private var allergies: [Allergy] = []
+    /// Nil when unknown: not readable yet, or failed to load.
+    @State private var allergies: [Allergy]?
     @State private var conditions: [HealthIssue] = []
     @State private var medications: [Medication] = []
     @State private var isLoading = true
@@ -61,10 +62,13 @@ struct MedicalIDView: View {
             }
 
             Section("Allergies") {
-                if allergies.isEmpty {
-                    Text(isLoading ? "Loading…" : "No known allergies")
+                if isLoading {
+                    Text("Loading…")
                         .foregroundStyle(.secondary)
-                } else {
+                } else if let allergies, allergies.isEmpty {
+                    Text("No known allergies")
+                        .foregroundStyle(.secondary)
+                } else if let allergies {
                     ForEach(allergies) { allergy in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(allergy.substance).font(.headline)
@@ -76,6 +80,12 @@ struct MedicalIDView: View {
                             }
                         }
                     }
+                } else {
+                    // Unknown: say so, in orange, rather than "none".
+                    Label(AllergyNotice.text(readsAllergies: session.service.readsAllergies),
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.orange)
                 }
             }
 
@@ -125,7 +135,9 @@ struct MedicalIDView: View {
         async let issuesTask = try? service.healthIssues(for: patientID)
         async let medicationsTask = try? service.medications(for: patientID)
         header = await headerTask
-        allergies = await allergiesTask ?? []
+        // Still fetched when unreadable, so the response's shape is logged.
+        let loadedAllergies = await allergiesTask
+        allergies = service.readsAllergies ? loadedAllergies : nil
         conditions = await issuesTask ?? []
         medications = (await medicationsTask ?? []).filter(\.isActive)
         isLoading = false
