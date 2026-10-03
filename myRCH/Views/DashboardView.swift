@@ -293,23 +293,27 @@ struct DashboardView: View {
                 .redacted(reason: .placeholder)
             } else {
                 NavigationLink(value: Feature.medicalID) {
-                    // Discover's category chips, wrapping rather than scrolling.
-                    FlowLayout(spacing: 10) {
-                        ForEach(issues) { issue in
-                            // Grey icon, so the allergy chips are the ones that stand out.
-                            healthChip(issue.name, systemImage: "heart.text.square.fill", color: .secondary)
-                        }
-                        if !allergiesKnown {
-                            // Unknown isn't "none": orange, not the green tick.
-                            healthChip("Allergies not available", systemImage: "questionmark", color: Theme.orange)
-                        } else if allergies.isEmpty {
-                            healthChip("No known allergies", systemImage: "checkmark", color: Theme.green)
-                        } else {
-                            ForEach(allergies) { allergy in
-                                healthChip(allergy.substance, systemImage: "allergens", color: Theme.red)
+                    // A scrolling row, like Discover's category chips.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(issues) { issue in
+                                // Grey icon, so the allergy chips are the ones that stand out.
+                                healthChip(issue.name, systemImage: "heart.text.square.fill", color: .secondary)
+                            }
+                            if !allergiesKnown {
+                                // Unknown isn't "none": orange, not the green tick.
+                                healthChip("Allergies not available", systemImage: "questionmark", color: Theme.orange)
+                            } else if allergies.isEmpty {
+                                healthChip("No known allergies", systemImage: "checkmark", color: Theme.green)
+                            } else {
+                                ForEach(allergies) { allergy in
+                                    healthChip(allergy.substance, systemImage: "allergens", color: Theme.red)
+                                }
                             }
                         }
                     }
+                    // Chips scroll out to the screen edges, not the card padding.
+                    .scrollClipDisabled()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(pillsAccessibilityLabel)
