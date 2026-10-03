@@ -131,10 +131,11 @@ struct DashboardView: View {
     /// The child's records to search, loaded when a search starts (cached
     /// by the service).
     @State private var searchIndex: SearchIndex?
-    /// The search bar is showing (opened from the toolbar button).
-    @State private var showsSearch = false
     /// The search field is active, keyboard up.
     @State private var isSearching = false
+    /// Scrolled far enough that the title has moved into the bar and the
+    /// search bar has slid away, so the toolbar shows a search button.
+    @State private var isScrolledPastTitle = false
 
     var body: some View {
         chrome(
@@ -147,14 +148,11 @@ struct DashboardView: View {
                                       index: searchIndex)
                 }
             }
-            // Only while searching: the toolbar's magnifying glass opens it,
-            // focused, under the title.
-            .modifier(HomeSearchField(isShown: showsSearch, text: $searchText, isSearching: $isSearching))
-            // Cancel clears the search and ends it: back to the plain page.
-            // (Opening a result keeps the text, so that never closes it.)
-            .onChange(of: isSearching) { _, searching in
-                if !searching, searchText.isEmpty { showsSearch = false }
-            }
+            // Under the large title, sliding away as the page scrolls; the
+            // toolbar's magnifying glass takes over from there.
+            .searchable(text: $searchText, isPresented: $isSearching,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "Search records and health info")
             .task(id: searchText.isEmpty) {
                 guard !searchText.isEmpty, searchIndex == nil else { return }
                 searchIndex = await SearchIndex.load(service: session.service, patientID: session.patientID)
@@ -187,6 +185,13 @@ struct DashboardView: View {
             // under the search bar.
             .padding(.top, 4)
         }
+        // How far the page has scrolled from rest. The large title and search
+        // bar take roughly the first 100pt to collapse.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > 90
+        } action: { _, isPast in
+            withAnimation { isScrolledPastTitle = isPast }
+        }
         // Grouped background, like the app's other screens: grey under white
         // cards in light mode, black under dark-grey cards in dark mode.
         // (`.background.secondary` matched the cards' grey in dark mode.)
@@ -215,11 +220,13 @@ struct DashboardView: View {
                     .padding(.top, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
-            // Opposite the bell and avatar, so the bar isn't lopsided.
-            ToolbarItem(placement: .topBarLeading) {
-                // The field focuses itself once it's there (see HomeSearchField).
-                Button("Search", systemImage: "magnifyingglass") { showsSearch = true }
-                .foregroundStyle(Theme.brand)
+            // Opposite the bell and avatar once the search bar has scrolled
+            // away; brings it back, focused.
+            if isScrolledPastTitle, !isSearching {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Search", systemImage: "magnifyingglass") { isSearching = true }
+                        .foregroundStyle(Theme.brand)
+                }
             }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
@@ -615,26 +622,6 @@ struct DashboardView: View {
 
 // MARK: - Subviews
 
-/// Home's search bar, attached only while it's open, so the page has no
-/// search field until the toolbar button asks for one.
-private struct HomeSearchField: ViewModifier {
-    let isShown: Bool
-    @Binding var text: String
-    @Binding var isSearching: Bool
-
-    func body(content: Content) -> some View {
-        if isShown {
-            content
-                .searchable(text: $text, isPresented: $isSearching,
-                            placement: .navigationBarDrawer(displayMode: .always),
-                            prompt: "Search records and health info")
-                // Focus once the field exists, keyboard up.
-                .task { isSearching = true }
-        } else {
-            content
-        }
-    }
-}
 
 /// The UR number in large monospaced digits, for reading out or showing to
 /// staff. Like a Wallet pass, it turns the screen up to full brightness while
