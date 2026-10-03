@@ -316,21 +316,58 @@ actor MyChartWebService: PortalService {
         if let token = try? await fetchCSRFToken() { apiToken = token }
     }
 
-    /// The portal answered with its error page: the session's context or token
-    /// went stale. Switch again with a fresh account list (its links may have
-    /// expired) and token, unless another request already did since `generation`.
-    private func recoverContext(_ patientID: String, seenGeneration generation: Int) async {
-        if generation == contextGeneration {
-            if debugLogResponses { print("↩︎ Error page: switching context again") }
-            subjectsCache = []
-            currentContextID = nil
+    /// The renewal in flight, so a burst of failing requests waits for one.
+    private var renewal: Task<Void, Never>?
+
+    /// A read failed the way a stale session does (see `looksStale`). Renew it
+    /// unless another request already did since `generation`, then get back
+    /// into this child's record for the retry.
+    private func recover(_ patientID: String, seenGeneration generation: Int) async {
+        if let renewal {
+            await renewal.value
+        } else if generation == contextGeneration {
+            let task = Task { await renewSession() }
+            renewal = task
+            await task.value
+            renewal = nil
         }
         await ensureContext(patientID)
     }
 
-    /// The portal's generic error page, e.g. Home/Error?code=15.
-    private nonisolated static func isErrorPage(_ response: URLResponse) -> Bool {
-        response.url?.path.lowercased().hasSuffix("/home/error") ?? false
+    /// The portal signs the session out after a while idle, and the app only
+    /// signed in at launch, so coming back to it later found every request
+    /// failing. The account list only loads while signed in: if it's gone,
+    /// sign in again with the saved details, as at launch. If it's there, the
+    /// context or token went stale, so switch again with a fresh list (its
+    /// links may have expired).
+    private func renewSession() async {
+        defer { contextGeneration += 1 }
+        subjectsCache = []
+        if !(await proxySubjects()).isEmpty {
+            if debugLogResponses { print("↩︎ Still signed in: switching context again") }
+            currentContextID = nil
+            return
+        }
+        guard let credentials = Keychain.loadCredentials() else { return }
+        if debugLogResponses { print("↩︎ Session expired: signing in again") }
+        // Start from an empty cookie jar, like a fresh launch.
+        session.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
+        do {
+            _ = try await signIn(username: credentials.username, password: credentials.password)
+        } catch {
+            // A verification code can't be asked for here; the failed read
+            // shows its error and the next launch signs in properly.
+            if debugLogResponses { print("↩︎ Signing in again failed: \(error.localizedDescription)") }
+        }
+    }
+
+    /// How a stale session answers: the portal's error page (e.g.
+    /// Home/Error?code=15), the login page, or a 500 with an empty body.
+    private nonisolated static func looksStale(_ data: Data, _ response: URLResponse) -> Bool {
+        let path = response.url?.path.lowercased() ?? ""
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return path.hasSuffix("/home/error") || path.contains("/authentication/login")
+            || (status == 500 && data.count <= 2)
     }
 
     /// Path plus any error code, for the log.
@@ -1351,8 +1388,8 @@ actor MyChartWebService: PortalService {
         let generation = contextGeneration
         var (data, response) = try await send()
         // Once only: a second error page is reported as before.
-        if Self.isErrorPage(response) {
-            await recoverContext(patientID, seenGeneration: generation)
+        if Self.looksStale(data, response) {
+            await recover(patientID, seenGeneration: generation)
             (data, response) = try await send()
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) else {
@@ -1418,8 +1455,8 @@ actor MyChartWebService: PortalService {
         // Once only: a second error page is reported as before. Reads only:
         // an action that changes something (e.g. sending a reply) might have
         // run before the redirect, so it isn't repeated.
-        if Self.isErrorPage(response) {
-            await recoverContext(patientID, seenGeneration: generation)
+        if Self.looksStale(data, response) {
+            await recover(patientID, seenGeneration: generation)
             if savesCopy { (data, response) = try await send() }
         }
 
