@@ -196,24 +196,6 @@ extension FactSheet.Library {
 
 // MARK: - Building blocks
 
-/// A capsule with a coloured icon, like Health's category buttons.
-private struct CategoryChip: View {
-    let title: String
-    let systemImage: String
-    let color: Color
-
-    var body: some View {
-        Label {
-            Text(title).foregroundStyle(.primary)
-        } icon: {
-            Image(systemName: systemImage).foregroundStyle(color)
-        }
-        .font(.body.weight(.medium))
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(.secondarySystemBackground), in: .capsule)
-    }
-}
 
 /// A bold title over a hairline, with an optional icon and Show All.
 private struct DiscoverSectionHeader<Destination: View>: View {

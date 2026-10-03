@@ -172,7 +172,11 @@ struct DashboardView: View {
                 // Always last, like Articles in the Health app.
                 HomeArticlesSection()
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.bottom)
+            // Less than the usual 16 above the chips, so they sit close
+            // under the search bar.
+            .padding(.top, 4)
         }
         // Grouped background, like the app's other screens: grey under white
         // cards in light mode, black under dark-grey cards in dark mode.
@@ -199,6 +203,7 @@ struct DashboardView: View {
             // Age and UR number under the large title; the UR stays tappable.
             ToolbarItem(placement: .largeSubtitle) {
                 factsLine
+                    .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -258,24 +263,25 @@ struct DashboardView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             if isLoading {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(["Placeholder", "Placeholder issue", "Allergy"], id: \.self) { text in
-                        Pill(text: text, systemImage: "heart.text.square.fill", tint: Theme.brand)
+                        healthChip(text, systemImage: "heart.text.square.fill", color: Theme.brand)
                     }
                 }
                 .redacted(reason: .placeholder)
             } else {
                 NavigationLink(value: Feature.healthSummary) {
-                    FlowLayout(spacing: 8) {
+                    // Discover's category chips, wrapping rather than scrolling.
+                    FlowLayout(spacing: 10) {
                         ForEach(issues) { issue in
-                            // Neutral, so the allergy pills are the ones that stand out.
-                            Pill(text: issue.name, systemImage: "heart.text.square.fill", tint: .primary)
+                            // Grey icon, so the allergy chips are the ones that stand out.
+                            healthChip(issue.name, systemImage: "heart.text.square.fill", color: .secondary)
                         }
                         if allergies.isEmpty {
-                            Pill(text: "No known allergies", systemImage: "checkmark", tint: Theme.green)
+                            healthChip("No known allergies", systemImage: "checkmark", color: Theme.green)
                         } else {
                             ForEach(allergies) { allergy in
-                                Pill(text: allergy.substance, systemImage: "allergens", tint: Theme.red)
+                                healthChip(allergy.substance, systemImage: "allergens", color: Theme.red)
                             }
                         }
                     }
@@ -286,6 +292,13 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A diagnosis or allergy, styled like Discover's categories in the
+    /// grouped card colour (the default grey vanishes on Home's background).
+    private func healthChip(_ title: String, systemImage: String, color: Color) -> some View {
+        CategoryChip(title: title, systemImage: systemImage, color: color,
+                     background: Color(.secondarySystemGroupedBackground))
     }
 
     /// Full name for the UR sheet.

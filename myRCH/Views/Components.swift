@@ -18,6 +18,28 @@ struct AvatarView: View {
 
 // MARK: - Pills
 
+/// A capsule with a coloured icon, like Health's category buttons: Discover's
+/// categories and Home's diagnoses and allergies. `background` suits the
+/// screen behind it (Home's grouped grey needs the grouped card colour).
+struct CategoryChip: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    var background = Color(.secondarySystemBackground)
+
+    var body: some View {
+        Label {
+            Text(title).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(color)
+        }
+        .font(.body.weight(.medium))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(background, in: .capsule)
+    }
+}
+
 /// A small tinted capsule label, e.g. for diagnoses and allergies.
 struct Pill: View {
     let text: String
