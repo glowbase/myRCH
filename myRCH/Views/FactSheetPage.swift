@@ -21,11 +21,7 @@ nonisolated enum FactSheetFormatter {
     static func format(_ body: String, accent: UIColor) -> Result {
         let reviewed = HTMLText.matches(#"Reviewed\s+([A-Z][a-z]+\s+\d{4})"#, in: HTMLText.plain(body)).first?.first
 
-        var html = body
-        // "Translated resources": links to other languages, at the top.
-        if let marker = html.range(of: "Translated resources") {
-            html = removingElement(around: marker.lowerBound, tag: "div", in: html)
-        }
+        var html = removingExtras(body)
         // "Developed by The Royal Children's Hospital…", the review date
         // and the disclaimer: all from here down.
         if let credit = html.range(of: "Developed by") ?? html.range(of: "Please always seek the most recent advice") {
@@ -46,10 +42,63 @@ nonisolated enum FactSheetFormatter {
         html = urgentWarnings(html)
         html = sectionHeadings(html, accent: accent)
         html = questions(html, accent: accent)
-        // Figure captions under pictures.
-        html = html.replacingOccurrences(of: #"<p>\s*(Figure[^<]*)</p>"#, with: "<p class=\"caption\">$1</p>",
-                                         options: .regularExpression)
+        // Figure captions under pictures, however they're worded or styled.
+        // (The CSS also treats any paragraph straight after a picture as one.)
+        html = html.replacingOccurrences(of: #"<p>(\s*(?:<[^>]+>\s*)*(?:Figure|Image|Photo|Illustration|Source)\b)"#,
+                                         with: "<p class=\"caption\">$1",
+                                         options: [.regularExpression, .caseInsensitive])
         return Result(html: html, reviewed: reviewed, plainText: plainText)
+    }
+
+    /// What the site marks "rch-no-print" (the translated resources at the
+    /// top, the podcast and video players near the end), any other embedded
+    /// players, which can't play here with scripts off and only left blank
+    /// space, and fixed widths that made the page scroll sideways.
+    private static func removingExtras(_ body: String) -> String {
+        var html = body
+        // Some pages put the podcast and "For more information" in one such
+        // block, or it runs past the saved text, so it can't be measured:
+        // those keep their content and lose only the player inside.
+        while let marker = html.range(of: "class=\"rch-no-print\"") {
+            if let block = elementRange(around: marker.upperBound, tag: "div", in: html) {
+                let content = html[block]
+                if !content.contains("<h2") || content.contains("Translated resources") {
+                    html.removeSubrange(block)
+                    continue
+                }
+            }
+            html.replaceSubrange(marker, with: "")
+        }
+        if let marker = html.range(of: "Translated resources") {
+            html = removingElement(around: marker.lowerBound, tag: "div", in: html)
+        }
+        if let marker = html.range(of: "id=\"podcast-container\"") {
+            html = removingElement(around: marker.upperBound, tag: "div", in: html)
+        }
+        for pattern in [#"<iframe.*?</iframe>"#, #"<iframe[^>]*/?>"#, #"<object.*?</object>"#, #"<embed[^>]*>"#,
+                        #"<(audio|video).*?</\1>"#] {
+            html = html.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return html.replacingOccurrences(of: #"\s(?:width|height)="\d+%?""#, with: "", options: .regularExpression)
+    }
+
+    /// A short description for lists: the first real paragraph after the
+    /// key points (e.g. under "What is croup?"), else the first key point.
+    static func summary(fromBody body: String) -> String? {
+        let html = removingExtras(body)
+        let headings = HTMLText.matches(#"<h2[^>]*>(.*?)</h2>"#, in: html)
+        for heading in headings where !HTMLText.plain(heading[0]).lowercased().contains("key points") {
+            guard let range = html.range(of: heading[0]) else { continue }
+            for paragraph in HTMLText.matches(#"<p[^>]*>(.*?)</p>"#, in: String(html[range.upperBound...])).prefix(4) {
+                let text = HTMLText.plain(paragraph[0])
+                if text.count >= 40 { return String(text.prefix(220)) }
+            }
+            break
+        }
+        return HTMLText.matches(#"<li[^>]*>(.*?)</li>"#, in: html)
+            .map { HTMLText.plain($0[0]) }
+            .first { $0.count >= 30 }
+            .map { String($0.prefix(220)) }
     }
 
     // MARK: Sections
@@ -172,19 +221,24 @@ nonisolated enum FactSheetFormatter {
     /// Removes the whole `<tag>` element that contains `position`, counting
     /// nested elements of the same tag to find its end.
     private static func removingElement(around position: String.Index, tag: String, in html: String) -> String {
-        guard let start = html.range(of: "<\(tag)", options: .backwards, range: html.startIndex..<position) else { return html }
+        guard let range = elementRange(around: position, tag: tag, in: html) else { return html }
+        var html = html
+        html.removeSubrange(range)
+        return html
+    }
+
+    /// Where the whole `<tag>` element containing `position` is, or nil if
+    /// its end isn't in the text.
+    private static func elementRange(around position: String.Index, tag: String, in html: String) -> Range<String.Index>? {
+        guard let start = html.range(of: "<\(tag)", options: .backwards, range: html.startIndex..<position) else { return nil }
         var depth = 0
         var cursor = start.lowerBound
         while let next = html.range(of: "<\(tag)|</\(tag)>", options: .regularExpression, range: cursor..<html.endIndex) {
             depth += html[next].hasPrefix("</") ? -1 : 1
             cursor = next.upperBound
-            if depth == 0 {
-                var html = html
-                html.removeSubrange(start.lowerBound..<next.upperBound)
-                return html
-            }
+            if depth == 0 { return start.lowerBound..<next.upperBound }
         }
-        return html
+        return nil
     }
 
     /// Replaces each match of `pattern`; `groups[0]` is the whole match.
@@ -208,13 +262,30 @@ nonisolated enum FactSheetFormatter {
 
     /// The whole page: pills (library, review date), the title, the "At a
     /// glance" button, the content and a short source line.
+    /// The category a sheet's filed under on the site, with its icon.
+    struct Category {
+        var name: String
+        var symbol: String
+        var color: UIColor
+    }
+
     static func page(title: String, library: FactSheet.Library, accent: UIColor, accentHex: String,
-                     formatted: Result, offersGlance: Bool) -> String {
-        let libraryIcon = SymbolImage.glyph(library == .kids ? "figure.and.child.holdinghands" : "figure.walk", color: accent)
-        var pills = "<span class=\"pill\"><img src=\"\(libraryIcon)\" alt=\"\">\(escape(library.title))</span>"
+                     formatted: Result, category: Category?, offersGlance: Bool) -> String {
+        // Under the title: what it's filed under, how long it takes to read,
+        // and when it was last reviewed.
+        let grey = UIColor.secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light))
+        var pills = ""
+        if let category {
+            let hex = category.color.hexString
+            pills += "<span class=\"pill\" style=\"color: \(hex); background: color-mix(in srgb, \(hex) 14%, transparent)\">"
+                + "<img src=\"\(SymbolImage.glyph(category.symbol, color: category.color))\" alt=\"\">\(escape(category.name))</span>"
+        }
+        // About 200 words a minute, for a parent reading carefully.
+        let words = formatted.plainText.split(whereSeparator: \.isWhitespace).count
+        let minutes = max(1, Int((Double(words) / 200).rounded()))
+        pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("clock", color: grey))\" alt=\"\">\(minutes) min read</span>"
         if let reviewed = formatted.reviewed {
-            let calendar = SymbolImage.glyph("calendar", color: .secondaryLabel.resolvedColor(with: .init(userInterfaceStyle: .light)))
-            pills += "<span class=\"pill muted\"><img src=\"\(calendar)\" alt=\"\">Reviewed \(escape(reviewed))</span>"
+            pills += "<span class=\"pill muted\"><img src=\"\(SymbolImage.glyph("calendar", color: grey))\" alt=\"\">Reviewed \(escape(reviewed))</span>"
         }
         let glance = offersGlance ? """
             <a class="glance" href="\(FactSheetGlance.linkURL.absoluteString)">
@@ -228,8 +299,8 @@ nonisolated enum FactSheetFormatter {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>\(css(accentHex: accentHex))</style></head><body>
         <header>
-        <div class="pills">\(pills)</div>
         <h1 class="title">\(escape(title))</h1>
+        <div class="pills">\(pills)</div>
         \(glance)
         </header>
         <article>\(formatted.html)</article>
@@ -243,16 +314,24 @@ nonisolated enum FactSheetFormatter {
         :root { color-scheme: light dark; --accent: \(accentHex); --brand: #219EBD;
                 --card: rgba(120,120,128,0.10); --text2: rgba(60,60,67,0.75); }
         @media (prefers-color-scheme: dark) { :root { --brand: #62C7E0; --text2: rgba(235,235,245,0.65); } }
+        /* A normal page: nothing wider than the screen, no sideways scrolling. */
+        html, body { overflow-x: hidden; max-width: 100%; }
         body { font: -apple-system-body; font-family: -apple-system, sans-serif; line-height: 1.55;
-               margin: 0; padding: 8px 20px 40px; -webkit-text-size-adjust: 100%; }
+               margin: 0; padding: 8px 20px 40px; -webkit-text-size-adjust: 100%;
+               overflow-wrap: break-word; touch-action: pan-y; }
+        article * { max-width: 100%; box-sizing: border-box; }
+        /* The site's page builder wraps everything in a one-item list. */
+        ul[role="presentation"] { list-style: none; padding: 0; margin: 0; }
+        li[role="presentation"] { margin: 0; }
+        li[role="presentation"]::marker { content: ""; }
         a { color: var(--brand); }
-        .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 10px; }
+        .pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
         .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8em; font-weight: 600;
                 padding: 5px 11px; border-radius: 999px; color: var(--accent);
                 background: color-mix(in srgb, var(--accent) 14%, transparent); }
         .pill.muted { color: var(--text2); background: var(--card); }
         .pill img { width: 14px; height: 14px; }
-        h1.title { font-size: 1.9em; line-height: 1.15; margin: 4px 0 16px; letter-spacing: -0.01em; }
+        h1.title { font-size: 1.9em; line-height: 1.15; margin: 8px 0 12px; letter-spacing: -0.01em; }
         .glance { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit;
                   padding: 14px 16px; border-radius: 18px; margin-bottom: 8px;
                   background: color-mix(in srgb, var(--accent) 10%, transparent); }
@@ -270,7 +349,10 @@ nonisolated enum FactSheetFormatter {
         li::marker { color: var(--accent); }
         img { max-width: 100%; height: auto; }
         p img, article > img { border-radius: 14px; }
-        .caption { color: var(--text2); font-size: 0.85em; margin-top: -0.2em; }
+        /* Figure captions: small and grey, however the site marks them. */
+        .caption, figcaption, p:has(> img) + p, p:has(> img) + p * {
+            color: var(--text2); font-size: 0.8em; line-height: 1.4; font-weight: normal; }
+        .caption, p:has(> img) + p { margin-top: -0.2em; }
         .keypoints { border-radius: 20px; padding: 4px 18px 10px; margin: 8px 0 4px;
                      background: color-mix(in srgb, var(--accent) 10%, transparent); }
         .keypoints h2 { margin-top: 14px; }
@@ -283,15 +365,15 @@ nonisolated enum FactSheetFormatter {
         .urgent p { margin: 2px 0; font-weight: 600; color: #D70015; }
         .urgent-text { color: #D70015; }
         @media (prefers-color-scheme: dark) { .urgent p, .urgent-text { color: #FF6961; } .urgent { background: rgba(255,69,58,0.18); } }
-        .triage { border-radius: 16px; padding: 12px 16px 6px; margin: 10px 0; border-left: 5px solid; }
+        .triage { border-radius: 16px; padding: 12px 16px 6px; margin: 10px 0; }
         .triage-title { display: flex; align-items: center; gap: 10px; font-weight: 700; }
         .triage .hicon { width: 26px; height: 26px; border-radius: 7px; }
         .triage p { margin: 0; }
-        .triage-red { background: rgba(255,59,48,0.10); border-color: #FF3B30; }
-        .triage-orange { background: rgba(255,149,0,0.12); border-color: #FF9500; }
-        .triage-blue { background: rgba(0,122,255,0.10); border-color: #007AFF; }
-        .triage-green { background: rgba(52,199,89,0.12); border-color: #34C759; }
-        .triage-gray { background: var(--card); border-color: #8E8E93; }
+        .triage-red { background: rgba(255,59,48,0.10); }
+        .triage-orange { background: rgba(255,149,0,0.12); }
+        .triage-blue { background: rgba(0,122,255,0.10); }
+        .triage-green { background: rgba(52,199,89,0.12); }
+        .triage-gray { background: var(--card); }
         h4.question { display: flex; gap: 10px; align-items: flex-start; font-size: 1em; margin: 1.2em 0 0.3em; }
         .qicon { width: 20px; height: 20px; flex: none; margin-top: 2px; }
         h4.question + p { margin-top: 0.2em; }

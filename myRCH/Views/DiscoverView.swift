@@ -345,7 +345,8 @@ struct ContentRow: View {
 
     init(sheet: FactSheet) {
         title = sheet.title
-        subtitle = "\(sheet.library.title) fact sheet"
+        // What it's about, cut to two lines; the library until it's saved.
+        subtitle = RCHContentStore.shared.summary(for: sheet) ?? "\(sheet.library.title) fact sheet"
         imageURL = nil
         // Suggests the topic, e.g. a thermometer for fever.
         systemImage = sheet.systemImage
@@ -695,7 +696,16 @@ struct FactSheetRow: View {
 
     var body: some View {
         Label {
-            Text(sheet.title)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sheet.title)
+                // What it's about, from the saved copy, cut off after two lines.
+                if let summary = RCHContentStore.shared.summary(for: sheet) {
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
         } icon: {
             Image(systemName: sheet.systemImage)
                 .foregroundStyle(sheet.library.color)
@@ -749,6 +759,18 @@ struct FactSheetArticleView: View {
     @State private var plainText: String?
     @State private var glance: Glance?
 
+    /// The first of the site's categories that lists this sheet, for the
+    /// pill under the title.
+    private var category: FactSheetFormatter.Category? {
+        let store = RCHContentStore.shared
+        guard let match = (store.categories[sheet.library] ?? []).first(where: { category in
+            category.sheets.contains { $0.key == sheet.key }
+        }) else { return nil }
+        let style = match.style(in: sheet.library)
+        return .init(name: match.name, symbol: style.symbol,
+                     color: UIColor(style.color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))
+    }
+
     var body: some View {
         // The library's colour, as the light-mode shade the page's icons and
         // tints are drawn in.
@@ -762,7 +784,7 @@ struct FactSheetArticleView: View {
             plainText = formatted.plainText
             return FactSheetFormatter.page(title: sheet.title, library: sheet.library, accent: accent,
                                            accentHex: accent.hexString, formatted: formatted,
-                                           offersGlance: offersGlance)
+                                           category: category, offersGlance: offersGlance)
         }
         // By item, so the sheet gets the text it opened with. With a Bool,
         // its content was built from an earlier redraw, before the text
