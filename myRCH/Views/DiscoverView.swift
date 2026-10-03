@@ -775,7 +775,9 @@ struct NewsArticleView: View {
             let formatted = NewsFormatter.format(post.contentHTML, heroURL: post.imageURL, accent: accent)
             plainText = formatted.plainText
             return NewsFormatter.page(post: post,
-                                      category: .init(name: category.title, symbol: category.systemImage, color: accent),
+                                      // Both shades, so the chip's icon has a dark-mode one.
+                                      category: .init(name: category.title, symbol: category.systemImage,
+                                                      color: UIColor(category.color)),
                                       accent: accent, accentHex: accent.hexString, formatted: formatted)
         }
         .sheet(item: $glance) { glance in
@@ -800,15 +802,15 @@ struct FactSheetArticleView: View {
     @State private var glance: Glance?
 
     /// The first of the site's categories that lists this sheet, for the
-    /// pill under the title.
+    /// chip under the title. Its colour keeps both shades, so the icon has
+    /// a dark-mode one.
     private var category: FactSheetFormatter.Category? {
         let store = RCHContentStore.shared
         guard let match = (store.categories[sheet.library] ?? []).first(where: { category in
             category.sheets.contains { $0.key == sheet.key }
         }) else { return nil }
         let style = match.style(in: sheet.library)
-        return .init(name: match.name, symbol: style.symbol,
-                     color: UIColor(style.color).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light)))
+        return .init(name: match.name, symbol: style.symbol, color: UIColor(style.color))
     }
 
     var body: some View {
