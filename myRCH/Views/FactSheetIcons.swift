@@ -68,6 +68,54 @@ extension FactSheet {
         Self.iconCache[url] = symbol
         return symbol
     }
+
+    /// A colour per topic icon, so a list isn't all one colour: from the
+    /// categories' palette (`FactSheetCategory.style`), e.g. cyan lungs, mint
+    /// skin, purple vaccines. A plain page keeps the library's colour.
+    var color: Color {
+        Self.topicColors[systemImage] ?? library.color
+    }
+
+    private static let topicColors: [String: Color] = [
+        "hand.raised.fill": .orange,
+        "figure.child": .indigo,
+        "drop.fill": .blue,
+        "brain.head.profile.fill": .pink,
+        "thermometer.medium": .red,
+        "lungs.fill": .cyan,
+        "mouth.fill": .orange,
+        "eye.fill": .blue,
+        "ear.fill": .brown,
+        "nose.fill": .mint,
+        "ladybug.fill": .red,
+        "flame.fill": .orange,
+        "allergens": .orange,
+        "syringe.fill": .purple,
+        "pills.fill": .teal,
+        "hand.raised.fingers.spread.fill": .mint,
+        "microbe.fill": .green,
+        "toilet.fill": .brown,
+        "drop.halffull": .red,
+        "heart.fill": .red,
+        "figure.walk": .brown,
+        "figure.roll": .indigo,
+        "brain.filled.head.profile": .purple,
+        "face.smiling.inverse": .yellow,
+        "moon.zzz.fill": .indigo,
+        "stroller.fill": .pink,
+        "fork.knife": .green,
+        "smoke.fill": .gray,
+        "iphone": .blue,
+        "figure.run": .green,
+        "shield.lefthalf.filled": .orange,
+        "cross.case.fill": .red,
+        "scissors": .indigo,
+        "testtube.2": .blue,
+        "text.bubble.fill": .teal,
+        "heart.text.square.fill": .pink,
+        "building.2.fill": .blue,
+        "video.fill": .gray,
+    ]
 }
 
 extension FactSheetCategory {

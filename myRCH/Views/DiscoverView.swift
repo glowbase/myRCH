@@ -91,7 +91,7 @@ struct DiscoverView: View {
             } else {
                 ForEach(Array(store.latestNews.prefix(2).enumerated()), id: \.element.id) { index, post in
                     if index > 0 { Divider() }
-                    ArticleLink { NewsArticleView(post: post) } label: {
+                    NavigationLink { NewsArticleView(post: post) } label: {
                         SpotlightCard(post: post)
                     }
                     .buttonStyle(.plain)
@@ -113,7 +113,7 @@ struct DiscoverView: View {
             }
             ForEach(Array(store.latestNews.dropFirst(2).prefix(3).enumerated()), id: \.element.id) { index, post in
                 if index > 0 { Divider().padding(.leading, 80) }
-                ArticleLink { NewsArticleView(post: post) } label: {
+                NavigationLink { NewsArticleView(post: post) } label: {
                     ContentRow(post: post)
                 }
                 .buttonStyle(.plain)
@@ -126,15 +126,16 @@ struct DiscoverView: View {
             DiscoverSectionHeader(title: library.title, systemImage: library.systemImage, color: library.color) {
                 FactSheetListView(library: library)
             }
+            if let blurb = library.blurb {
+                Text(blurb)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+                    .padding(.bottom, 8)
+            }
             // Kids: the site's top five most-visited; Teen: featured sheets.
             let featured = store.discoverSheets(library)
-            if let caption = store.topVisitedCaption(library) {
-                Label(caption, systemImage: "chart.line.uptrend.xyaxis")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.bottom, 4)
-            }
             if featured.isEmpty {
                 if store.factSheetErrors[library] != nil {
                     Label("Couldn't load \(library.title). Pull down to try again.", systemImage: "wifi.exclamationmark")
@@ -148,7 +149,7 @@ struct DiscoverView: View {
             }
             ForEach(Array(featured.enumerated()), id: \.element.id) { index, sheet in
                 if index > 0 { Divider().padding(.leading, 80) }
-                ArticleLink { FactSheetArticleView(sheet: sheet) } label: {
+                NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
                     ContentRow(sheet: sheet)
                 }
                 .buttonStyle(.plain)
@@ -333,7 +334,7 @@ struct ContentRow: View {
         imageURL = nil
         // Suggests the topic, e.g. a thermometer for fever.
         systemImage = sheet.systemImage
-        color = sheet.library.color
+        color = sheet.color
     }
 
     /// Stand-in text for the loading skeleton; redact it where it's used.
@@ -359,7 +360,7 @@ struct ContentRow: View {
                     ArticleImage(url: imageURL, placeholder: systemImage)
                 } else {
                     Image(systemName: systemImage)
-                        .font(.title2)
+                        .font(.system(size: 32))
                         .foregroundStyle(color)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(color.opacity(0.14))
@@ -431,7 +432,7 @@ private struct DiscoverSearchResults: View {
             if !news.isEmpty {
                 DiscoverSectionHeader(title: "News")
                 ForEach(news) { post in
-                    ArticleLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
+                    NavigationLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
                         .buttonStyle(.plain)
                     Divider().padding(.leading, 80)
                 }
@@ -440,7 +441,7 @@ private struct DiscoverSearchResults: View {
                 DiscoverSectionHeader(title: "Fact Sheets")
                     .padding(.top, news.isEmpty ? 0 : 20)
                 ForEach(sheets.prefix(60)) { sheet in
-                    ArticleLink { FactSheetArticleView(sheet: sheet) } label: { ContentRow(sheet: sheet) }
+                    NavigationLink { FactSheetArticleView(sheet: sheet) } label: { ContentRow(sheet: sheet) }
                         .buttonStyle(.plain)
                     Divider().padding(.leading, 80)
                 }
@@ -467,7 +468,7 @@ struct NewsListView: View {
     var body: some View {
         List {
             ForEach(posts) { post in
-                ArticleLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
+                NavigationLink { NewsArticleView(post: post) } label: { ContentRow(post: post) }
                     .onAppear { if post.id == posts.last?.id { Task { await loadMore() } } }
             }
             // A screenful of skeleton rows at first; one row when loading more.
@@ -626,7 +627,7 @@ struct FactSheetListView: View {
             ForEach(byLetter, id: \.letter) { group in
                 Section(group.letter) {
                     ForEach(group.sheets) { sheet in
-                        ArticleLink { FactSheetArticleView(sheet: sheet) } label: {
+                        NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
                             FactSheetRow(sheet: sheet)
                         }
                     }
@@ -690,8 +691,24 @@ struct FactSheetRow: View {
                 }
             }
         } icon: {
+            // A larger icon on a tinted square, like Discover's rows.
             Image(systemName: sheet.systemImage)
-                .foregroundStyle(sheet.library.color)
+                .font(.title2)
+                .foregroundStyle(sheet.color)
+                .frame(width: 44, height: 44)
+                .background(sheet.color.opacity(0.14), in: .rect(cornerRadius: 10))
+        }
+        .labelStyle(FactSheetRowLabelStyle())
+    }
+}
+
+/// Icon centred beside the title and summary, with room between them (the
+/// default style sizes the icon for a line of text, too small for the tile).
+private struct FactSheetRowLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 14) {
+            configuration.icon
+            configuration.title
         }
     }
 }
@@ -704,7 +721,7 @@ struct FactSheetCategoryView: View {
     var body: some View {
         List {
             ForEach(category.sheets.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }) { sheet in
-                ArticleLink { FactSheetArticleView(sheet: sheet) } label: {
+                NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
                     FactSheetRow(sheet: sheet)
                 }
             }
@@ -714,43 +731,6 @@ struct FactSheetCategoryView: View {
 }
 
 // MARK: - Reading
-
-/// Opens an article like the Health app does: as a sheet over the page, with
-/// its own bar (Share, At a Glance) and a close button, rather than pushed
-/// onto the stack.
-struct ArticleLink<Article: View, Label: View>: View {
-    @ViewBuilder let article: () -> Article
-    @ViewBuilder let label: () -> Label
-    @State private var isPresented = false
-
-    var body: some View {
-        Button { isPresented = true } label: {
-            // Not tinted like a button inside a List; the row's own grey
-            // and coloured parts keep their colours.
-            label().foregroundStyle(.primary)
-        }
-        .sheet(isPresented: $isPresented) {
-            ArticleSheet(content: article)
-        }
-    }
-}
-
-/// The sheet's own navigation bar, so the article's toolbar has somewhere to go.
-private struct ArticleSheet<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            content()
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close", systemImage: "xmark") { dismiss() }
-                    }
-                }
-        }
-    }
-}
 
 /// A news post in the app's own layout (see `NewsFormatter`), with an "At a
 /// glance" summary written on device.
