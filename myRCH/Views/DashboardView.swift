@@ -129,7 +129,35 @@ struct DashboardView: View {
     /// Pinned sections, in order (see `HomeLayout`).
     @AppStorage(HomeLayout.storageKey) private var homeSections = ""
 
+    /// Home's search: everything from test results to fact sheets.
+    @State private var searchText = ""
+    /// The child's records to search, loaded when a search starts (cached
+    /// by the service).
+    @State private var searchIndex: SearchIndex?
+
     var body: some View {
+        chrome(
+            Group {
+                if searchText.isEmpty {
+                    dashboard
+                } else {
+                    SearchResultsList(query: searchText,
+                                      features: Feature.browsable.filter { $0.title.localizedCaseInsensitiveContains(searchText) },
+                                      index: searchIndex)
+                }
+            }
+            // Always showing at the top of Home.
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: "Search records and health info")
+            .task(id: searchText.isEmpty) {
+                guard !searchText.isEmpty, searchIndex == nil else { return }
+                searchIndex = await SearchIndex.load(service: session.service, patientID: session.patientID)
+            }
+            .onChange(of: session.patientID) { searchIndex = nil }
+        )
+    }
+
+    private var dashboard: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 // No spacing, so an absent digest leaves no gap; the card
@@ -153,6 +181,17 @@ struct DashboardView: View {
         // cards in light mode, black under dark-grey cards in dark mode.
         // (`.background.secondary` matched the cards' grey in dark mode.)
         .background(Color(.systemGroupedBackground))
+        // The pull-to-refresh spinner is the progress indicator, so keep the
+        // current cards on screen instead of swapping in skeletons.
+        .refreshable {
+            await session.refreshData()
+            await load(showsPlaceholders: false)
+        }
+    }
+
+    /// Toolbar, links and loading, kept while searching too.
+    private func chrome(_ content: some View) -> some View {
+        content
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -184,12 +223,6 @@ struct DashboardView: View {
             }
         }
         .task(id: session.patientID) { await load() }
-        // The pull-to-refresh spinner is the progress indicator, so keep the
-        // current cards on screen instead of swapping in skeletons.
-        .refreshable {
-            await session.refreshData()
-            await load(showsPlaceholders: false)
-        }
         // Back from the background: reload quietly. The cache answers if the
         // data is under five minutes old; otherwise this fetches fresh data.
         .onChange(of: scenePhase) { _, phase in

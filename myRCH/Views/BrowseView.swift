@@ -26,7 +26,7 @@ struct BrowseView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Browse")
-        .searchable(text: $searchText, prompt: "Search sections and records")
+        .searchable(text: $searchText, prompt: "Search records and health info")
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
         .task(id: searchText.isEmpty) {
             guard !searchText.isEmpty, index == nil else { return }
@@ -107,11 +107,14 @@ struct SearchIndex {
 }
 
 /// Matches grouped by kind, each opening the record itself.
-private struct SearchResultsList: View {
+/// Shared by Browse and Home's search: the child's records, then the
+/// hospital's health info (fact sheets and news, from Discover's saved copy).
+struct SearchResultsList: View {
     let query: String
     let features: [Feature]
     let index: SearchIndex?
     @Environment(Session.self) private var session
+    @State private var content = RCHContentStore.shared
 
     private func has(_ fields: String?...) -> Bool {
         fields.contains { $0?.localizedCaseInsensitiveContains(query) ?? false }
@@ -123,8 +126,18 @@ private struct SearchResultsList: View {
         let medications = index?.medications.filter { has($0.name, $0.commonName) } ?? []
         let visits = index?.appointments.filter { has($0.title, $0.department, $0.provider) } ?? []
         let immunisations = index?.immunisations.filter { has($0.name) } ?? []
+        // By name or another name it's listed under ("Acne" for "Pimples and
+        // skin health"); titles that start with the search first.
+        let factSheets = FactSheet.Library.allCases.flatMap { content.factSheets[$0] ?? [] }
+            .filter { sheet in has(sheet.title) || sheet.aliases.contains { has($0) } }
+            .sorted { first, second in
+                let a = first.title.lowercased().hasPrefix(query.lowercased())
+                let b = second.title.lowercased().hasPrefix(query.lowercased())
+                return a != b ? a : first.title.localizedStandardCompare(second.title) == .orderedAscending
+            }
+        let news = content.latestNews.filter { has($0.title, $0.summary) }
         let nothing = features.isEmpty && results.isEmpty && letters.isEmpty && medications.isEmpty
-            && visits.isEmpty && immunisations.isEmpty
+            && visits.isEmpty && immunisations.isEmpty && factSheets.isEmpty && news.isEmpty
 
         List {
             if !features.isEmpty {
@@ -198,6 +211,25 @@ private struct SearchResultsList: View {
                     HStack(spacing: 10) {
                         ProgressView()
                         Text("Searching records…").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if !factSheets.isEmpty {
+                Section("Health Info") {
+                    ForEach(factSheets.prefix(8)) { sheet in
+                        NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                            FactSheetRow(sheet: sheet)
+                        }
+                    }
+                }
+            }
+            if !news.isEmpty {
+                Section("RCH News") {
+                    ForEach(news.prefix(5)) { post in
+                        NavigationLink { NewsArticleView(post: post) } label: {
+                            row(post.title, detail: post.date.mediumDate,
+                                art: (NewsCategory.news.systemImage, NewsCategory.news.color))
+                        }
                     }
                 }
             }
