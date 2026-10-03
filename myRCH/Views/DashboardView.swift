@@ -683,7 +683,8 @@ private struct MRNSheet: View {
 }
 
 /// The next visit, Health-style: "Visit" in the Visits colour with the day
-/// at the top, then what it is, where, and when.
+/// at the top, then what it is, where, and when. A desk to check in at
+/// (e.g. "A1") gets its own box on the left, like a gate on a boarding pass.
 struct UpcomingAppointmentCard: View {
     let appointment: Appointment
 
@@ -699,18 +700,46 @@ struct UpcomingAppointmentCard: View {
         SummaryCard(category: appointment.isTelehealth ? "Telehealth" : "Visit",
                     systemImage: appointment.isTelehealth ? "video.fill" : art.symbol,
                     color: art.color, detail: dayText) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(appointment.date.formatted(date: .omitted, time: .shortened))
-                    .font(.system(.title, design: .rounded).bold())
-                    .foregroundStyle(.primary)
-                Text(appointment.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(appointment.department)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .center, spacing: 14) {
+                if let desk = appointment.deskCode {
+                    deskBox(desk, color: art.color)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(appointment.date.formatted(date: .omitted, time: .shortened))
+                        .font(.system(.title, design: .rounded).bold())
+                        .foregroundStyle(.primary)
+                    // The clinic says more than the visit type (often just "Review").
+                    Text(appointment.department.isEmpty ? appointment.title : appointment.department)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    // The desk box already says where; otherwise show the check-in text.
+                    if appointment.deskCode == nil, !appointment.isTelehealth,
+                       let location = appointment.checkInLocation {
+                        Label(location, systemImage: "mappin.and.ellipse")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .padding(.top, 2)
+                    }
+                }
             }
         }
+    }
+
+    private func deskBox(_ desk: String, color: Color) -> some View {
+        VStack(spacing: 0) {
+            Text("Desk")
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+            Text(desk)
+                .font(.system(.title2, design: .rounded).bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .foregroundStyle(color)
+        .frame(width: 60, height: 60)
+        .background(color.opacity(0.14), in: .rect(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
     }
 }
 
