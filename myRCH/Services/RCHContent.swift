@@ -440,6 +440,8 @@ final class RCHContentStore {
     @ObservationIgnored private var listsLoaded: Set<FactSheet.Library> = []
     @ObservationIgnored private var lastRefresh: Date?
     @ObservationIgnored private var isDownloading = false
+    /// Short descriptions for lists, worked out from saved sheets as needed.
+    @ObservationIgnored private var summaries: [URL: String] = [:]
 
     /// Opened sheets older than this refresh in the background.
     private static let openedSheetMaxAge: TimeInterval = 24 * 60 * 60
@@ -625,6 +627,17 @@ final class RCHContentStore {
     private func store(_ html: String, for sheet: FactSheet) {
         try? Data(html.utf8).write(to: fileURL(sheet), options: .atomic)
         sheetSavedAt[sheet.url.absoluteString] = .now
+        summaries[sheet.url] = nil
+    }
+
+    /// A sentence or two about the sheet for lists, from its saved copy (e.g.
+    /// "Croup is an infection caused by a virus…"). Nil until it's saved;
+    /// the full libraries download in the background.
+    func summary(for sheet: FactSheet) -> String? {
+        if let summary = summaries[sheet.url] { return summary }
+        guard let html = savedHTML(sheet), let summary = FactSheetFormatter.summary(fromBody: html) else { return nil }
+        summaries[sheet.url] = summary
+        return summary
     }
 
     private func savedHTML(_ sheet: FactSheet) -> String? {
