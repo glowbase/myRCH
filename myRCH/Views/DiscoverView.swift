@@ -18,6 +18,7 @@ struct DiscoverView: View {
                     spotlight
                     newsSection
                     ForEach(FactSheet.Library.allCases) { factSheetSection($0) }
+                    podcastSection
                     Text("From The Royal Children's Hospital website. For advice about your child, talk to their care team.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -35,9 +36,10 @@ struct DiscoverView: View {
         // Grouped background, like the app's other screens.
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Discover")
-        .searchable(text: $searchText, prompt: "Search news and fact sheets")
+        .searchable(text: $searchText, prompt: "Search news, fact sheets and podcasts")
         .refreshable { await store.refresh(minimumInterval: 0) }
         .task { await store.loadNews() }
+        .task { await store.loadPodcast() }
         .task {
             for library in FactSheet.Library.allCases { _ = try? await store.loadFactSheets(library) }
         }
@@ -63,6 +65,9 @@ struct DiscoverView: View {
                             CategoryChip(title: library.title, systemImage: library.systemImage,
                                          color: library.color)
                         }
+                    }
+                    NavigationLink { PodcastListView() } label: {
+                        CategoryChip(title: "Podcast", systemImage: Podcast.systemImage, color: Podcast.color)
                     }
                 }
                 .buttonStyle(.plain)
@@ -151,6 +156,39 @@ struct DiscoverView: View {
                 if index > 0 { Divider().padding(.leading, 80) }
                 NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
                     ContentRow(sheet: sheet)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// The latest three episodes of the Kids Health Info podcast.
+    private var podcastSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DiscoverSectionHeader(title: Podcast.title, systemImage: Podcast.systemImage, color: Podcast.color) {
+                PodcastListView()
+            }
+            Text(Podcast.blurb)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+                .padding(.bottom, 8)
+            if store.podcastEpisodes.isEmpty {
+                if store.podcastError != nil {
+                    Label("Couldn't load the podcast. Pull down to try again.", systemImage: "wifi.exclamationmark")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 12)
+                } else {
+                    skeletonRows(3)
+                }
+            }
+            ForEach(Array(store.podcastEpisodes.prefix(3).enumerated()), id: \.element.id) { index, episode in
+                if index > 0 { Divider().padding(.leading, 80) }
+                NavigationLink { PodcastEpisodeView(episode: episode) } label: {
+                    ContentRow(episode: episode)
                 }
                 .buttonStyle(.plain)
             }
@@ -337,6 +375,14 @@ struct ContentRow: View {
         color = sheet.color
     }
 
+    init(episode: PodcastEpisode) {
+        title = episode.title
+        subtitle = episode.summary
+        imageURL = episode.imageURL(size: 200)
+        systemImage = Podcast.systemImage
+        color = Podcast.color
+    }
+
     /// Stand-in text for the loading skeleton; redact it where it's used.
     private init() {
         title = "Placeholder title for an article"
@@ -427,6 +473,12 @@ private struct DiscoverSearchResults: View {
         store.latestNews.filter { $0.title.localizedStandardContains(query) || $0.summary.localizedStandardContains(query) }
     }
 
+    /// By title only: the notes mention many topics in passing. (The
+    /// podcast's own list searches the notes too.)
+    private var episodes: [PodcastEpisode] {
+        store.podcastEpisodes.filter { $0.title.localizedStandardContains(query) }
+    }
+
     var body: some View {
         LazyVStack(alignment: .leading, spacing: 0) {
             if !news.isEmpty {
@@ -446,7 +498,16 @@ private struct DiscoverSearchResults: View {
                     Divider().padding(.leading, 80)
                 }
             }
-            if news.isEmpty && sheets.isEmpty {
+            if !episodes.isEmpty {
+                DiscoverSectionHeader(title: "Podcast")
+                    .padding(.top, news.isEmpty && sheets.isEmpty ? 0 : 20)
+                ForEach(episodes) { episode in
+                    NavigationLink { PodcastEpisodeView(episode: episode) } label: { ContentRow(episode: episode) }
+                        .buttonStyle(.plain)
+                    Divider().padding(.leading, 80)
+                }
+            }
+            if news.isEmpty && sheets.isEmpty && episodes.isEmpty {
                 ContentUnavailableView.search(text: query)
             }
         }

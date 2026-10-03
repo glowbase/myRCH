@@ -1,0 +1,312 @@
+import AVFoundation
+import SwiftUI
+
+// MARK: - Model helpers
+
+extension Podcast {
+    /// Purple, like Apple Podcasts.
+    static let color = Theme.proxy
+}
+
+extension PodcastEpisode {
+    /// The artwork at a given size: the feed's is up to 3000 px, far more
+    /// than a list row needs (the host resizes on request).
+    func imageURL(size: Int) -> URL? {
+        guard let imageURL, var components = URLComponents(url: imageURL, resolvingAgainstBaseURL: false) else { return nil }
+        var items = (components.queryItems ?? []).filter { !["max-w", "max-h", "w", "h"].contains($0.name) }
+        items += [URLQueryItem(name: "w", value: String(size)), URLQueryItem(name: "h", value: String(size))]
+        components.queryItems = items
+        return components.url ?? imageURL
+    }
+
+    /// e.g. "21 min", or "1 hr, 5 min".
+    var durationText: String? {
+        guard let duration, duration > 0 else { return nil }
+        return Duration.seconds(duration).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
+    }
+
+    /// e.g. "23 Sep 2026 · 21 min".
+    var detailText: String {
+        [date.formatted(date: .abbreviated, time: .omitted), durationText].compactMap(\.self).joined(separator: " · ")
+    }
+
+    /// The show notes as paragraphs, list items marked with a bullet.
+    var notesParagraphs: [String] {
+        let marker = "\u{1}"
+        let html = notesHTML
+            // A list item's own paragraph would split its bullet from its text.
+            .replacingOccurrences(of: "<li[^>]*>\\s*<p[^>]*>", with: "<li>", options: .regularExpression)
+            .replacingOccurrences(of: "<li[^>]*>", with: marker + "• ", options: .regularExpression)
+            .replacingOccurrences(of: "</p>|</li>|<br\\s*/?>|</h\\d>", with: marker, options: .regularExpression)
+        return html.components(separatedBy: marker).map(HTMLText.plain).filter { !$0.isEmpty && $0 != "•" }
+    }
+
+    /// Fact sheets the notes link to, as the app has them, so they open here.
+    var linkedSheets: [FactSheet] {
+        let store = RCHContentStore.shared
+        let all = FactSheet.Library.allCases.flatMap { store.factSheets[$0] ?? [] }
+        let byKey = Dictionary(all.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        var seen: Set<String> = []
+        return HTMLText.matches(#"href="([^"]*/(?:kidsinfo/fact_sheets|teeninfo/fact-sheets)/[^"]+)""#, in: notesHTML)
+            .compactMap { URL(string: $0[0]).flatMap { byKey[$0.lastPathComponent.lowercased()] } }
+            .filter { seen.insert($0.key).inserted }
+    }
+}
+
+// MARK: - Player
+
+/// Plays one episode at a time, carrying on while the rest of the app is
+/// browsed.
+@Observable
+final class PodcastPlayer {
+    static let shared = PodcastPlayer()
+
+    private(set) var episode: PodcastEpisode?
+    private(set) var isPlaying = false
+    private(set) var elapsed: TimeInterval = 0
+    private(set) var duration: TimeInterval = 0
+    /// True while the scrubber is held, so playback doesn't move it.
+    var isScrubbing = false
+
+    @ObservationIgnored private let player = AVPlayer()
+    @ObservationIgnored private var timeObserver: Any?
+    @ObservationIgnored private var endObserver: NSObjectProtocol?
+
+    private init() {
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.5, preferredTimescale: 600),
+                                                      queue: .main) { [weak self] time in
+            MainActor.assumeIsolated { self?.update(time) }
+        }
+    }
+
+    func isCurrent(_ episode: PodcastEpisode) -> Bool { self.episode?.id == episode.id }
+
+    /// Plays or pauses the episode, starting it if another one's loaded.
+    func toggle(_ episode: PodcastEpisode) {
+        guard isCurrent(episode) else { return play(episode) }
+        if isPlaying { player.pause() } else { player.play() }
+        isPlaying.toggle()
+    }
+
+    func skip(by seconds: TimeInterval) {
+        seek(to: min(max(elapsed + seconds, 0), duration > 0 ? duration : .infinity))
+    }
+
+    func seek(to seconds: TimeInterval) {
+        elapsed = seconds
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+    }
+
+    private func play(_ episode: PodcastEpisode) {
+        // Spoken audio, so it plays with the silent switch on.
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        let item = AVPlayerItem(url: episode.audioURL)
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = NotificationCenter.default.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification,
+                                                             object: item, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.isPlaying = false
+                self?.seek(to: 0)
+            }
+        }
+        self.episode = episode
+        elapsed = 0
+        // The feed's length until the file's own is known.
+        duration = episode.duration ?? 0
+        player.replaceCurrentItem(with: item)
+        player.play()
+        isPlaying = true
+    }
+
+    private func update(_ time: CMTime) {
+        if let length = player.currentItem?.duration.seconds, length.isFinite, length > 0 { duration = length }
+        guard !isScrubbing, time.seconds.isFinite else { return }
+        elapsed = time.seconds
+    }
+}
+
+// MARK: - List
+
+/// Every episode, newest first, searchable by title or notes.
+struct PodcastListView: View {
+    @State private var store = RCHContentStore.shared
+    @State private var searchText = ""
+
+    private var episodes: [PodcastEpisode] {
+        guard !searchText.isEmpty else { return store.podcastEpisodes }
+        return store.podcastEpisodes.filter {
+            $0.title.localizedStandardContains(searchText) || $0.summary.localizedStandardContains(searchText)
+        }
+    }
+
+    var body: some View {
+        List {
+            ForEach(episodes) { episode in
+                NavigationLink { PodcastEpisodeView(episode: episode) } label: { ContentRow(episode: episode) }
+            }
+            if store.podcastEpisodes.isEmpty, store.podcastError == nil {
+                ForEach(0..<6, id: \.self) { _ in ContentRow.placeholder }
+            }
+        }
+        .listStyle(.plain)
+        .overlay {
+            if store.podcastEpisodes.isEmpty, let error = store.podcastError {
+                ContentUnavailableView("Couldn't load the podcast", systemImage: "wifi.exclamationmark",
+                                       description: Text(error))
+            } else if episodes.isEmpty, !searchText.isEmpty {
+                ContentUnavailableView.search(text: searchText)
+            }
+        }
+        .navigationTitle("Podcast")
+        .searchable(text: $searchText, prompt: "Search episodes")
+        .refreshable { await store.loadPodcast(force: true) }
+        .task { await store.loadPodcast() }
+        .toolbar { PodcastAppsMenu() }
+    }
+}
+
+/// Opens the show in Apple Podcasts or Spotify, to subscribe there.
+private struct PodcastAppsMenu: ToolbarContent {
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .topBarTrailing) {
+            Menu("Listen Elsewhere", systemImage: "ellipsis") {
+                Link(destination: Podcast.applePodcastsURL) {
+                    Label("Open in Apple Podcasts", systemImage: "apple.podcasts.pages")
+                }
+                Link(destination: Podcast.spotifyURL) {
+                    Label("Open in Spotify", systemImage: "music.note")
+                }
+                Link(destination: Podcast.pageURL) {
+                    Label("Open on RCH Website", systemImage: "safari")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Episode
+
+/// An episode's artwork, player and show notes.
+struct PodcastEpisodeView: View {
+    let episode: PodcastEpisode
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(spacing: 16) {
+                    AsyncImage(url: episode.imageURL(size: 600)) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else {
+                            Image(systemName: Podcast.systemImage)
+                                .font(.system(size: 60))
+                                .foregroundStyle(Podcast.color)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(Podcast.color.opacity(0.14))
+                        }
+                    }
+                    .frame(width: 220, height: 220)
+                    .clipShape(.rect(cornerRadius: Theme.cardRadius))
+                    .accessibilityHidden(true)
+                    VStack(spacing: 6) {
+                        Text(episode.title)
+                            .font(.title2.bold())
+                        Text(episode.detailText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.center)
+                    PodcastControls(episode: episode)
+                }
+                .frame(maxWidth: .infinity)
+
+                let sheets = episode.linkedSheets
+                if !sheets.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Fact Sheets in This Episode")
+                            .font(.title3.bold())
+                        ForEach(sheets) { sheet in
+                            NavigationLink { FactSheetArticleView(sheet: sheet) } label: { ContentRow(sheet: sheet) }
+                                .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Episode Notes")
+                        .font(.title3.bold())
+                    ForEach(Array(episode.notesParagraphs.enumerated()), id: \.offset) { _, paragraph in
+                        Text(paragraph)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Podcast")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(item: Podcast.pageURL, subject: Text(episode.title))
+            }
+        }
+    }
+}
+
+/// Play/pause, skip back 15 and forward 30, and a scrubber once playing.
+private struct PodcastControls: View {
+    let episode: PodcastEpisode
+
+    @State private var player = PodcastPlayer.shared
+
+    var body: some View {
+        let isCurrent = player.isCurrent(episode)
+        let isPlaying = isCurrent && player.isPlaying
+        VStack(spacing: 14) {
+            if isCurrent {
+                VStack(spacing: 4) {
+                    Slider(value: Binding(get: { player.elapsed }, set: { player.seek(to: $0) }),
+                           in: 0...max(player.duration, 1)) { editing in
+                        player.isScrubbing = editing
+                    }
+                    .tint(Podcast.color)
+                    .accessibilityLabel("Position")
+                    .accessibilityValue(Duration.seconds(player.elapsed).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide)))
+                    HStack {
+                        Text(Self.time(player.elapsed))
+                        Spacer()
+                        Text("-" + Self.time(max(player.duration - player.elapsed, 0)))
+                    }
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                }
+            }
+            HStack(spacing: 40) {
+                Button("Back 15 Seconds", systemImage: "gobackward.15") { player.skip(by: -15) }
+                    .font(.title)
+                    .disabled(!isCurrent)
+                Button(isPlaying ? "Pause" : "Play", systemImage: isPlaying ? "pause.circle.fill" : "play.circle.fill") {
+                    player.toggle(episode)
+                }
+                .font(.system(size: 64))
+                Button("Forward 30 Seconds", systemImage: "goforward.30") { player.skip(by: 30) }
+                    .font(.title)
+                    .disabled(!isCurrent)
+            }
+            .labelStyle(.iconOnly)
+            .foregroundStyle(Podcast.color)
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 8)
+    }
+
+    /// e.g. "4:05", or "1:02:10".
+    private static func time(_ seconds: TimeInterval) -> String {
+        let pattern: Duration.TimeFormatStyle.Pattern = seconds >= 3600 ? .hourMinuteSecond : .minuteSecond
+        return Duration.seconds(seconds.rounded(.down)).formatted(.time(pattern: pattern))
+    }
+}
