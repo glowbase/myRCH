@@ -219,12 +219,9 @@ struct AppointmentDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Appointment")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Change this appointment?", isPresented: $showsChangeOptions, titleVisibility: .visible) {
+        .confirmationDialog("Rebook this appointment?", isPresented: $showsChangeOptions, titleVisibility: .visible) {
             Button("Request a new time") {
                 confirmation = "The clinic will contact you to arrange a new time."
-            }
-            Button("Cancel appointment", role: .destructive) {
-                showsCancelConfirmation = true
             }
         }
         .alert("Cancel this appointment?", isPresented: $showsCancelConfirmation) {
@@ -260,10 +257,15 @@ struct AppointmentDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            statusChip
             Text(appointment.title)
                 .font(.system(.largeTitle, design: .rounded).bold())
                 .foregroundStyle(Theme.ink)
+            FlowLayout(spacing: 8) {
+                statusChip
+                if let desk = appointment.deskCode {
+                    CategoryChip(title: "Desk \(desk)", systemImage: "mappin.circle.fill", color: Theme.red)
+                }
+            }
             Text(appointment.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
                 .font(.headline)
                 .foregroundStyle(.secondary)
@@ -289,7 +291,7 @@ struct AppointmentDetailView: View {
             case .cancelled: return ("Cancelled", "xmark.circle.fill", Theme.red)
             }
         }()
-        return Pill(text: text, systemImage: icon, tint: tint)
+        return CategoryChip(title: text, systemImage: icon, color: tint)
     }
 
     // MARK: Time + actions
@@ -305,19 +307,15 @@ struct AppointmentDetailView: View {
                 timeline
 
                 if isUpcoming {
-                    HStack(spacing: 10) {
-                        actionButton("Add to Calendar", systemImage: "calendar.badge.plus") {
+                    HStack(alignment: .top, spacing: 10) {
+                        actionButton("Add to Calendar", systemImage: "calendar.badge.plus", tint: Theme.blue) {
                             showsAddToCalendar = true
                         }
-                        actionButton("Reschedule or Cancel", systemImage: "calendar.badge.clock") {
+                        actionButton("Rebook", systemImage: "calendar.badge.clock", tint: Theme.orange) {
                             showsChangeOptions = true
                         }
-                        if let url = directionsURL {
-                            actionButton("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill") {
-                                openURL(url)
-                            }
-                        } else if let url = phoneURL {
-                            actionButton("Call Clinic", systemImage: "phone.fill") { openURL(url) }
+                        actionButton("Cancel", systemImage: "xmark", tint: Theme.red) {
+                            showsCancelConfirmation = true
                         }
                     }
                 }
@@ -332,7 +330,7 @@ struct AppointmentDetailView: View {
         let shortDuration = Duration.seconds(appointment.durationMinutes * 60)
             .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
         return HStack(alignment: .center, spacing: 12) {
-            timePoint(isUpcoming ? "Starts" : "Started", time: start, systemImage: "clock", alignment: .leading)
+            timePoint(isUpcoming ? "Starts" : "Started", time: start, alignment: .leading)
             VStack(spacing: 6) {
                 Label(shortDuration, systemImage: "hourglass")
                     .font(.caption.weight(.semibold))
@@ -343,16 +341,15 @@ struct AppointmentDetailView: View {
                     .frame(height: 3)
             }
             .frame(maxWidth: .infinity)
-            timePoint(isUpcoming ? "Ends" : "Ended", time: end, systemImage: "flag.checkered", alignment: .trailing)
+            timePoint(isUpcoming ? "Ends" : "Ended", time: end, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(isUpcoming ? "Starts" : "Started") at \(start), \(durationText), \(isUpcoming ? "ends" : "ended") at \(end)")
     }
 
-    private func timePoint(_ label: String, time: String, systemImage: String,
-                           alignment: HorizontalAlignment) -> some View {
+    private func timePoint(_ label: String, time: String, alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 2) {
-            Label(label, systemImage: systemImage)
+            Text(label)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Theme.brand)
                 .textCase(.uppercase)
@@ -362,20 +359,24 @@ struct AppointmentDetailView: View {
         }
     }
 
-    private func actionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    /// A tinted circle with its title underneath, like the Phone app's call buttons.
+    private func actionButton(_ title: String, systemImage: String, tint: Color,
+                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.title3)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 56, height: 56)
+                    .background(tint.opacity(0.14), in: .circle)
                 Text(title)
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(Theme.brand)
-            .frame(maxWidth: .infinity, minHeight: 76)
-            .background(Theme.brand.opacity(0.1), in: .rect(cornerRadius: 16))
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
     }

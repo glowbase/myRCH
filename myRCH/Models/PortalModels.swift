@@ -92,6 +92,15 @@ struct Appointment: Identifiable, Hashable {
     var visitSummary: String? = nil
 
     var endDate: Date { date.addingTimeInterval(TimeInterval(durationMinutes * 60)) }
+
+    /// The desk from the check-in location, e.g. "A1" from "RCH Specialist
+    /// Clinics Desk A1- Red Desk (Ground Floor)". Nil when it doesn't name one.
+    var deskCode: String? {
+        guard !isTelehealth, let location = checkInLocation,
+              let range = location.range(of: #"\bDesk\s+[A-Z]\d+\b"#, options: [.regularExpression, .caseInsensitive])
+        else { return nil }
+        return location[range].split(separator: " ").last.map { $0.uppercased() }
+    }
 }
 
 /// A letter the hospital has shared (clinic letters, referrals, notes).
