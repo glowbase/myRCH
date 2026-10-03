@@ -203,7 +203,7 @@ struct DashboardView: View {
             // Age and UR number under the large title; the UR stays tappable.
             ToolbarItem(placement: .largeSubtitle) {
                 factsLine
-                    .padding(.top, 4)
+                    .padding(.top, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             ToolbarItem(placement: .topBarTrailing) {

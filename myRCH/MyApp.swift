@@ -17,6 +17,11 @@ import UIKit
         NotificationPresenter.shared.register(store: store)
         CareSync.shared.store = store
         WatchBridge.shared.activate()
+        // Navy page titles everywhere, large and inline (off-white in dark
+        // mode). Only the colour: the bars keep the system's look.
+        let ink = UIColor(Theme.ink)
+        UINavigationBar.appearance().largeTitleTextAttributes = [.foregroundColor: ink]
+        UINavigationBar.appearance().titleTextAttributes = [.foregroundColor: ink]
     }
 
     var body: some Scene {
