@@ -60,7 +60,7 @@ struct MockPortalService: PortalService {
     }
 
     /// Sample accounts have no photos.
-    func accountPhoto(_ account: LinkedAccount) async throws -> Data? { nil }
+    func accountPhotos() async -> [String: Data] { [:] }
 
     /// A made-up UR number so the dashboard chip shows in demo mode.
     func recordHeader(for patientID: String) async throws -> RecordHeader {

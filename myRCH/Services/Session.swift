@@ -20,8 +20,8 @@ final class Session {
             switch (oldValue, phase) {
             case (.signedIn, .signedIn):
                 break
-            case let (_, .signedIn(profile)):
-                Task { await loadAccountPhotos(for: profile) }
+            case (_, .signedIn):
+                Task { await loadAccountPhotos() }
             default:
                 accountPhotos = [:]
             }
@@ -183,11 +183,9 @@ final class Session {
     /// Account photos from the portal, by account ID. Held in memory only.
     private(set) var accountPhotos: [String: UIImage] = [:]
 
-    private func loadAccountPhotos(for profile: PatientProfile) async {
-        for account in profile.linkedAccounts where account.photoPath != nil {
-            if let data = try? await service.accountPhoto(account), let image = UIImage(data: data) {
-                accountPhotos[account.id] = image
-            }
+    private func loadAccountPhotos() async {
+        for (id, data) in await service.accountPhotos() {
+            if let image = UIImage(data: data) { accountPhotos[id] = image }
         }
     }
 

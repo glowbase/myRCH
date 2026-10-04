@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // MARK: - Live RCH portal backend (unsanctioned web API)
 //
@@ -366,12 +367,40 @@ actor MyChartWebService: PortalService {
     }
 
     /// Photos are `Image/Load` pages on the portal, behind the session.
-    func accountPhoto(_ account: LinkedAccount) async throws -> Data? {
-        guard let path = account.photoPath, path.hasPrefix("/"),
-              let url = URL(string: "https://\(config.host)\(path)") else { return nil }
-        let (data, response) = try await session.data(from: url)
-        let type = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
-        return type.hasPrefix("image/") ? data : nil
+    /// `PhotoUrl` names a file the server sets up for that ProxySwitch reply:
+    /// loaded later (after the context switches that follow sign-in) it
+    /// comes back empty. So, like the page, read ProxySwitch and load each
+    /// photo straight away, once any switch in flight is done.
+    func accountPhotos() async -> [String: Data] {
+        if let pending = contextSwitch { await pending.task.value }
+        var photos: [String: Data] = [:]
+        for subject in await proxySubjects() {
+            if let path = subject.photoPath, let data = await photo(at: path) {
+                photos[Self.accountID(subject)] = data
+            }
+        }
+        return photos
+    }
+
+    /// Loaded the way the page's `<img>` does. The reply's Content-Type isn't
+    /// trusted; the bytes have to decode as an image instead.
+    private func photo(at path: String) async -> Data? {
+        let url: URL? = path.hasPrefix("http") ? URL(string: path)
+            : path.hasPrefix("/") ? URL(string: "https://\(config.host)\(path)")
+            : URL(string: path, relativeTo: config.url(""))?.absoluteURL
+        guard let url else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("image/webp,image/avif,image/jxl,image/heic,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue(config.url("Home").absoluteString, forHTTPHeaderField: "Referer")
+        guard let (data, response) = try? await session.data(for: request) else { return nil }
+        let isImage = UIImage(data: data) != nil
+        if debugLogResponses {
+            let http = response as? HTTPURLResponse
+            print("→ Image/Load: HTTP \(http?.statusCode ?? 0), \(data.count) bytes, "
+                  + "\(http?.value(forHTTPHeaderField: "Content-Type") ?? "no type"), "
+                  + "\(isImage ? "image" : "not an image") at \(Self.landingDescription(response))")
+        }
+        return isImage ? data : nil
     }
 
     /// The switch in flight, so concurrent requests wait for it rather than

@@ -88,8 +88,8 @@ protocol PortalService: Sendable {
     /// patient's own name. Answers the updated accounts.
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: Data?) async throws -> [LinkedAccount]
-    /// The account's photo (`LinkedAccount.photoPath`), if it has one.
-    func accountPhoto(_ account: LinkedAccount) async throws -> Data?
+    /// Each linked account's photo, by account ID, for those that have one.
+    func accountPhotos() async -> [String: Data]
 }
 
 enum PortalError: LocalizedError {

@@ -277,7 +277,7 @@ struct CachedPortalService: PortalService {
     }
 
     /// `Session` keeps the photos it loads.
-    func accountPhoto(_ account: LinkedAccount) async throws -> Data? {
-        try await base.accountPhoto(account)
+    func accountPhotos() async -> [String: Data] {
+        await base.accountPhotos()
     }
 }
