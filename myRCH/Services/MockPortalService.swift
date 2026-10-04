@@ -67,6 +67,21 @@ struct MockPortalService: PortalService {
         RecordHeader(fullName: patientID == "acct-sal" ? "Sal Anderson" : "Sallie Anderson", urNumber: "10000001")
     }
 
+    func personalInformation(for patientID: String) async throws -> PersonalInformation {
+        await delay()
+        return PersonalInformation(
+            email: "parent@example.com",
+            phoneNumbers: [
+                .init(type: "mobile", number: "0400 000 000"),
+                .init(type: "home", number: "03 9000 0000")
+            ],
+            addressLines: ["1 Example Street", "Parkville VIC 3052"],
+            country: "Australia",
+            emailNeedsVerification: false,
+            mobileNeedsVerification: false
+        )
+    }
+
     func appointments(for patientID: String) async throws -> [Appointment] {
         await delay()
         let rchAddress = "50 Flemington Road, Parkville VIC 3052"

@@ -85,6 +85,7 @@ struct EpicFHIRService: PortalService {
     func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
                     options: RescheduleOptions, for patientID: String) async throws { try notImplemented() }
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose] { try notImplemented() }
+    func personalInformation(for patientID: String) async throws -> PersonalInformation { try notImplemented() }
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: Data?) async throws -> [LinkedAccount] { try notImplemented() }
     func accountPhotos() async -> [String: Data] { [:] }

@@ -726,3 +726,25 @@ struct ImmunisationDose: Identifiable, Hashable {
 
     var id: Date { date }
 }
+
+// MARK: - Personal information
+
+/// The account holder's contact details from the portal's Personal
+/// Information page (`api/personalInformation/GetContactInformation`).
+struct PersonalInformation: Equatable, Sendable {
+    struct PhoneNumber: Identifiable, Equatable, Sendable {
+        /// The portal's label, e.g. "mobile" or "home".
+        var type: String
+        var number: String
+
+        var id: String { type + number }
+    }
+
+    var email: String
+    var phoneNumbers: [PhoneNumber]
+    /// Address as the portal formats it, one line per entry.
+    var addressLines: [String]
+    var country: String
+    var emailNeedsVerification: Bool
+    var mobileNeedsVerification: Bool
+}

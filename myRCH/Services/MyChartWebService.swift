@@ -1666,6 +1666,36 @@ actor MyChartWebService: PortalService {
         return value
     }
 
+    /// Captured from app/personal-information: an empty JSON POST whose reply
+    /// holds `currentValues` (address, emailAddress, phoneNumbers[] of
+    /// type/phoneNumber) plus verification flags. GetDetailsAboutMeInformation
+    /// and GetRelationships answer with flags only for the account holder,
+    /// so they aren't read.
+    func personalInformation(for patientID: String) async throws -> PersonalInformation {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/personalInformation/GetContactInformation",
+            savesCopy: false,
+            referer: config.url("app/personal-information").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "GetContactInformation") }
+        let root = json as? [String: Any] ?? [:]
+        let values = root["currentValues"] as? [String: Any] ?? [:]
+        let address = values["address"] as? [String: Any] ?? [:]
+        let phones = (values["phoneNumbers"] as? [[String: Any]] ?? []).compactMap { phone -> PersonalInformation.PhoneNumber? in
+            guard let number = phone["phoneNumber"] as? String, !number.isEmpty else { return nil }
+            return .init(type: phone["type"] as? String ?? "", number: number)
+        }
+        return PersonalInformation(
+            email: values["emailAddress"] as? String ?? "",
+            phoneNumbers: phones,
+            addressLines: (address["formattedValues"] as? [String] ?? []).filter { !$0.isEmpty },
+            country: (address["country"] as? [String: Any])?["title"] as? String ?? "",
+            emailNeedsVerification: root["emailNeedsVerification"] as? Bool ?? false,
+            mobileNeedsVerification: root["mobilePhoneNeedsVerification"] as? Bool ?? false
+        )
+    }
+
     /// Mirrors the site's `reconcileWebDevice`: the server issues a device ID
     /// that the browser keeps in localStorage and sends with future logins.
     /// Best effort — a failure here shouldn't block sign-in.

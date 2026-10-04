@@ -92,6 +92,8 @@ protocol PortalService: Sendable {
                     options: RescheduleOptions, for patientID: String) async throws
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
+    /// Email, phone numbers and address from the Personal Information page.
+    func personalInformation(for patientID: String) async throws -> PersonalInformation
     /// Sets a linked account's nickname, colour (an index into
     /// `Theme.accountColours`) and, when given, a new JPEG photo, as the
     /// portal's Family Access page does. An empty nickname goes back to the
