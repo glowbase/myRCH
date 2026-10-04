@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Referrals on the child's record: who they were referred to, by whom, and
-/// for how long the referral is valid. Open referrals come first, then
+/// when it was requested for. Open referrals come first, then
 /// closed ones, each newest first.
 struct ReferralsView: View {
     let patientID: String
@@ -74,9 +74,13 @@ struct ReferralRow: View {
     }
 }
 
-/// Everything the portal lists about one referral.
+/// Everything the portal lists about one referral. The list's copy shows
+/// straight away; where it's from and to, and what it's for, load after.
 struct ReferralDetailView: View {
     let referral: Referral
+    @Environment(Session.self) private var session
+    @State private var details: ReferralDetails?
+    @State private var detailsError: String?
 
     var body: some View {
         List {
@@ -84,43 +88,124 @@ struct ReferralDetailView: View {
                 LabeledContent("Status") {
                     ReferralStatusPill(status: referral.status)
                 }
-                if let validity = referral.validity {
-                    LabeledContent("Valid", value: validity)
+                if let requested = referral.requested {
+                    LabeledContent("Requested", value: requested)
                 }
             } footer: {
                 if referral.status.isClosed {
                     Text("This referral has ended. If more care is needed, a new referral may be required.")
-                } else if let until = referral.validUntil, until < .now {
-                    Text("This referral’s end date has passed.")
+                }
+            }
+
+            if let details {
+                partySection("Referred By", details.referredBy, fallbackProvider: referral.referredBy)
+                partySection("Referred To", details.referredTo, fallbackProvider: referral.referredTo)
+            } else {
+                Section("Referred By") {
+                    partyPlaceholder(referral.referredBy)
+                }
+                Section {
+                    partyPlaceholder(referral.referredTo)
+                    if !referral.facility.isEmpty {
+                        Label(referral.facility, systemImage: "building.2.fill")
+                    }
+                } header: {
+                    Text("Referred To")
+                } footer: {
+                    if let detailsError {
+                        Text("Couldn’t load the departments and addresses. \(detailsError)")
+                    }
                 }
             }
 
             Section {
-                if !referral.referredTo.isEmpty {
-                    LabeledContent("Referred To", value: referral.referredTo)
+                if let details {
+                    ForEach(details.services, id: \.self) { service in
+                        LabeledContent("Service", value: service)
+                    }
+                    if !details.type.isEmpty {
+                        LabeledContent("Referral Type", value: details.type)
+                    }
                 }
-                if !referral.facility.isEmpty {
-                    LabeledContent("Facility", value: referral.facility)
-                }
-                if !referral.referredBy.isEmpty {
-                    LabeledContent("Referred By", value: referral.referredBy)
+                if !referral.number.isEmpty {
+                    LabeledContent("Referral Number", value: referral.number)
+                        .textSelection(.enabled)
                 }
                 if let created = referral.created {
                     LabeledContent("Created", value: created.mediumDate)
                 }
-            }
-
-            if !referral.number.isEmpty {
-                Section {
-                    LabeledContent("Referral Number", value: referral.number)
-                        .textSelection(.enabled)
-                } footer: {
-                    Text("Quote this number if you call the hospital about the referral.")
+            } header: {
+                Text("Additional Information")
+            } footer: {
+                if !referral.number.isEmpty {
+                    Text("Quote the referral number if you call the hospital about it.")
                 }
             }
         }
-        .navigationTitle(referral.title)
+        .navigationTitle("Referral to \(referral.title)")
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: referral.id) {
+            await loadDetails()
+        }
+        .refreshable {
+            await loadDetails()
+        }
+    }
+
+    /// The clinician, then their department and facility, address and phone.
+    @ViewBuilder
+    private func partySection(_ title: String, _ party: ReferralDetails.Party,
+                              fallbackProvider: String) -> some View {
+        let provider = party.provider.isEmpty ? fallbackProvider : party.provider
+        let place = [party.department, party.departmentSpecialty, party.facility].filter { !$0.isEmpty }
+        Section(title) {
+            if !provider.isEmpty {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(provider)
+                        if !party.providerSpecialty.isEmpty {
+                            Text(party.providerSpecialty)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } icon: {
+                    Image(systemName: "person.fill")
+                }
+            }
+            if !place.isEmpty {
+                Label(place.joined(separator: "\n"), systemImage: "building.2.fill")
+            }
+            if !party.address.isEmpty {
+                Label(party.address.joined(separator: "\n"), systemImage: "mappin.and.ellipse")
+                    .textSelection(.enabled)
+            }
+            if !party.phone.isEmpty, let url = URL(string: "tel:\(party.phone.filter { $0.isNumber || $0 == "+" })") {
+                Link(destination: url) {
+                    Label(party.phone, systemImage: "phone.fill")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func partyPlaceholder(_ provider: String) -> some View {
+        if !provider.isEmpty {
+            Label(provider, systemImage: "person.fill")
+        }
+        if details == nil, detailsError == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func loadDetails() async {
+        detailsError = nil
+        do {
+            details = try await session.service.referralDetails(referral, for: session.patientID)
+        } catch {
+            detailsError = error.localizedDescription
+        }
     }
 }
 
@@ -156,12 +241,13 @@ extension Referral {
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    /// "17 Nov 2025 – 17 Feb 2026", "From 12 Aug 2026" or "Until 17 Feb 2026".
-    var validity: String? {
-        switch (validFrom, validUntil) {
-        case let (from?, until?): "\(from.mediumDate) – \(until.mediumDate)"
-        case let (from?, nil): "From \(from.mediumDate)"
-        case let (nil, until?): "Until \(until.mediumDate)"
+    /// The portal's "Requested after 12/8/2026", as "After 12 Aug 2026",
+    /// "Before 17 Feb 2026" or "17 Nov 2025 – 17 Feb 2026".
+    var requested: String? {
+        switch (requestedAfter, requestedBefore) {
+        case let (after?, before?): "\(after.mediumDate) – \(before.mediumDate)"
+        case let (after?, nil): "After \(after.mediumDate)"
+        case let (nil, before?): "Before \(before.mediumDate)"
         case (nil, nil): nil
         }
     }

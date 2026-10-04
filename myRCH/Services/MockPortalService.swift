@@ -217,14 +217,29 @@ struct MockPortalService: PortalService {
         return [
             Referral(id: "r1", number: "10000003", status: authorised, created: Self.date(2026, 7, 3),
                      referredTo: "Kevin Chang, Consultant", referredBy: "Sarah Flynn, Registrar",
-                     facility: rch, validFrom: Self.date(2026, 7, 3), validUntil: nil),
+                     facility: rch, requestedAfter: Self.date(2026, 7, 3), requestedBefore: nil),
             Referral(id: "r2", number: "10000002", status: authorised, created: Self.date(2025, 12, 22),
                      referredTo: "", referredBy: "Sarah Flynn, Registrar",
-                     facility: rch, validFrom: Self.date(2026, 8, 12), validUntil: nil),
+                     facility: rch, requestedAfter: Self.date(2026, 8, 12), requestedBefore: nil),
             Referral(id: "r3", number: "10000001", status: closed, created: Self.date(2025, 10, 14),
                      referredTo: "Sarah Flynn, Registrar", referredBy: "Alex Morgan, GP",
-                     facility: rch, validFrom: Self.date(2025, 11, 17), validUntil: Self.date(2026, 2, 17))
+                     facility: rch, requestedAfter: Self.date(2025, 11, 17), requestedBefore: Self.date(2026, 2, 17))
         ]
+    }
+
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails {
+        await delay()
+        let address = ["50 Flemington Road", "Parkville, Victoria 3052"]
+        return ReferralDetails(
+            referredTo: .init(provider: referral.referredTo, providerSpecialty: "",
+                              department: "Nephrology Clinic", departmentSpecialty: "Nephrology",
+                              facility: referral.facility, address: address, phone: "03 9345 5818"),
+            referredBy: .init(provider: referral.referredBy, providerSpecialty: "Dermatology",
+                              department: "Dermatology Streamline Access Clinic", departmentSpecialty: "",
+                              facility: referral.facility, address: address, phone: ""),
+            services: ["Referral to outpatient nephrology"],
+            type: "Non VINAH Reportable"
+        )
     }
 
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String {

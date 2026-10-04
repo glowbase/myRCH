@@ -784,9 +784,10 @@ struct Referral: Identifiable, Hashable, Sendable {
     var referredTo: String
     var referredBy: String
     var facility: String
-    /// When the referral is valid from and until. Either may be missing.
-    var validFrom: Date?
-    var validUntil: Date?
+    /// The portal's `start` and `end`, shown as "Requested after …". Either
+    /// may be missing.
+    var requestedAfter: Date?
+    var requestedBefore: Date?
 
     struct Status: Hashable, Sendable {
         /// The portal's code; "1" (Authorised) and "6" (Closed) are the only
@@ -796,6 +797,34 @@ struct Referral: Identifiable, Hashable, Sendable {
         var title: String
 
         var isClosed: Bool { code == "6" }
+    }
+}
+
+/// The rest of a referral, from `api/referrals/getReferralDetails`: where
+/// it's from and to, and what it's for.
+struct ReferralDetails: Hashable, Sendable {
+    var referredTo: Party
+    var referredBy: Party
+    /// e.g. "Referral to outpatient genetics", with the portal's code
+    /// ("REF26 - ") removed.
+    var services: [String]
+    /// The portal's referral type, e.g. "Non VINAH Reportable".
+    var type: String
+
+    /// One end of the referral: the clinician and where they work. Any
+    /// field may be empty.
+    struct Party: Hashable, Sendable {
+        var provider: String
+        /// The clinician's specialty, e.g. "Respiratory Medicine".
+        var providerSpecialty: String
+        /// e.g. "Victorian Clinical Genetics Services".
+        var department: String
+        /// e.g. "Genetics".
+        var departmentSpecialty: String
+        var facility: String
+        /// Address lines, tidied ("Parkville, Victoria 3052").
+        var address: [String]
+        var phone: String
     }
 }
 

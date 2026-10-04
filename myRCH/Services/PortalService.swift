@@ -24,6 +24,8 @@ protocol PortalService: Sendable {
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String
     /// Referrals on the record, newest first.
     func referrals(for patientID: String) async throws -> [Referral]
+    /// Where a referral is from and to, and what it's for.
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails
     func testResults(for patientID: String) async throws -> [TestResult]
     /// Fills in a result's values, ranges and report, which the list omits.
     func testResultDetails(_ result: TestResult, for patientID: String) async throws -> TestResult
