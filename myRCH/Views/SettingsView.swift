@@ -271,10 +271,14 @@ struct SettingsView: View {
             } label: {
                 SettingsRow("Licences", symbol: "doc.text.fill", color: .gray)
             }
-            LabeledContent {
-                Text(version).foregroundStyle(.secondary)
+            NavigationLink {
+                ChangelogView()
             } label: {
-                SettingsRow("Version", symbol: "info.circle.fill", color: .gray)
+                LabeledContent {
+                    Text(version)
+                } label: {
+                    SettingsRow("Version", symbol: "info.circle.fill", color: .gray)
+                }
             }
         } header: {
             Text("About")
