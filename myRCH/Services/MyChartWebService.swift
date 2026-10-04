@@ -286,9 +286,18 @@ actor MyChartWebService: PortalService {
             if debugLogResponses { print("↩︎ \(action): no ProxySwitch Id for \(accountID)") }
             throw MyChartError.actionFailed(action)
         }
+        // Family Access is the account holder's page: hold their context from
+        // reading it to posting, so a child's background refresh can't switch
+        // the session in between.
+        await acquireContext(subjectsCache.first(where: \.isSelf).map(Self.accountID) ?? "")
+        defer { releaseContext() }
         // MyChartID isn't in ProxySwitch, only on the Family Access page,
         // which also hands out the token its own requests send.
-        guard let page = try? await session.data(from: config.url("Proxies/FamilyAccess")).0 else {
+        let page: Data
+        do {
+            page = try await session.data(from: config.url("Proxies/FamilyAccess")).0
+        } catch {
+            if debugLogResponses { print("↩︎ \(action): Family Access didn't load: \(error.localizedDescription)") }
             throw MyChartError.actionFailed(action)
         }
         let html = String(decoding: page, as: UTF8.self)
@@ -336,7 +345,10 @@ actor MyChartWebService: PortalService {
             print("↩︎ \(String(decoding: reply.prefix(300), as: UTF8.self))")
         }
         if Self.looksStale(reply, response) { throw MyChartError.sessionExpired }
-        guard (200..<300).contains(status) else { throw MyChartError.actionFailed(action) }
+        guard (200..<300).contains(status) else {
+            if debugLogResponses { print("↩︎ \(action): refused with HTTP \(status)") }
+            throw MyChartError.actionFailed(action)
+        }
 
         let subjects = await proxySubjects()
         if let updated = subjects.first(where: { Self.accountID($0) == accountID }), updated.tabColor != colour {
