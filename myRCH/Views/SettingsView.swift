@@ -195,6 +195,11 @@ struct SettingsView: View {
     @ViewBuilder
     private var preferencesSection: some View {
         Section {
+            NavigationLink {
+                PersonalInformationView()
+            } label: {
+                SettingsRow("Personal Information", symbol: "person.text.rectangle.fill", color: .teal)
+            }
             Picker(selection: $appearance) {
                 ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
             } label: {

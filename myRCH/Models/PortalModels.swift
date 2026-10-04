@@ -726,3 +726,45 @@ struct ImmunisationDose: Identifiable, Hashable {
 
     var id: Date { date }
 }
+
+// MARK: - Personal information
+
+/// The account holder's contact details from the portal's Personal
+/// Information page (`api/personalInformation/GetContactInformation`).
+struct PersonalInformation: Equatable, Sendable {
+    struct PhoneNumber: Identifiable, Equatable, Sendable {
+        /// The portal's label, e.g. "mobile" or "home".
+        var type: String
+        var number: String
+
+        var id: String { type + number }
+    }
+
+    var email: String
+    var phoneNumbers: [PhoneNumber]
+    /// Address parts as the portal stores them (it uses US names: city, zip).
+    var street: String
+    var suburb: String
+    /// Full name, e.g. "Victoria".
+    var state: String
+    var postcode: String
+    var country: String
+
+    var hasAddress: Bool {
+        ![street, suburb, state, postcode, country].allSatisfy(\.isEmpty)
+    }
+    var emailNeedsVerification: Bool
+    var mobileNeedsVerification: Bool
+
+    /// The first number of the given type, or "" if there isn't one.
+    func phone(_ type: String) -> String {
+        phoneNumbers.first { $0.type.lowercased() == type }?.number ?? ""
+    }
+}
+
+/// The contact details the portal lets the account holder change.
+struct ContactInformationUpdate: Equatable, Sendable {
+    var email: String
+    var mobilePhone: String
+    var workPhone: String
+}

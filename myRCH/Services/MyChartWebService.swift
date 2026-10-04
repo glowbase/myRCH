@@ -407,6 +407,37 @@ actor MyChartWebService: PortalService {
     /// each switching (and racing each other to a different account).
     private var contextSwitch: (id: String, task: Task<Void, Never>)?
 
+    /// Requests running in the current context. While any are, a request for
+    /// another account waits rather than switching the session under them.
+    private var contextHolds = 0
+    private var holdWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Switches to `patientID` and keeps the session there until the matching
+    /// `releaseContext()`. Without the hold, a page for the account holder
+    /// (e.g. Personal Information) could switch away from the child, only for
+    /// a background refresh of the child's record to switch back before its
+    /// request reached the portal.
+    private func acquireContext(_ patientID: String) async {
+        while !patientID.isEmpty, currentContextID != patientID {
+            if contextHolds > 0 {
+                await withCheckedContinuation { holdWaiters.append($0) }
+                continue
+            }
+            await ensureContext(patientID)
+            // No matching account: carry on in the current context, as before.
+            if currentContextID != patientID { break }
+        }
+        contextHolds += 1
+    }
+
+    private func releaseContext() {
+        contextHolds -= 1
+        guard contextHolds == 0 else { return }
+        let waiters = holdWaiters
+        holdWaiters = []
+        waiters.forEach { $0.resume() }
+    }
+
     /// Switches the session to `patientID` if it isn't already there.
     private func ensureContext(_ patientID: String) async {
         guard !patientID.isEmpty else { return }
@@ -611,7 +642,8 @@ actor MyChartWebService: PortalService {
         // Home's print header names the patient whose context we're in:
         // <div class="printheader">Name: … | DOB: … | MRN: 12345678 | …</div>
         // (RCH calls the MRN a UR number.)
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let (data, _) = try await session.data(from: config.url("Home"))
         let html = String(decoding: data, as: UTF8.self)
         if html.contains("Authentication/Login") { throw MyChartError.sessionExpired }
@@ -704,7 +736,8 @@ actor MyChartWebService: PortalService {
         var components = URLComponents(url: config.url("Visits/visitdetails"), resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "csn", value: csn)]
         guard let url = components?.url else { return nil }
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         guard let (data, _) = try? await session.data(from: url) else { return nil }
         let html = String(decoding: data, as: UTF8.self)
         // A login page means the session lapsed; don't cache that as an empty page.
@@ -1127,7 +1160,8 @@ actor MyChartWebService: PortalService {
               let url = URL(string: "https://\(config.host)\(config.basePath)\(path)") else {
             throw MyChartError.decoding(action: "document", snippet: "no download path")
         }
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         // A plain link on the site, so GET with the page as Referer.
         var request = URLRequest(url: url)
         request.setValue(config.url("app/test-results").absoluteString, forHTTPHeaderField: "Referer")
@@ -1210,7 +1244,8 @@ actor MyChartWebService: PortalService {
         guard let referenceID = medication.updateReferenceID else {
             throw MyChartError.actionFailed("SubmitUpdate")
         }
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let path = "Clinical/Medications/SubmitUpdate"
         var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "noCache", value: String(Double.random(in: 0..<1)))]
@@ -1428,7 +1463,8 @@ actor MyChartWebService: PortalService {
     /// FileDisplayName, …}]}`; `DocumentId` goes in the reply's `documentIds`.
     func uploadAttachment(_ data: Data, fileName: String, mimeType: String,
                           for patientID: String) async throws -> MessageAttachment {
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var body = Data()
         func append(_ text: String) { body.append(Data(text.utf8)) }
@@ -1666,6 +1702,73 @@ actor MyChartWebService: PortalService {
         return value
     }
 
+    /// Captured from app/personal-information: an empty JSON POST whose reply
+    /// holds `currentValues` (address, emailAddress, phoneNumbers[] of
+    /// type/phoneNumber) plus verification flags. GetDetailsAboutMeInformation
+    /// and GetRelationships answer with flags only for the account holder,
+    /// so they aren't read.
+    func personalInformation(for patientID: String) async throws -> PersonalInformation {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/personalInformation/GetContactInformation",
+            savesCopy: false,
+            referer: config.url("app/personal-information").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "GetContactInformation") }
+        return Self.decodePersonalInformation(json)
+    }
+
+    /// Captured from app/personal-information/edit-contact-information: the
+    /// body sends `temporaryAddress` (empty), `emailAddress` and the editable
+    /// phone numbers (mobile and work; home and the address are read-only).
+    /// An empty number clears it. The reply has the same shape as
+    /// GetContactInformation plus `savedSuccessfully`.
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        let action = "api/personalInformation/UpdateContactInformation"
+        let body: [String: Any] = [
+            "temporaryAddress": [String: Any](),
+            "emailAddress": update.email,
+            "phoneNumbers": [
+                ["type": "mobile", "phoneNumber": update.mobilePhone],
+                ["type": "work", "phoneNumber": update.workPhone]
+            ]
+        ]
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/personal-information/edit-contact-information").absoluteString
+        )
+        guard (json as? [String: Any])?["savedSuccessfully"] as? Bool == true else {
+            if debugLogResponses { Self.logShape(json, label: "UpdateContactInformation") }
+            throw MyChartError.actionFailed(action)
+        }
+        return Self.decodePersonalInformation(json)
+    }
+
+    private nonisolated static func decodePersonalInformation(_ json: Any) -> PersonalInformation {
+        let root = json as? [String: Any] ?? [:]
+        let values = root["currentValues"] as? [String: Any] ?? [:]
+        let address = values["address"] as? [String: Any] ?? [:]
+        let phones = (values["phoneNumbers"] as? [[String: Any]] ?? []).compactMap { phone -> PersonalInformation.PhoneNumber? in
+            guard let number = phone["phoneNumber"] as? String, !number.isEmpty else { return nil }
+            return .init(type: phone["type"] as? String ?? "", number: number)
+        }
+        return PersonalInformation(
+            email: values["emailAddress"] as? String ?? "",
+            phoneNumbers: phones,
+            street: address["street"] as? String ?? "",
+            suburb: address["city"] as? String ?? "",
+            state: (address["state"] as? [String: Any])?["title"] as? String ?? "",
+            postcode: address["zip"] as? String ?? "",
+            country: (address["country"] as? [String: Any])?["title"] as? String ?? "",
+            emailNeedsVerification: root["emailNeedsVerification"] as? Bool ?? false,
+            mobileNeedsVerification: root["mobilePhoneNeedsVerification"] as? Bool ?? false
+        )
+    }
+
     /// Mirrors the site's `reconcileWebDevice`: the server issues a device ID
     /// that the browser keeps in localStorage and sends with future logins.
     /// Best effort — a failure here shouldn't block sign-in.
@@ -1758,7 +1861,8 @@ actor MyChartWebService: PortalService {
             return (data, response)
         }
 
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let generation = contextGeneration
         var (data, response) = try await send()
         // Once only: a second error page is reported as before.
@@ -1823,7 +1927,8 @@ actor MyChartWebService: PortalService {
             return (data, response)
         }
 
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let generation = contextGeneration
         var (data, response) = try await send()
         // Once only: a second error page is reported as before. Reads only:
