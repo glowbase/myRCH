@@ -1703,6 +1703,111 @@ actor MyChartWebService: PortalService {
         .sorted { $0.date > $1.date }
     }
 
+    /// Captured from app/referrals: an empty JSON POST answering
+    /// `referralList`, with days as "14/10/2025" (an empty string when
+    /// unknown) and `statusString` already worded for families. `dte` is the
+    /// creation day as an Epic day number, and is skipped in favour of
+    /// `creationDate`.
+    func referrals(for patientID: String) async throws -> [Referral] {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/referrals/listReferrals",
+            referer: config.url("app/referrals").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "listReferrals") }
+        let items = (json as? [String: Any])?["referralList"] as? [[String: Any]] ?? []
+        return items.compactMap { item -> Referral? in
+            guard let id = Self.string(item, "internalId") else { return nil }
+            return Referral(
+                id: id,
+                number: Self.string(item, "externalId") ?? "",
+                status: .init(code: Self.string(item, "status") ?? "",
+                              title: Self.string(item, "statusString") ?? "Unknown"),
+                created: Self.string(item, "creationDate").flatMap(Self.slashDay),
+                referredTo: Self.string(item, "referredToProviderName") ?? "",
+                referredBy: Self.string(item, "referredByProviderName") ?? "",
+                facility: Self.string(item, "referredToFacility") ?? "",
+                requestedAfter: Self.string(item, "start").flatMap(Self.slashDay),
+                requestedBefore: Self.string(item, "end").flatMap(Self.slashDay)
+            )
+        }
+        .sorted { ($0.created ?? .distantPast) > ($1.created ?? .distantPast) }
+    }
+
+    /// Captured from app/referrals/details: `{"RflId": internalId,
+    /// "GetFullRFL": false}`, answering `nativeReport` with `referredTo` and
+    /// `referredBy` (each a `placeOfService` and a `provider`),
+    /// `referralServices` and `type`. Its `referralListEntry` repeats the
+    /// list's entry with most fields blank, so the list's copy is kept.
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails {
+        let action = "api/referrals/getReferralDetails"
+        var referer = URLComponents(url: config.url("app/referrals/details"), resolvingAgainstBaseURL: false)
+        referer?.queryItems = [URLQueryItem(name: "rflId", value: referral.id)]
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["RflId": referral.id, "GetFullRFL": false],
+            referer: referer?.url?.absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "getReferralDetails") }
+        guard let report = (json as? [String: Any])?["nativeReport"] as? [String: Any] else {
+            throw MyChartError.actionFailed(action)
+        }
+        return ReferralDetails(
+            referredTo: Self.referralParty(report["referredTo"]),
+            referredBy: Self.referralParty(report["referredBy"]),
+            services: (report["referralServices"] as? [String] ?? []).compactMap(Self.referralService),
+            type: Self.string(report, "type") ?? ""
+        )
+    }
+
+    private nonisolated static func referralParty(_ json: Any?) -> ReferralDetails.Party {
+        let party = json as? [String: Any] ?? [:]
+        let place = party["placeOfService"] as? [String: Any] ?? [:]
+        let provider = party["provider"] as? [String: Any] ?? [:]
+        return ReferralDetails.Party(
+            provider: string(provider, "name") ?? "",
+            providerSpecialty: string(provider, "primarySpecialty") ?? "",
+            department: string(place, "department") ?? "",
+            departmentSpecialty: string(place, "departmentSpecialty") ?? "",
+            facility: string(place, "facility") ?? "",
+            address: (place["address"] as? [String] ?? []).compactMap(tidyAddressLine),
+            phone: string(place, "phoneNumber") ?? ""
+        )
+    }
+
+    /// "Parkville,Victoria    3052" → "Parkville, Victoria 3052".
+    private nonisolated static func tidyAddressLine(_ line: String) -> String? {
+        let words = line.replacingOccurrences(of: ",", with: ", ")
+            .split(whereSeparator: \.isWhitespace)
+        return words.isEmpty ? nil : words.joined(separator: " ")
+    }
+
+    /// "REF26 - REFERRAL TO OUTPATIENT GENETICS" → "Referral to outpatient
+    /// genetics": the code means nothing to families, and capitals read as
+    /// shouting.
+    private nonisolated static func referralService(_ text: String) -> String? {
+        var name = text.trimmingCharacters(in: .whitespaces)
+        if let dash = name.range(of: " - "),
+           name[..<dash.lowerBound].allSatisfy({ $0.isUppercase || $0.isNumber }) {
+            name = String(name[dash.upperBound...])
+        }
+        guard !name.isEmpty else { return nil }
+        if name == name.uppercased() {
+            name = name.prefix(1) + name.dropFirst().lowercased()
+        }
+        return name
+    }
+
+    /// Australian day/month/year without leading zeros, e.g. "3/7/2026".
+    private nonisolated static func slashDay(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
+        formatter.dateFormat = "d/M/yyyy"
+        return formatter.date(from: text)
+    }
+
     private nonisolated static func isoDay(_ text: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

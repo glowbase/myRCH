@@ -848,6 +848,65 @@ struct ContactInformationUpdate: Equatable, Sendable {
     var workPhone: String
 }
 
+// MARK: - Referrals
+
+/// A referral on the child's record, from the portal's Referrals page
+/// (`api/referrals/listReferrals`).
+struct Referral: Identifiable, Hashable, Sendable {
+    /// The portal's `internalId`.
+    let id: String
+    /// The referral number staff quote (`externalId`), e.g. "10000001".
+    var number: String
+    var status: Status
+    var created: Date?
+    /// Who the referral is to. Sometimes a first name only, sometimes empty.
+    var referredTo: String
+    var referredBy: String
+    var facility: String
+    /// The portal's `start` and `end`, shown as "Requested after …". Either
+    /// may be missing.
+    var requestedAfter: Date?
+    var requestedBefore: Date?
+
+    struct Status: Hashable, Sendable {
+        /// The portal's code; "1" (Authorised) and "6" (Closed) are the only
+        /// ones seen so far.
+        var code: String
+        /// As the portal words it, e.g. "Authorised".
+        var title: String
+
+        var isClosed: Bool { code == "6" }
+    }
+}
+
+/// The rest of a referral, from `api/referrals/getReferralDetails`: where
+/// it's from and to, and what it's for.
+struct ReferralDetails: Hashable, Sendable {
+    var referredTo: Party
+    var referredBy: Party
+    /// e.g. "Referral to outpatient genetics", with the portal's code
+    /// ("REF26 - ") removed.
+    var services: [String]
+    /// The portal's referral type, e.g. "Non VINAH Reportable".
+    var type: String
+
+    /// One end of the referral: the clinician and where they work. Any
+    /// field may be empty.
+    struct Party: Hashable, Sendable {
+        var provider: String
+        /// The clinician's specialty, e.g. "Respiratory Medicine".
+        var providerSpecialty: String
+        /// e.g. "Victorian Clinical Genetics Services".
+        var department: String
+        /// e.g. "Genetics".
+        var departmentSpecialty: String
+        var facility: String
+        /// Address lines, tidied ("Parkville, Victoria 3052").
+        var address: [String]
+        var phone: String
+    }
+}
+
 // MARK: - Security settings
 
 /// The account holder's login and verification settings from the portal's

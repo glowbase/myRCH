@@ -51,6 +51,8 @@ struct EpicFHIRService: PortalService {
     func visitDocuments(appointmentID: String, for patientID: String) async throws -> [VisitDocument] { try notImplemented() }
     func letters(for patientID: String) async throws -> [Letter] { try notImplemented() }
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String { try notImplemented() }
+    func referrals(for patientID: String) async throws -> [Referral] { try notImplemented() }
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails { try notImplemented() }
     func visitDocumentHTML(_ document: VisitDocument, for patientID: String) async throws -> String { try notImplemented() }
     func testResults(for patientID: String) async throws -> [TestResult] { try notImplemented() }
     func testResultDetails(_ result: TestResult, for patientID: String) async throws -> TestResult { try notImplemented() }

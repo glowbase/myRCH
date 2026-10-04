@@ -101,6 +101,14 @@ struct CachedPortalService: PortalService {
         try await cached("letters|\(patientID)") { try await base.letters(for: patientID) }
     }
 
+    func referrals(for patientID: String) async throws -> [Referral] {
+        try await cached("referrals|\(patientID)") { try await base.referrals(for: patientID) }
+    }
+
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails {
+        try await cached("referral|\(patientID)|\(referral.id)") { try await base.referralDetails(referral, for: patientID) }
+    }
+
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String {
         try await cached("letterHTML|\(patientID)|\(letter.id)") { try await base.letterHTML(letter, for: patientID) }
     }

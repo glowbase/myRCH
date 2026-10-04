@@ -3,7 +3,7 @@ import SwiftUI
 /// Sections of the app, reachable from Browse and the dashboard.
 enum Feature: String, Identifiable, CaseIterable {
     case visits, testResults, medication, immunisations, allergies
-    case growthCharts, trackHealth, implants, letters
+    case growthCharts, trackHealth, implants, letters, referrals
     case messages, sharing, medicalID
 
     var id: String { rawValue }
@@ -13,7 +13,7 @@ enum Feature: String, Identifiable, CaseIterable {
     /// needed, with the not-yet-available ones last.
     static let browsable: [Feature] = [
         .visits, .testResults, .medication, .messages,
-        .letters, .medicalID, .immunisations, .allergies,
+        .letters, .referrals, .medicalID, .immunisations, .allergies,
         .growthCharts, .sharing,
         .trackHealth, .implants
     ]
@@ -29,6 +29,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: "Track My Health"
         case .implants: "Implants"
         case .letters: "Letters"
+        case .referrals: "Referrals"
         case .messages: "Messages"
         case .sharing: "Share My Record"
         case .medicalID: "Medical ID"
@@ -49,6 +50,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: "waveform.path.ecg"
         case .implants: "cross.case.fill"
         case .letters: "envelope.open.fill"
+        case .referrals: "arrowshape.turn.up.right.fill"
         case .messages: "bubble.left.and.bubble.right.fill"
         case .sharing: "person.2.wave.2.fill"
         case .medicalID: "staroflife.fill"
@@ -69,6 +71,7 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: Theme.Section.trackHealth
         case .implants: Theme.Section.implants
         case .letters: Theme.Section.letters
+        case .referrals: Theme.Section.referrals
         case .messages: Theme.Section.messages
         case .sharing: Theme.Section.sharing
         case .medicalID: Theme.Section.medicalID
@@ -89,6 +92,7 @@ enum Feature: String, Identifiable, CaseIterable {
         // Navy, not yellow: yellow icons are too faint on white for a screen
         // of letter rows.
         case .letters: Theme.ink
+        case .referrals: Theme.Section.referrals
         case .messages, .sharing: Theme.brand
         case .medicalID: Theme.red
         }

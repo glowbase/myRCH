@@ -15,6 +15,7 @@ The app shows this file under Settings > Version, so keep each entry to one line
 ### Added
 - Remove a child's photo from Nicknames and Photos.
 - See, rename, remove and add your portal passkeys under Settings > Login & Security.
+- A Referrals section in Browse showing who your child was referred to and by whom, the departments and addresses, what the referral is for and its status.
 
 ### Fixed
 - Saving a child's nickname, colour or photo no longer fails after the portal signs you out in the background, or while another child's record is refreshing.
