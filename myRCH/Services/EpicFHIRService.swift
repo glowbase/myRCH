@@ -94,4 +94,7 @@ struct EpicFHIRService: PortalService {
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: AccountPhotoChange) async throws -> [LinkedAccount] { try notImplemented() }
     func accountPhotos() async -> [String: Data] { [:] }
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences { try notImplemented() }
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws { try notImplemented() }
 }

@@ -6,6 +6,75 @@ import Foundation
 // Observation, MedicationRequest, Communication) so a real Epic FHIR / SMART
 // on FHIR backend can be mapped onto them without changing the UI layer.
 
+// MARK: - Communication preferences
+
+struct CommunicationPreferences: Equatable, Sendable {
+    var groups: [CommunicationPreferenceGroup]
+    var contactInformation: CommunicationContactInformation
+}
+
+struct CommunicationPreferenceGroup: Identifiable, Equatable, Sendable {
+    let id: String
+    var title: String
+    var description: String
+    var items: [CommunicationPreferenceItem]
+}
+
+struct CommunicationPreferenceItem: Identifiable, Equatable, Sendable {
+    let id: String
+    var title: String
+    var description: String
+    var channels: [CommunicationChannel]
+}
+
+struct CommunicationChannel: Identifiable, Equatable, Sendable {
+    enum Kind: String, Equatable, Sendable {
+        case email
+        case textMessage
+        case pushNotification
+        case other
+
+        var title: String {
+            switch self {
+            case .email: "Email"
+            case .textMessage: "Text"
+            case .pushNotification: "Push"
+            case .other: "Other"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .email: "envelope.fill"
+            case .textMessage: "message.fill"
+            case .pushNotification: "bell.fill"
+            case .other: "dot.radiowaves.left.and.right"
+            }
+        }
+    }
+
+    enum Status: Int, Equatable, Sendable {
+        case off = 0
+        case on = 1
+        case unavailable = 3
+    }
+
+    let id: String
+    /// Portal media type sent back to UpdatePreferences (for example, 1 or 6).
+    var portalType: String
+    var kind: Kind
+    var status: Status
+}
+
+struct CommunicationContactInformation: Equatable, Sendable {
+    var email: String
+    var mobilePhone: String
+    var emailPending: Bool
+    var mobilePending: Bool
+    var mobileIsVerified: Bool
+    var showLinkToContactInfo: Bool
+}
+
 /// The signed-in person, plus any linked proxy accounts (e.g. a parent
 /// managing a child's record — mirrors the account switcher in the portal).
 struct PatientProfile: Identifiable, Hashable {

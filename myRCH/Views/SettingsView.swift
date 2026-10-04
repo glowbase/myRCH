@@ -167,6 +167,11 @@ struct SettingsView: View {
             } label: {
                 SettingsRow("Login & Security", symbol: "lock.shield.fill", color: .gray)
             }
+            NavigationLink {
+                CommunicationPreferencesView()
+            } label: {
+                SettingsRow("Communication Preferences", symbol: "message.badge.fill", color: .blue)
+            }
         }
     }
 

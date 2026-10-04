@@ -62,6 +62,74 @@ struct MockPortalService: PortalService {
     /// Sample accounts have no photos.
     func accountPhotos() async -> [String: Data] { [:] }
 
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences {
+        await delay()
+        let email = CommunicationChannel(id: "email", portalType: "1", kind: .email, status: .on)
+        let text = CommunicationChannel(id: "text", portalType: "6", kind: .pushNotification, status: .on)
+        return CommunicationPreferences(
+            groups: [
+                CommunicationPreferenceGroup(
+                    id: "messages",
+                    title: "Messages",
+                    description: "Receive updates from your healthcare organisation.",
+                    items: [
+                        CommunicationPreferenceItem(
+                            id: "new-message",
+                            title: "New Message",
+                            description: "",
+                            channels: [email, text]
+                        ),
+                        CommunicationPreferenceItem(
+                            id: "letters",
+                            title: "Letters",
+                            description: "",
+                            channels: [CommunicationChannel(id: "letters-email", portalType: "1", kind: .email, status: .off), text]
+                        )
+                    ]
+                ),
+                CommunicationPreferenceGroup(
+                    id: "health",
+                    title: "Health",
+                    description: "Notifications when new information is available about your care.",
+                    items: [
+                        CommunicationPreferenceItem(
+                            id: "test-result",
+                            title: "Test Result",
+                            description: "",
+                            channels: [email, text]
+                        )
+                    ]
+                ),
+                CommunicationPreferenceGroup(
+                    id: "appointments",
+                    title: "Appointments",
+                    description: "Alerts and notifications about upcoming or past appointments.",
+                    items: [
+                        CommunicationPreferenceItem(
+                            id: "appointment-information",
+                            title: "Appointment Information",
+                            description: "",
+                            channels: [email, text]
+                        )
+                    ]
+                )
+            ],
+            contactInformation: CommunicationContactInformation(
+                email: "parent@example.com",
+                mobilePhone: "04•• ••• •••",
+                emailPending: false,
+                mobilePending: false,
+                mobileIsVerified: true,
+                showLinkToContactInfo: true
+            )
+        )
+    }
+
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws {
+        await delay()
+    }
+
     /// A made-up UR number so the dashboard chip shows in demo mode.
     func recordHeader(for patientID: String) async throws -> RecordHeader {
         RecordHeader(fullName: patientID == "acct-sal" ? "Sal Anderson" : "Sallie Anderson", urNumber: "10000001")
