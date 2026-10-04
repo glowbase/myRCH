@@ -12,6 +12,9 @@ The app shows this file under Settings > Version, so keep each entry to one line
 
 ## [Unreleased]
 
+### Added
+- Remove a child's photo from Nicknames and Photos.
+
 ### Fixed
 - Saving a child's nickname, colour or photo no longer fails after the portal signs you out in the background, or while another child's record is refreshing.
 

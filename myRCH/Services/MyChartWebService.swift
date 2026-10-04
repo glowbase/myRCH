@@ -273,13 +273,14 @@ actor MyChartWebService: PortalService {
 
     /// Captured from Family Access → customise: a multipart POST to
     /// Proxies/FamilyAccess/CustomizeSubject with `File` (a JPEG named
-    /// profile.jpg, only when the photo changes), `RemoteRelId` (empty),
+    /// profile.jpg for a new photo, or the plain value `-` to remove it;
+    /// left out to keep the current one), `RemoteRelId` (empty),
     /// `MyChartID`, `PatientID` (ProxySwitch's `Id`), `TabName` (the
     /// nickname; empty for the patient's own name) and `TabColor`. The reply
     /// hasn't been captured, so the change counts once ProxySwitch, read
     /// again, shows it.
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
-                          photo: Data?) async throws -> [LinkedAccount] {
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
         let action = "CustomizeSubject"
         if subjectsCache.isEmpty { _ = await proxySubjects() }
         guard let subject = subjectsCache.first(where: { Self.accountID($0) == accountID }), !subject.id.isEmpty else {
@@ -330,11 +331,17 @@ actor MyChartWebService: PortalService {
         let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var body = Data()
         func append(_ text: String) { body.append(Data(text.utf8)) }
-        if let photo {
+        switch photo {
+        case .keep:
+            break
+        case let .replace(jpeg):
             append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"; filename=\"profile.jpg\"\r\n")
             append("Content-Type: image/jpeg\r\n\r\n")
-            body.append(photo)
+            body.append(jpeg)
             append("\r\n")
+        case .remove:
+            // As the page sends after Remove Photo: a plain field, not a file.
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"\r\n\r\n-\r\n")
         }
         let fields: [(String, String)] = [
             ("RemoteRelId", ""), ("MyChartID", myChartID), ("PatientID", subject.id),

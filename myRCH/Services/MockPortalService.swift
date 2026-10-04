@@ -46,7 +46,7 @@ struct MockPortalService: PortalService {
 
     /// Nothing is kept: the change lasts until the next sign-in.
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
-                          photo: Data?) async throws -> [LinkedAccount] {
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
         await delay()
         return Self.accounts.map { account in
             guard account.id == accountID else { return account }

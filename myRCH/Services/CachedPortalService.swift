@@ -313,7 +313,7 @@ struct CachedPortalService: PortalService {
     }
 
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
-                          photo: Data?) async throws -> [LinkedAccount] {
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
         try await base.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
     }
 
