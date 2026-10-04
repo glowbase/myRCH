@@ -75,7 +75,10 @@ struct MockPortalService: PortalService {
                 .init(type: "mobile", number: "0400 000 000"),
                 .init(type: "home", number: "03 9000 0000")
             ],
-            addressLines: ["1 Example Street", "Parkville VIC 3052"],
+            street: "1 Example Street",
+            suburb: "Parkville",
+            state: "Victoria",
+            postcode: "3052",
             country: "Australia",
             emailNeedsVerification: false,
             mobileNeedsVerification: false

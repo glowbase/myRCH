@@ -1759,23 +1759,14 @@ actor MyChartWebService: PortalService {
         return PersonalInformation(
             email: values["emailAddress"] as? String ?? "",
             phoneNumbers: phones,
-            addressLines: addressLines(address),
+            street: address["street"] as? String ?? "",
+            suburb: address["city"] as? String ?? "",
+            state: (address["state"] as? [String: Any])?["title"] as? String ?? "",
+            postcode: address["zip"] as? String ?? "",
             country: (address["country"] as? [String: Any])?["title"] as? String ?? "",
             emailNeedsVerification: root["emailNeedsVerification"] as? Bool ?? false,
             mobileNeedsVerification: root["mobilePhoneNeedsVerification"] as? Bool ?? false
         )
-    }
-
-    /// Street, then "City STATE postcode". The portal's own formattedValues
-    /// pack the second line as "CITY,State    3073", so they're only a fallback.
-    private nonisolated static func addressLines(_ address: [String: Any]) -> [String] {
-        let street = address["street"] as? String ?? ""
-        let city = address["city"] as? String ?? ""
-        let state = (address["state"] as? [String: Any])?["abbreviation"] as? String ?? ""
-        let zip = address["zip"] as? String ?? ""
-        let locality = [city, state, zip].filter { !$0.isEmpty }.joined(separator: " ")
-        let lines = [street, locality].filter { !$0.isEmpty }
-        return lines.isEmpty ? (address["formattedValues"] as? [String] ?? []).filter { !$0.isEmpty } : lines
     }
 
     /// Mirrors the site's `reconcileWebDevice`: the server issues a device ID

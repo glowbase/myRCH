@@ -742,9 +742,17 @@ struct PersonalInformation: Equatable, Sendable {
 
     var email: String
     var phoneNumbers: [PhoneNumber]
-    /// Address as the portal formats it, one line per entry.
-    var addressLines: [String]
+    /// Address parts as the portal stores them (it uses US names: city, zip).
+    var street: String
+    var suburb: String
+    /// Full name, e.g. "Victoria".
+    var state: String
+    var postcode: String
     var country: String
+
+    var hasAddress: Bool {
+        ![street, suburb, state, postcode, country].allSatisfy(\.isEmpty)
+    }
     var emailNeedsVerification: Bool
     var mobileNeedsVerification: Bool
 

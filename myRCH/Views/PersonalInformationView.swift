@@ -93,21 +93,39 @@ private struct PersonalInformationList: View {
                 }
             }
 
-            if !information.addressLines.isEmpty {
+            if information.hasAddress {
                 Section {
-                    Label {
-                        Text((information.addressLines + [information.country])
-                            .filter { !$0.isEmpty }
-                            .joined(separator: "\n"))
-                            .textSelection(.enabled)
-                    } icon: {
-                        Image(systemName: "house.fill")
-                    }
+                    AddressRow("Street", value: information.street)
+                    AddressRow("Suburb", value: information.suburb)
+                    AddressRow("State", value: information.state)
+                    AddressRow("Postcode", value: information.postcode)
+                    AddressRow("Country", value: information.country)
                 } header: {
                     Text("Address")
                 } footer: {
                     Text("To change your address or home phone, contact the hospital.")
                 }
+            }
+        }
+    }
+}
+
+/// One part of the address; hidden when the portal has nothing for it.
+private struct AddressRow: View {
+    let title: String
+    let value: String
+
+    init(_ title: String, value: String) {
+        self.title = title
+        self.value = value
+    }
+
+    var body: some View {
+        if !value.isEmpty {
+            LabeledContent(title) {
+                Text(value)
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
             }
         }
     }
