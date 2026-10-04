@@ -317,7 +317,11 @@ actor MyChartWebService: PortalService {
         }
         let html = String(decoding: page, as: UTF8.self)
         guard let myChartID = Self.myChartID(in: html, near: subject.id) else {
-            if debugLogResponses { print("↩︎ \(action): no MyChartID on Family Access (\(page.count) bytes, title \(Self.pageTitle(in: html) ?? "none"))") }
+            if debugLogResponses {
+                let status = (pageResponse as? HTTPURLResponse)?.statusCode ?? 0
+                print("↩︎ \(action): no MyChartID on Family Access (HTTP \(status), \(page.count) bytes, title \(Self.pageTitle(in: html) ?? "none"), landed at \(Self.landingDescription(pageResponse)))")
+                print("   context \(currentContextID ?? "none"), holder \(holderID); MyChartID label \(html.contains(/(?i)my_?chart_?id/) ? "present" : "absent"), patient Id \(html.contains(subject.id) ? "present" : "absent")")
+            }
             throw MyChartError.actionFailed(action)
         }
         let token = Self.formInputs(in: html, containerID: "__CSRFContainer")["__RequestVerificationToken"]
