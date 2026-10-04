@@ -32,6 +32,7 @@ An iPhone app for families using **My RCH Portal**, the Royal Children's Hospita
 - [Portal API reference](#portal-api-reference)
 - [Mapping a new endpoint](#mapping-a-new-endpoint)
 - [Roadmap](#roadmap)
+- [Changelog](myRCH/CHANGELOG.md)
 - [Licence](#licence)
 
 ## Features
