@@ -150,7 +150,22 @@ final class Session {
         guard let profile,
               let idx = profile.linkedAccounts.firstIndex(where: { $0.id == activeAccountID })
         else { return Theme.brand }
-        return Theme.leaves[idx % Theme.leaves.count]
+        return Theme.accountTint(profile.linkedAccounts[idx], at: idx)
+    }
+
+    /// Saves a linked account's name and colour on the portal, then shows
+    /// the portal's copy of that account.
+    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws {
+        let accounts = try await service.customiseAccount(accountID, name: name, colour: colour)
+        guard case var .signedIn(profile) = phase,
+              let updated = accounts.first(where: { $0.id == accountID }),
+              let index = profile.linkedAccounts.firstIndex(where: { $0.id == accountID }) else { return }
+        var account = profile.linkedAccounts[index]
+        account.name = updated.name
+        account.initials = updated.initials
+        account.tabColor = updated.tabColor ?? colour
+        profile.linkedAccounts[index] = account
+        phase = .signedIn(profile)
     }
 
     var isAuthenticating: Bool {

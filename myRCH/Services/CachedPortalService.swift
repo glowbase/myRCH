@@ -270,4 +270,8 @@ struct CachedPortalService: PortalService {
             try await base.immunisationDoses(vaccineID: vaccineID, for: patientID)
         }
     }
+
+    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] {
+        try await base.customiseAccount(accountID, name: name, colour: colour)
+    }
 }

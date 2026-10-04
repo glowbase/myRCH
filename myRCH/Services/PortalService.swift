@@ -82,6 +82,10 @@ protocol PortalService: Sendable {
     func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
+    /// Renames a linked account and sets its colour (an index into
+    /// `Theme.accountColours`), as the portal's Family Access page does. An
+    /// empty name goes back to the patient's own. Answers the updated accounts.
+    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount]
 }
 
 enum PortalError: LocalizedError {
