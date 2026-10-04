@@ -114,6 +114,10 @@ struct MockPortalService: PortalService {
         )
     }
 
+    /// Nothing is kept; the page shows the change until it reloads.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws { await delay() }
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws { await delay() }
+
     func appointments(for patientID: String) async throws -> [Appointment] {
         await delay()
         let rchAddress = "50 Flemington Road, Parkville VIC 3052"

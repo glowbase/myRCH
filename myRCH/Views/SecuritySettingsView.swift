@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// The account holder's login, two-step verification and device settings,
-/// as held by the portal. Read-only for now: the portal's requests for
-/// changing them haven't been captured, so changes are made on the website.
+/// as held by the portal. Preview features and remembered devices can be
+/// switched here; the rest is changed on the portal website.
 struct SecuritySettingsView: View {
     @Environment(Session.self) private var session
     @State private var settings: SecuritySettings?
@@ -11,7 +11,9 @@ struct SecuritySettingsView: View {
     var body: some View {
         Group {
             if let settings {
-                SecuritySettingsList(settings: settings)
+                SecuritySettingsList(settings: settings, accountHolderID: accountHolderID) {
+                    self.settings = $0
+                }
             } else if let loadError {
                 ContentUnavailableView {
                     Label("Settings Unavailable", systemImage: "wifi.exclamationmark")
@@ -55,7 +57,13 @@ struct SecuritySettingsView: View {
 
 private struct SecuritySettingsList: View {
     let settings: SecuritySettings
+    let accountHolderID: String
+    let onChange: (SecuritySettings) -> Void
+
+    @Environment(Session.self) private var session
     @Environment(\.openURL) private var openURL
+    @State private var savingSwitch: SecuritySwitch?
+    @State private var saveError: String?
 
     var body: some View {
         List {
@@ -85,7 +93,7 @@ private struct SecuritySettingsList: View {
 
             if settings.rememberDevicesAllowed {
                 Section {
-                    SecurityStatusRow("Remember Logged-In Devices", isOn: settings.remembersDevices)
+                    switchRow(.remembersDevices)
                 } header: {
                     Text("Devices")
                 } footer: {
@@ -94,7 +102,7 @@ private struct SecuritySettingsList: View {
             }
 
             Section {
-                SecurityStatusRow("Preview Features", isOn: settings.previewFeaturesOn)
+                switchRow(.previewFeatures)
             } footer: {
                 Text("Early access to new portal features. Some only appear the next time you sign in.")
             }
@@ -104,8 +112,75 @@ private struct SecuritySettingsList: View {
                     openURL(MyChartConfig().url("app/security-settings"))
                 }
             } footer: {
-                Text("Change your password, passkeys, two-step verification and devices\(settings.deactivateAccountAllowed ? ", or deactivate your account," : "") on the portal website.")
+                Text("Change your password, passkeys, two-step verification and remembered devices\(settings.deactivateAccountAllowed ? ", or deactivate your account," : "") on the portal website.")
             }
+        }
+        .alert(
+            "Couldn’t Change Setting",
+            isPresented: Binding(
+                get: { saveError != nil },
+                set: { if !$0 { saveError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveError ?? "")
+        }
+    }
+
+    /// A switch that saves to the portal straight away, showing a spinner
+    /// while it does. On failure the switch stays where it was.
+    private func switchRow(_ setting: SecuritySwitch) -> some View {
+        Toggle(isOn: Binding(
+            get: { settings[keyPath: setting.keyPath] },
+            set: { isOn in Task { await save(setting, isOn: isOn) } }
+        )) {
+            HStack {
+                Text(setting.title)
+                if savingSwitch == setting {
+                    Spacer()
+                    ProgressView()
+                }
+            }
+        }
+        .disabled(savingSwitch != nil)
+    }
+
+    private func save(_ setting: SecuritySwitch, isOn: Bool) async {
+        savingSwitch = setting
+        defer { savingSwitch = nil }
+        do {
+            switch setting {
+            case .previewFeatures:
+                try await session.service.setPreviewFeatures(isOn, for: accountHolderID)
+            case .remembersDevices:
+                try await session.service.setRemembersDevices(isOn, for: accountHolderID)
+            }
+            var updated = settings
+            updated[keyPath: setting.keyPath] = isOn
+            onChange(updated)
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+}
+
+/// The settings the app can switch on the portal.
+private enum SecuritySwitch {
+    case previewFeatures
+    case remembersDevices
+
+    var title: String {
+        switch self {
+        case .previewFeatures: "Preview Features"
+        case .remembersDevices: "Remember Logged-In Devices"
+        }
+    }
+
+    var keyPath: WritableKeyPath<SecuritySettings, Bool> {
+        switch self {
+        case .previewFeatures: \.previewFeaturesOn
+        case .remembersDevices: \.remembersDevices
         }
     }
 }

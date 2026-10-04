@@ -1775,6 +1775,33 @@ actor MyChartWebService: PortalService {
         )
     }
 
+    /// Captured from app/security-settings: `{"isOptedIn": Bool}`, answering
+    /// `{"success": true}`.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws {
+        try await setSecuritySwitch("api/security-settings/SetPreviewFeaturesStatus", isOn: isOn, for: patientID)
+    }
+
+    /// Captured from app/security-settings: the same `{"isOptedIn": Bool}`
+    /// body as preview features. Its reply wasn't captured, so only an
+    /// explicit `success: false` counts as failure.
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws {
+        try await setSecuritySwitch("api/security-settings/SetDeviceTrackingStatus", isOn: isOn, for: patientID)
+    }
+
+    private func setSecuritySwitch(_ action: String, isOn: Bool, for patientID: String) async throws {
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["isOptedIn": isOn],
+            savesCopy: false,
+            referer: config.url("app/security-settings").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: action) }
+        if (json as? [String: Any])?["success"] as? Bool == false {
+            throw MyChartError.actionFailed(action)
+        }
+    }
+
     private nonisolated static func decodePersonalInformation(_ json: Any) -> PersonalInformation {
         let root = json as? [String: Any] ?? [:]
         let values = root["currentValues"] as? [String: Any] ?? [:]
