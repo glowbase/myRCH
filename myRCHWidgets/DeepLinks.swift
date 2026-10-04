@@ -22,6 +22,8 @@ enum DeepLink {
         url("visit", child: child, id.map { [URLQueryItem(name: "id", value: $0)] } ?? [])
     }
 
+    static func visitsURL(child: String?) -> URL? { url("visits", child: child) }
+
     static func medicationURL(child: String?) -> URL? { url("medication", child: child) }
 
     static func whatsNewURL(child: String?) -> URL? { url("whats-new", child: child) }

@@ -608,13 +608,15 @@ struct DashboardView: View {
     /// Hands the widgets, controls and Live Activities this child's portal
     /// details. Doses come from the medication store directly.
     private func updateWidgets() {
-        let visit = upcoming.first.map {
+        // Enough for the Upcoming Visits widget's largest size.
+        let visits = upcoming.prefix(5).map {
             WidgetSnapshot.Visit(id: $0.id, title: $0.title, department: $0.department, date: $0.date,
-                                 isTelehealth: $0.isTelehealth, location: $0.checkInLocation ?? $0.address)
+                                 isTelehealth: $0.isTelehealth, location: $0.checkInLocation ?? $0.address,
+                                 desk: $0.deskName)
         }
         WidgetPublisher.shared.updateChild(
             id: session.patientID, name: session.activeAccount?.name ?? profile.preferredName,
-            urNumber: mrn, nextVisit: visit,
+            urNumber: mrn, upcomingVisits: Array(visits),
             allergies: allergies.map { WidgetSnapshot.Allergy(substance: $0.substance, reaction: $0.reaction) },
             allergiesKnown: allergiesKnown,
             unreadMessages: unreadMessages, newResults: results.filter(\.isUnread).count)

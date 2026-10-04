@@ -8,6 +8,8 @@ enum DeepLink: Equatable {
     case dose(patientID: String, scheduled: Date)
     /// A visit's details (the next visit, when no id is given).
     case visit(id: String?)
+    /// The list of visits.
+    case visits
     /// The Medication page.
     case medication
     /// Notifications: new results and messages.
@@ -23,6 +25,8 @@ enum DeepLink: Equatable {
             return (.medicalID, child)
         case "visit":
             return (.visit(id: items.first { $0.name == "id" }?.value), child)
+        case "visits":
+            return (.visits, child)
         case "medication":
             return (.medication, child)
         case "whats-new":
@@ -52,14 +56,25 @@ enum DeepLink: Equatable {
 
 /// A screen opened from a link, shown as a sheet over whatever's open.
 private enum LinkedScreen: Identifiable {
-    case medicalID, visit(id: String?), medication, whatsNew
+    case medicalID, visit(id: String?), visits, medication, whatsNew
 
     var id: String {
         switch self {
         case .medicalID: "medical-id"
         case let .visit(id): "visit-\(id ?? "next")"
+        case .visits: "visits"
         case .medication: "medication"
         case .whatsNew: "whats-new"
+        }
+    }
+
+    /// The section it belongs to, for its colour.
+    var feature: Feature {
+        switch self {
+        case .medicalID: .medicalID
+        case .visit, .visits: .visits
+        case .medication: .medication
+        case .whatsNew: .messages
         }
     }
 }
@@ -90,6 +105,8 @@ struct RootView: View {
                 .sheet(item: $linked) { screen in
                     NavigationStack {
                         linkedView(screen)
+                            // The section's Browse colour, as when opened in the app.
+                            .tint(screen.feature.accent)
                             .toolbar {
                                 ToolbarItem(placement: .confirmationAction) {
                                     Button("Done") { linked = nil }
@@ -131,6 +148,7 @@ struct RootView: View {
         switch link {
         case .medicalID: linked = .medicalID
         case let .visit(id): linked = .visit(id: id)
+        case .visits: linked = .visits
         case .medication: linked = .medication
         case .whatsNew: linked = .whatsNew
         case let .dose(patientID, scheduled):
@@ -144,6 +162,7 @@ struct RootView: View {
         switch screen {
         case .medicalID: MedicalIDView(patientID: session.patientID)
         case let .visit(id): LinkedVisitView(appointmentID: id)
+        case .visits: AppointmentsView(patientID: session.patientID)
         case .medication: MedicationsView(patientID: session.patientID)
         case .whatsNew: NotificationsView(patientID: session.patientID)
         }
