@@ -211,13 +211,6 @@ private struct CommunicationGroupSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                if !group.description.isEmpty {
-                    Section {
-                        Text(group.description)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 // One section per setting keeps its switches clearly apart
                 // from the next setting's title.
                 ForEach($group.items) { $item in
