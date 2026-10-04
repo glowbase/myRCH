@@ -311,7 +311,7 @@ struct TestResultDetailView: View {
             Label(result.kind == .imaging ? "Imaging" : result.kind == .pathology ? "Pathology" : "Lab test",
                   systemImage: result.systemImage)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.testResults.accent)
                 .textCase(.uppercase)
             Text(result.name)
                 .font(.system(.title, design: .rounded).bold())
@@ -319,16 +319,27 @@ struct TestResultDetailView: View {
             Text("Collected \(result.date.dateAndTime)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            statusChip
+            if result.rangeStatus != nil || result.specimenLabel != nil {
+                ChipRow {
+                    statusChip
+                    if let specimen = result.specimenLabel {
+                        CategoryChip(title: specimen, systemImage: result.kind.systemImage, color: Theme.teal)
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
     }
 
     /// Only for results with a normal range; a culture or X-ray has nothing
-    /// to be "within".
+    /// to be "within". Icon plus words, so it never relies on colour.
     @ViewBuilder
     private var statusChip: some View {
         if let status = result.rangeStatus {
-            RangeStatusPill(status: status)
+            let outside = status == .outside
+            CategoryChip(title: outside ? "Outside normal range" : "Within normal range",
+                         systemImage: outside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                         color: outside ? Theme.orange : Theme.green)
         }
     }
 
@@ -422,7 +433,7 @@ struct TestResultDetailView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Label(comment.author, systemImage: "person.crop.circle.fill")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.brand)
+                                .foregroundStyle(Feature.testResults.accent)
                             Spacer()
                             if let date = comment.date {
                                 Text(date.mediumDate)
@@ -479,7 +490,7 @@ struct TestResultDetailView: View {
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
             }
-            .tint(Theme.brand)
+            .tint(Feature.testResults.accent)
         }
     }
 
@@ -647,7 +658,7 @@ struct GrowthMeter: View {
             ForEach(CultureOrganism.Growth.allCases, id: \.self) { step in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(step <= growth
-                          ? Theme.brand.opacity(Self.stepOpacity[step.rawValue - 1])
+                          ? Feature.testResults.accent.opacity(Self.stepOpacity[step.rawValue - 1])
                           : Color(.tertiarySystemFill))
                     .frame(width: 18, height: 8)
             }
@@ -766,9 +777,9 @@ private struct DocumentThumbnail: View {
         VStack(spacing: 10) {
             Image(systemName: "doc.text.fill")
                 .font(.system(size: 34))
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.testResults.accent)
                 .frame(width: 120, height: 92)
-                .background(Theme.brand.opacity(0.1), in: .rect(cornerRadius: 14))
+                .background(Feature.testResults.accent.opacity(0.1), in: .rect(cornerRadius: 14))
             VStack(spacing: 2) {
                 Text(document.title)
                     .font(.subheadline.weight(.medium))

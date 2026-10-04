@@ -15,7 +15,13 @@ The app shows this file under Settings > Version, so keep each entry to one line
 ### Added
 - Remove a child's photo from Nicknames and Photos.
 - See, rename, remove and add your portal passkeys under Settings > Login & Security.
+- Choose how the hospital contacts you, by email, text or push, under Settings > Communication Preferences.
 - A Referrals section in Browse showing who your child was referred to and by whom, the departments and addresses, what the referral is for and its status.
+
+### Changed
+- Each section's screens now use the same colour as its icon in Browse.
+- Chips under a visit, test result or medication's title now scroll sideways instead of wrapping onto a second line.
+- A visit's check-in chip shows the full desk name, such as "Specialist Clinics Desk A1".
 
 ### Fixed
 - Saving a child's nickname, colour or photo no longer fails after the portal signs you out in the background, or while another child's record is refreshing.

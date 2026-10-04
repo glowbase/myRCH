@@ -141,7 +141,7 @@ struct GrowthChartsView: View {
                     Text("Shows just the ages and values that have measurements, instead of the whole reference range.")
                 }
             }
-            .tint(Theme.brand)
+            .tint(Feature.growthCharts.accent)
             .navigationTitle("Chart Options")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -379,7 +379,7 @@ private struct GrowthChartCard: View {
             Text("Data table")
                 .font(.subheadline.weight(.semibold))
         }
-        .tint(Theme.brand)
+        .tint(Feature.growthCharts.accent)
     }
 
     private var header: some View {
