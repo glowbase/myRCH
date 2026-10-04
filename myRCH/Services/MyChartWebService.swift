@@ -1802,6 +1802,88 @@ actor MyChartWebService: PortalService {
         }
     }
 
+    /// Captured from app/passkey-management: `{"hostname": host}`, answering
+    /// `data.passkeys` (name, rawId, createdOnDevice, creationInstant) and
+    /// `data.lastAuthentication`, whose `expirationTime` is ten minutes after
+    /// the password was last re-entered.
+    func passkeys(for patientID: String) async throws -> PasskeyInfo {
+        let action = "api/passkey-management/LoadPasskeyInfo"
+        let data = try await passkeyAction(action, body: ["hostname": config.host], for: patientID)
+        let root = data as? [String: Any] ?? [:]
+        let passkeys = (root["passkeys"] as? [[String: Any]] ?? []).compactMap(Self.decodePasskey)
+        let authentication = root["lastAuthentication"] as? [String: Any] ?? [:]
+        let verifiedUntil = authentication["hasAuthenticated"] as? Bool == true
+            ? (authentication["expirationTime"] as? String).flatMap(ISO8601DateFormatter().date(from:))
+            : nil
+        return PasskeyInfo(passkeys: passkeys, verifiedUntil: verifiedUntil)
+    }
+
+    /// Captured from app/passkey-management: `{"rawId", "newName"}`,
+    /// answering the renamed passkey in `data`.
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey {
+        let action = "api/passkey-management/RenamePasskey"
+        let data = try await passkeyAction(action, body: ["rawId": passkeyID, "newName": name], for: patientID)
+        guard let passkey = (data as? [String: Any]).flatMap(Self.decodePasskey) else {
+            throw MyChartError.actionFailed(action)
+        }
+        return passkey
+    }
+
+    /// Captured from app/passkey-management: `{"rawId"}`, answering
+    /// `data: true`.
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws {
+        let action = "api/passkey-management/DeletePasskey"
+        let data = try await passkeyAction(action, body: ["rawId": passkeyID], for: patientID)
+        guard data as? Bool == true else { throw MyChartError.actionFailed(action) }
+    }
+
+    /// Captured from app/passkey-management: the site sends the password
+    /// base64-encoded as `{"password"}` and gets back `passwordVerified` and
+    /// `mustLogout` beside `success`, with no `data`.
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck {
+        let action = "api/username-password/VerifyPassword"
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["password": Data(password.utf8).base64EncodedString()],
+            savesCopy: false,
+            referer: config.url("app/passkey-management").absoluteString
+        )
+        // A wrong password's reply wasn't captured, so `success` isn't relied
+        // on: anything short of `passwordVerified: true` counts as wrong.
+        let root = json as? [String: Any] ?? [:]
+        return PasswordCheck(
+            verified: root["passwordVerified"] as? Bool ?? false,
+            mustSignOut: root["mustLogout"] as? Bool ?? false
+        )
+    }
+
+    /// Passkey Management's api/ calls all answer `{"success", "data"}`;
+    /// this checks `success` and answers `data`.
+    private func passkeyAction(_ action: String, body: [String: Any], for patientID: String) async throws -> Any? {
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/passkey-management").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: action) }
+        let root = json as? [String: Any] ?? [:]
+        guard root["success"] as? Bool == true else { throw MyChartError.actionFailed(action) }
+        return root["data"]
+    }
+
+    private nonisolated static func decodePasskey(_ json: [String: Any]) -> Passkey? {
+        guard let id = json["rawId"] as? String, !id.isEmpty else { return nil }
+        return Passkey(
+            id: id,
+            name: json["name"] as? String ?? "Passkey",
+            createdOnDevice: json["createdOnDevice"] as? String ?? "",
+            created: (json["creationInstant"] as? String).flatMap(ISO8601DateFormatter().date(from:))
+        )
+    }
+
     private nonisolated static func decodePersonalInformation(_ json: Any) -> PersonalInformation {
         let root = json as? [String: Any] ?? [:]
         let values = root["currentValues"] as? [String: Any] ?? [:]

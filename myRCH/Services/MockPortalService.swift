@@ -118,6 +118,29 @@ struct MockPortalService: PortalService {
     func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws { await delay() }
     func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws { await delay() }
 
+    func passkeys(for patientID: String) async throws -> PasskeyInfo {
+        await delay()
+        return PasskeyInfo(passkeys: [
+            Passkey(id: "demo-1", name: "iPhone", createdOnDevice: "iPhone - Safari",
+                    created: .now.addingTimeInterval(-40 * 86_400)),
+            Passkey(id: "demo-2", name: "Passkey 2", createdOnDevice: "Mac - Safari",
+                    created: .now.addingTimeInterval(-3 * 86_400))
+        ], verifiedUntil: nil)
+    }
+
+    /// Nothing is kept; the list shows the change until it reloads.
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey {
+        await delay()
+        return Passkey(id: passkeyID, name: name, createdOnDevice: "iPhone - Safari", created: .now)
+    }
+
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws { await delay() }
+
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck {
+        await delay()
+        return PasswordCheck(verified: !password.isEmpty, mustSignOut: false)
+    }
+
     func appointments(for patientID: String) async throws -> [Appointment] {
         await delay()
         let rchAddress = "50 Flemington Road, Parkville VIC 3052"

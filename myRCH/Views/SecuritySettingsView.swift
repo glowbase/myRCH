@@ -2,7 +2,8 @@ import SwiftUI
 
 /// The account holder's login, two-step verification and device settings,
 /// as held by the portal. Preview features and remembered devices can be
-/// switched here; the rest is changed on the portal website.
+/// switched here, and passkeys managed; the rest is changed on the portal
+/// website.
 struct SecuritySettingsView: View {
     @Environment(Session.self) private var session
     @State private var settings: SecuritySettings?
@@ -73,8 +74,8 @@ private struct SecuritySettingsList: View {
                         LabeledContent("Password Last Changed", value: settings.passwordLastChanged)
                     }
                     if settings.passkeysAvailable {
-                        LabeledContent("Passkeys") {
-                            Text("Face, fingerprint or PIN")
+                        NavigationLink("Passkeys") {
+                            PasskeysView(accountHolderID: accountHolderID)
                         }
                     }
                 }
@@ -112,7 +113,7 @@ private struct SecuritySettingsList: View {
                     openURL(MyChartConfig().url("app/security-settings"))
                 }
             } footer: {
-                Text("Change your password, passkeys, two-step verification and remembered devices\(settings.deactivateAccountAllowed ? ", or deactivate your account," : "") on the portal website.")
+                Text("Change your password, two-step verification and remembered devices\(settings.deactivateAccountAllowed ? ", or deactivate your account," : "") on the portal website.")
             }
         }
         .alert(
@@ -203,6 +204,271 @@ private struct SecurityStatusRow: View {
             } else {
                 Text("Off")
             }
+        }
+    }
+}
+
+// MARK: - Passkeys
+
+/// The account holder's passkeys, which can be renamed and removed here.
+/// Adding one happens in Safari: iOS only lets an app create a passkey for
+/// a website that lists the app on its own server, and the portal can't
+/// list this one.
+struct PasskeysView: View {
+    let accountHolderID: String
+
+    @Environment(Session.self) private var session
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var info: PasskeyInfo?
+    @State private var loadError: String?
+    @State private var renaming: Passkey?
+    @State private var newName = ""
+    @State private var removing: Passkey?
+    /// A change waiting on the password, which the portal asks for again
+    /// ten minutes after it was last entered.
+    @State private var awaitingPassword: PasskeyChange?
+    @State private var password = ""
+    @State private var busyPasskeyID: String?
+    @State private var actionError: String?
+    /// Set while Safari is open to add a passkey, so the list reloads on return.
+    @State private var isAddingInSafari = false
+
+    var body: some View {
+        Group {
+            if let info {
+                list(info)
+            } else if let loadError {
+                ContentUnavailableView {
+                    Label("Passkeys Unavailable", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(loadError)
+                } actions: {
+                    Button("Try Again") {
+                        Task { await load() }
+                    }
+                }
+            } else {
+                ProgressView("Loading passkeys…")
+            }
+        }
+        .navigationTitle("Passkeys")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: accountHolderID) {
+            await load()
+        }
+        .refreshable {
+            await load()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, isAddingInSafari else { return }
+            isAddingInSafari = false
+            Task { await load() }
+        }
+        .alert("Rename Passkey", isPresented: isPresent($renaming), presenting: renaming) { passkey in
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty, name != passkey.name else { return }
+                Task { await perform(.rename(passkey.id, name)) }
+            }
+        }
+        .confirmationDialog(
+            "Remove this passkey?",
+            isPresented: isPresent($removing),
+            titleVisibility: .visible,
+            presenting: removing
+        ) { passkey in
+            Button("Remove “\(passkey.name)”", role: .destructive) {
+                Task { await perform(.remove(passkey.id)) }
+            }
+        } message: { _ in
+            Text("You won’t be able to sign in with it any more. It also stays in your password manager until you delete it there.")
+        }
+        .alert("Enter Your Password", isPresented: isPresent($awaitingPassword), presenting: awaitingPassword) { change in
+            SecureField("Password", text: $password)
+                .textContentType(.password)
+            Button("Cancel", role: .cancel) { password = "" }
+            Button("Continue") {
+                Task { await verifyPassword(then: change) }
+            }
+        } message: { _ in
+            Text("For your security, the portal needs your password before changing passkeys.")
+        }
+        .alert("Couldn’t Change Passkey", isPresented: isPresent($actionError)) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(actionError ?? "")
+        }
+    }
+
+    private func list(_ info: PasskeyInfo) -> some View {
+        List {
+            Section {
+                if info.passkeys.isEmpty {
+                    Text("No passkeys yet")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(info.passkeys) { passkey in
+                    row(passkey)
+                }
+            } footer: {
+                Text("Passkeys let you sign in with Face ID, Touch ID or your device passcode instead of a password, and skip two-step verification. They’re kept in a password manager like Apple Passwords.")
+            }
+
+            Section {
+                Button("Add Passkey", systemImage: "plus") {
+                    isAddingInSafari = true
+                    openURL(MyChartConfig().url("app/passkey-management"))
+                }
+            } footer: {
+                Text("Passkeys are added on the portal website in Safari, where you may need to sign in. iOS only lets the portal’s own website create them.")
+            }
+        }
+    }
+
+    private func row(_ passkey: Passkey) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(passkey.name)
+                    .font(.headline)
+                if let created = createdDescription(passkey) {
+                    Text(created)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if busyPasskeyID == passkey.id {
+                ProgressView()
+            } else {
+                Menu("Options", systemImage: "ellipsis.circle") {
+                    renameButton(passkey)
+                    removeButton(passkey)
+                }
+                .labelStyle(.iconOnly)
+                .disabled(busyPasskeyID != nil)
+            }
+        }
+        .swipeActions {
+            removeButton(passkey)
+            renameButton(passkey)
+                .tint(.blue)
+        }
+        .contextMenu {
+            renameButton(passkey)
+            removeButton(passkey)
+        }
+    }
+
+    private func renameButton(_ passkey: Passkey) -> some View {
+        Button("Rename", systemImage: "pencil") {
+            newName = passkey.name
+            renaming = passkey
+        }
+    }
+
+    private func removeButton(_ passkey: Passkey) -> some View {
+        Button("Remove", systemImage: "trash", role: .destructive) {
+            removing = passkey
+        }
+    }
+
+    /// "Created 4 Oct 2026 at 7:24 pm with Mac - Safari", as on the portal.
+    private func createdDescription(_ passkey: Passkey) -> String? {
+        let date = passkey.created?.formatted(date: .abbreviated, time: .shortened)
+        let device = passkey.createdOnDevice.isEmpty ? nil : passkey.createdOnDevice
+        switch (date, device) {
+        case let (date?, device?): return "Created \(date) with \(device)"
+        case let (date?, nil): return "Created \(date)"
+        case let (nil, device?): return "Created with \(device)"
+        case (nil, nil): return nil
+        }
+    }
+
+    private func load() async {
+        loadError = nil
+        do {
+            info = try await session.service.passkeys(for: accountHolderID)
+        } catch {
+            info = nil
+            loadError = error.localizedDescription
+        }
+    }
+
+    /// Runs a change, first asking for the password if the portal's last
+    /// check has run out.
+    private func perform(_ change: PasskeyChange) async {
+        guard let verifiedUntil = info?.verifiedUntil, verifiedUntil > .now else {
+            password = ""
+            awaitingPassword = change
+            return
+        }
+        busyPasskeyID = change.passkeyID
+        defer { busyPasskeyID = nil }
+        do {
+            switch change {
+            case let .rename(id, name):
+                let saved = try await session.service.renamePasskey(id, to: name, for: accountHolderID)
+                if let index = info?.passkeys.firstIndex(where: { $0.id == id }) {
+                    info?.passkeys[index].name = saved.name
+                }
+            case let .remove(id):
+                try await session.service.removePasskey(id, for: accountHolderID)
+                info?.passkeys.removeAll { $0.id == id }
+            }
+        } catch {
+            actionError = error.localizedDescription
+        }
+    }
+
+    private func verifyPassword(then change: PasskeyChange) async {
+        let entered = password
+        password = ""
+        guard !entered.isEmpty else { return }
+        busyPasskeyID = change.passkeyID
+        do {
+            let check = try await session.service.verifyPassword(entered, for: accountHolderID)
+            busyPasskeyID = nil
+            if check.mustSignOut {
+                session.signOut()
+                return
+            }
+            guard check.verified else {
+                actionError = "That password isn’t right. Please try again."
+                return
+            }
+            // The portal allows ten minutes; reloading picks up its exact
+            // time, and the change then goes through without asking again.
+            await load()
+            if (info?.verifiedUntil ?? .distantPast) <= .now {
+                info?.verifiedUntil = .now.addingTimeInterval(9 * 60)
+            }
+            await perform(change)
+        } catch {
+            busyPasskeyID = nil
+            actionError = error.localizedDescription
+        }
+    }
+
+    /// Presents an alert or dialog while `value` is set, clearing it on dismiss.
+    private func isPresent<Value>(_ value: Binding<Value?>) -> Binding<Bool> {
+        Binding(
+            get: { value.wrappedValue != nil },
+            set: { if !$0 { value.wrappedValue = nil } }
+        )
+    }
+}
+
+/// A passkey change, held while the portal asks for the password.
+private enum PasskeyChange {
+    case rename(String, String)
+    case remove(String)
+
+    var passkeyID: String {
+        switch self {
+        case let .rename(id, _), let .remove(id): id
         }
     }
 }
