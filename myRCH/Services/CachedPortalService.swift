@@ -312,6 +312,23 @@ struct CachedPortalService: PortalService {
         try await base.setRemembersDevices(isOn, for: patientID)
     }
 
+    /// Not cached, so a passkey added in Safari shows straight away.
+    func passkeys(for patientID: String) async throws -> PasskeyInfo {
+        try await base.passkeys(for: patientID)
+    }
+
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey {
+        try await base.renamePasskey(passkeyID, to: name, for: patientID)
+    }
+
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws {
+        try await base.removePasskey(passkeyID, for: patientID)
+    }
+
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck {
+        try await base.verifyPassword(password, for: patientID)
+    }
+
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: AccountPhotoChange) async throws -> [LinkedAccount] {
         try await base.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)

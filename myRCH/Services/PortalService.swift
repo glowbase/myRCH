@@ -103,6 +103,14 @@ protocol PortalService: Sendable {
     func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws
     /// Turns "Remember logged-in devices" on or off.
     func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws
+    /// The account holder's passkeys from Passkey Management.
+    func passkeys(for patientID: String) async throws -> PasskeyInfo
+    /// Renames a passkey and answers it as saved.
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey
+    /// Removes a passkey from the account.
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws
+    /// Re-enters the password, which the portal asks for before passkey changes.
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck
     /// Sets a linked account's nickname, colour (an index into
     /// `Theme.accountColours`) and, when given, a new JPEG photo, as the
     /// portal's Family Access page does. An empty nickname goes back to the

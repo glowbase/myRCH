@@ -866,3 +866,28 @@ struct SecuritySettings: Equatable, Sendable {
     var previewFeaturesOn: Bool
     var deactivateAccountAllowed: Bool
 }
+
+/// A passkey on the account holder's login, from the portal's Passkey
+/// Management page (`api/passkey-management/LoadPasskeyInfo`).
+struct Passkey: Identifiable, Equatable, Sendable {
+    /// The credential's `rawId`, which rename and remove are keyed by.
+    var id: String
+    var name: String
+    /// As the portal records it, e.g. "Mac - Safari".
+    var createdOnDevice: String
+    var created: Date?
+}
+
+/// The passkeys, and until when the portal will accept changes without
+/// asking for the password again.
+struct PasskeyInfo: Equatable, Sendable {
+    var passkeys: [Passkey]
+    var verifiedUntil: Date?
+}
+
+/// The portal's answer to re-entering the password before a change.
+struct PasswordCheck: Equatable, Sendable {
+    var verified: Bool
+    /// The portal's `mustLogout`, presumably after too many wrong attempts.
+    var mustSignOut: Bool
+}

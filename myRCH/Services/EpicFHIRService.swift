@@ -91,6 +91,10 @@ struct EpicFHIRService: PortalService {
     func securitySettings(for patientID: String) async throws -> SecuritySettings { try notImplemented() }
     func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws { try notImplemented() }
     func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws { try notImplemented() }
+    func passkeys(for patientID: String) async throws -> PasskeyInfo { try notImplemented() }
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey { try notImplemented() }
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws { try notImplemented() }
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck { try notImplemented() }
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: AccountPhotoChange) async throws -> [LinkedAccount] { try notImplemented() }
     func accountPhotos() async -> [String: Data] { [:] }
