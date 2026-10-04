@@ -100,6 +100,11 @@ protocol PortalService: Sendable {
                           photo: Data?) async throws -> [LinkedAccount]
     /// Each linked account's photo, by account ID, for those that have one.
     func accountPhotos() async -> [String: Data]
+    /// Notification channels and contact details configured in the portal.
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences
+    /// Saves all editable communication channels in one atomic portal update.
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws
 }
 
 enum PortalError: LocalizedError {

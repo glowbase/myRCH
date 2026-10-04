@@ -200,6 +200,11 @@ struct SettingsView: View {
             } label: {
                 SettingsRow("Appearance", symbol: "circle.lefthalf.filled", color: .indigo)
             }
+            NavigationLink {
+                CommunicationPreferencesView()
+            } label: {
+                SettingsRow("Communication Preferences", symbol: "message.badge.fill", color: .blue)
+            }
             Button {
                 if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
             } label: {

@@ -298,4 +298,13 @@ struct CachedPortalService: PortalService {
     func accountPhotos() async -> [String: Data] {
         await base.accountPhotos()
     }
+
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences {
+        try await base.communicationPreferences(for: patientID)
+    }
+
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws {
+        try await base.updateCommunicationPreferences(preferences, for: patientID)
+    }
 }

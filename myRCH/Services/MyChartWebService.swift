@@ -1688,6 +1688,157 @@ actor MyChartWebService: PortalService {
         if forceUpdate || stored == nil { Keychain.deviceID = issued }
     }
 
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences {
+        let referer = config.url("app/communication-preferences").absoluteString
+        let preferencesAction = "api/communicationPreferences/GetPreferences"
+        let preferencesBody = ["campaignID": "", "expandID": ""]
+        // Toggles must reflect the portal now, not an earlier saved copy.
+        PortalDiskCache.shared.remove(PortalDiskCache.shared.key(
+            patientID: patientID, endpoint: preferencesAction, parameters: preferencesBody))
+        let preferencesJSON = try await postJSON(
+            for: patientID,
+            action: preferencesAction,
+            body: preferencesBody,
+            referer: referer
+        )
+        let contactJSON = try await postJSON(
+            for: patientID,
+            action: "api/communicationPreferences/GetContactInformation",
+            referer: referer
+        )
+        if debugLogResponses {
+            Self.logShape(preferencesJSON, label: "GetPreferences")
+            Self.logShape(contactJSON, label: "GetContactInformation")
+        }
+
+        let root = preferencesJSON as? [String: Any] ?? [:]
+        let groupers = root["groupers"] as? [String: [String: Any]] ?? [:]
+        let concepts = root["concepts"] as? [String: [String: Any]] ?? [:]
+        let medias = root["medias"] as? [String: [String: Any]] ?? [:]
+        func entry(
+            identifiedBy identifier: String,
+            in dictionary: [String: [String: Any]],
+            identifierKey: String
+        ) -> (key: String, value: [String: Any])? {
+            if let value = dictionary[identifier] {
+                return (identifier, value)
+            }
+            return dictionary.first { $0.value[identifierKey] as? String == identifier }
+                .map { ($0.key, $0.value) }
+        }
+
+        let orderedGroupIDs = root["grouperOrder"] as? [String] ?? []
+        var orderedGroupEntries = orderedGroupIDs.compactMap {
+            entry(identifiedBy: $0, in: groupers, identifierKey: "hstId")
+        }
+        let orderedKeys = Set(orderedGroupEntries.map(\.key))
+        orderedGroupEntries.append(
+            contentsOf: groupers
+                .filter { !orderedKeys.contains($0.key) }
+                .sorted {
+                    ($0.value["title"] as? String ?? "") < ($1.value["title"] as? String ?? "")
+                }
+                .map { ($0.key, $0.value) }
+        )
+
+        let groups = orderedGroupEntries.compactMap { groupKey, grouper -> CommunicationPreferenceGroup? in
+            let conceptIDs = grouper["conceptIds"] as? [String] ?? []
+            let items = conceptIDs.compactMap { conceptID -> CommunicationPreferenceItem? in
+                guard let (_, concept) = entry(
+                    identifiedBy: conceptID,
+                    in: concepts,
+                    identifierKey: "hstId"
+                ),
+                let title = concept["title"] as? String,
+                !title.isEmpty else { return nil }
+
+                let mediaIDs = concept["mediaIds"] as? [String] ?? []
+                let channels = mediaIDs.compactMap { mediaID -> CommunicationChannel? in
+                    guard let (mediaKey, media) = entry(
+                        identifiedBy: mediaID,
+                        in: medias,
+                        identifierKey: "mediaId"
+                    ),
+                    let type = media["type"] as? String,
+                    let rawStatus = media["toggleStatus"] as? Int,
+                    let status = CommunicationChannel.Status(rawValue: rawStatus) else { return nil }
+
+                    let kind: CommunicationChannel.Kind = switch type {
+                    case "1": .email
+                    case "6": .pushNotification
+                    case "100": .textMessage
+                    default: .other
+                    }
+                    return CommunicationChannel(
+                        id: mediaKey,
+                        portalType: type,
+                        kind: kind,
+                        status: status
+                    )
+                }
+                return CommunicationPreferenceItem(
+                    id: concept["hstId"] as? String ?? conceptID,
+                    title: title,
+                    description: concept["description"] as? String ?? "",
+                    channels: channels
+                )
+            }
+            guard !items.isEmpty else { return nil }
+            return CommunicationPreferenceGroup(
+                id: grouper["hstId"] as? String ?? groupKey,
+                title: grouper["title"] as? String ?? "Other",
+                description: grouper["description"] as? String ?? "",
+                items: items
+            )
+        }
+
+        let contact = contactJSON as? [String: Any] ?? [:]
+        return CommunicationPreferences(
+            groups: groups,
+            contactInformation: CommunicationContactInformation(
+                email: contact["email"] as? String ?? "",
+                mobilePhone: contact["mobilePhone"] as? String ?? "",
+                emailPending: contact["emailPending"] as? Bool ?? false,
+                mobilePending: contact["mobilePending"] as? Bool ?? false,
+                mobileIsVerified: contact["mobileIsVerified"] as? Bool ?? false,
+                showLinkToContactInfo: contact["showLinkToContactInfo"] as? Bool ?? false
+            )
+        )
+    }
+
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws {
+        let concepts = preferences.groups.flatMap(\.items).map { item -> [String: Any] in
+            let medias = Dictionary(uniqueKeysWithValues: item.channels.map {
+                ($0.portalType, $0.status.rawValue)
+            })
+            return ["hstId": item.id, "medias": medias]
+        }
+        let body: [String: Any] = [
+            "applyToAll": false,
+            "concepts": concepts,
+            "generalSettingsUsed": false,
+            "grouperSettingsUsed": true,
+            "advancedSettingsUsed": false,
+            "campaignID": ""
+        ]
+        let response = try await postJSON(
+            for: patientID,
+            action: "api/communicationPreferences/UpdatePreferences",
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/communication-preferences").absoluteString
+        )
+        guard (response as? [String: Any])?["isSuccess"] as? Bool == true else {
+            throw MyChartError.decoding(
+                action: "api/communicationPreferences/UpdatePreferences",
+                snippet: "The portal did not confirm the update."
+            )
+        }
+        // Avoid showing the saved pre-update response if the page is reopened.
+        PortalDiskCache.shared.removeAll()
+    }
+
     // MARK: - Transport
 
     /// jQuery-style `$.post`: form-encoded body, JSON response.
