@@ -134,7 +134,7 @@ struct SettingsView: View {
                     } label: {
                         HStack(spacing: 14) {
                             AvatarView(initials: account.initials,
-                                       tint: Theme.leaves[index % Theme.leaves.count],
+                                       tint: Theme.accountTint(account, at: index),
                                        size: 34)
                             Text(account.name).foregroundStyle(.primary)
                             Spacer()
@@ -145,6 +145,11 @@ struct SettingsView: View {
                             }
                         }
                     }
+                }
+                NavigationLink {
+                    EditAccountsView()
+                } label: {
+                    SettingsRow("Edit Names and Colours", symbol: "paintpalette.fill", color: Theme.proxy)
                 }
             } header: {
                 Text("Records")

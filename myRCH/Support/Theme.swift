@@ -60,6 +60,29 @@ enum Theme {
     /// Ordered leaf palette for cycling accents across items.
     static let leaves: [Color] = [red, orange, yellow, green, teal]
 
+    /// The portal's account colours (Family Access → Colour scheme), in its
+    /// order: ProxySwitch's and CustomizeSubject's `TabColor` index into this.
+    static let accountColours: [Color] = [
+        Color(red: 0.31, green: 0.50, blue: 0.91),  // blue
+        Color(red: 0.47, green: 0.76, blue: 0.85),  // light blue
+        Color(red: 0.29, green: 0.65, blue: 0.50),  // green
+        Color(red: 0.56, green: 0.75, blue: 0.33),  // lime
+        Color(red: 0.61, green: 0.27, blue: 0.75),  // purple
+        Color(red: 0.88, green: 0.26, blue: 0.45),  // pink
+        Color(red: 0.92, green: 0.57, blue: 0.29)   // orange
+    ]
+
+    /// Names for VoiceOver, matching `accountColours`.
+    static let accountColourNames = ["Blue", "Light blue", "Green", "Lime", "Purple", "Pink", "Orange"]
+
+    /// An account's portal colour, or a leaf by position when it has none.
+    static func accountTint(_ account: LinkedAccount, at index: Int) -> Color {
+        if let colour = account.tabColor, accountColours.indices.contains(colour) {
+            return accountColours[colour]
+        }
+        return leaves[index % leaves.count]
+    }
+
     /// Section colours for Browse tiles and card headers: lively, but a
     /// notch calmer than the system colours, and gold rather than bright
     /// yellow for letters. Each has a lighter shade for dark mode. All at

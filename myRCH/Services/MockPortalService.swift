@@ -33,13 +33,29 @@ struct MockPortalService: PortalService {
             fullName: "Sallie Anderson",
             preferredName: "Sallie",
             initials: "S",
-            linkedAccounts: [
-                LinkedAccount(id: "acct-sallie", name: "Sallie", initials: "S", unreadCount: 1,
-                              dateOfBirth: Self.date(2018, 3, 14)),
-                LinkedAccount(id: "acct-sal", name: "Sal", initials: "S", unreadCount: 0,
-                              dateOfBirth: Self.date(2025, 9, 10))
-            ]
+            linkedAccounts: Self.accounts
         )
+    }
+
+    private static let accounts = [
+        LinkedAccount(id: "acct-sallie", name: "Sallie", initials: "S", unreadCount: 1,
+                      dateOfBirth: date(2018, 3, 14), tabColor: 5),
+        LinkedAccount(id: "acct-sal", name: "Sal", initials: "S", unreadCount: 0,
+                      dateOfBirth: date(2025, 9, 10), tabColor: 0)
+    ]
+
+    /// Nothing is kept: the change lasts until the next sign-in.
+    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] {
+        await delay()
+        return Self.accounts.map { account in
+            guard account.id == accountID else { return account }
+            var updated = account
+            // As the portal does, an empty name goes back to the patient's own.
+            if !name.isEmpty { updated.name = name }
+            updated.initials = String(updated.name.prefix(1)).uppercased()
+            updated.tabColor = colour
+            return updated
+        }
     }
 
     /// A made-up UR number so the dashboard chip shows in demo mode.

@@ -208,10 +208,13 @@ actor MyChartWebService: PortalService {
             fullName: name,
             preferredName: name.split(separator: " ").first.map(String.init) ?? name,
             initials: Self.initials(of: name),
-            linkedAccounts: subjects.map {
-                LinkedAccount(id: Self.accountID($0), name: $0.name, initials: Self.initials(of: $0.name), unreadCount: 0)
-            }
+            linkedAccounts: subjects.map(Self.linkedAccount)
         )
+    }
+
+    private nonisolated static func linkedAccount(_ subject: ProxySubject) -> LinkedAccount {
+        LinkedAccount(id: accountID(subject), name: subject.name, initials: initials(of: subject.name),
+                      unreadCount: 0, tabColor: subject.tabColor)
     }
 
     // MARK: - Patient context (proxy switching)
@@ -228,6 +231,11 @@ actor MyChartWebService: PortalService {
         var isSelf: Bool
         var linkURL: String
         var isSelected: Bool
+        /// Index into the portal's colour scheme (`Theme.accountColours`).
+        var tabColor: Int?
+        /// What CustomizeSubject posts as `MyChartID` and `PatientID`.
+        var myChartID: String?
+        var patientID: String?
     }
 
     private var subjectsCache: [ProxySubject] = []
@@ -250,15 +258,76 @@ actor MyChartWebService: PortalService {
                 name: $0["DisplayName"] as? String ?? "",
                 isSelf: $0["IsSelf"] as? Bool ?? false,
                 linkURL: $0["LinkUrl"] as? String ?? "",
-                isSelected: $0["IsSelected"] as? Bool ?? false
+                isSelected: $0["IsSelected"] as? Bool ?? false,
+                tabColor: Self.int($0, "TabColor"),
+                myChartID: Self.string($0, "MyChartID", "MyChartId"),
+                patientID: Self.string($0, "PatientID", "PatientId")
             )
         }
         subjectsCache = subjects
         currentContextID = subjects.first(where: \.isSelected).map(Self.accountID)
         if debugLogResponses {
             print("↩︎ ProxySwitch: \(subjects.count) accounts, current = \(currentContextID ?? "none")")
+            // Key names only: which fields hold the WP- IDs CustomizeSubject needs.
+            if let first = list.first {
+                let idKeys = first.filter { ($0.value as? String)?.hasPrefix("WP-") == true }.keys.sorted()
+                print("↩︎ ProxySwitch: keys \(first.keys.sorted()), WP- IDs in \(idKeys)")
+            }
         }
         return subjects
+    }
+
+    /// Captured from Family Access → customise: a multipart POST to
+    /// Proxies/FamilyAccess/CustomizeSubject with `RemoteRelId` (empty),
+    /// `MyChartID`, `PatientID`, `TabName` (empty for the patient's own name)
+    /// and `TabColor`. The reply hasn't been captured, so the change counts
+    /// once ProxySwitch, read again, shows it.
+    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] {
+        let action = "CustomizeSubject"
+        if subjectsCache.isEmpty { _ = await proxySubjects() }
+        guard let subject = subjectsCache.first(where: { Self.accountID($0) == accountID }),
+              let myChartID = subject.myChartID, let patientID = subject.patientID else {
+            if debugLogResponses { print("↩︎ \(action): no MyChartID/PatientID for \(accountID) in ProxySwitch") }
+            throw MyChartError.actionFailed(action)
+        }
+
+        let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var body = Data()
+        let fields: [(String, String)] = [
+            ("RemoteRelId", ""), ("MyChartID", myChartID), ("PatientID", patientID),
+            ("TabName", name), ("TabColor", String(colour))
+        ]
+        for (field, value) in fields {
+            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field)\"\r\n\r\n\(value)\r\n".utf8))
+        }
+        body.append(Data("--\(boundary)--\r\n".utf8))
+
+        var components = URLComponents(url: config.url("Proxies/FamilyAccess/\(action)"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "noCache", value: String(Double.random(in: 0..<1)))]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+        request.setValue(config.url("Proxies/FamilyAccess").absoluteString, forHTTPHeaderField: "Referer")
+        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+        request.httpBody = body
+
+        let (reply, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if debugLogResponses { print("→ \(action): HTTP \(status), \(reply.count) bytes at \(Self.landingDescription(response))") }
+        if Self.looksStale(reply, response) { throw MyChartError.sessionExpired }
+        guard (200..<300).contains(status) else { throw MyChartError.actionFailed(action) }
+
+        let subjects = await proxySubjects()
+        // Only checkable when ProxySwitch reports colours at all.
+        if let updated = subjects.first(where: { Self.accountID($0) == accountID }),
+           updated.tabColor != nil, updated.tabColor != colour {
+            if debugLogResponses { print("↩︎ \(action): ProxySwitch still shows the old colour") }
+            throw MyChartError.actionFailed(action)
+        }
+        return subjects.map(Self.linkedAccount)
     }
 
     /// The switch in flight, so concurrent requests wait for it rather than

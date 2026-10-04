@@ -57,6 +57,8 @@ struct LinkedAccount: Identifiable, Hashable {
     var initials: String
     var unreadCount: Int
     var dateOfBirth: Date? = nil
+    /// The colour chosen on the portal, as an index into `Theme.accountColours`.
+    var tabColor: Int? = nil
 }
 
 // MARK: - Appointments
