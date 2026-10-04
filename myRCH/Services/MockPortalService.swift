@@ -638,6 +638,39 @@ struct MockPortalService: PortalService {
     func setPatientGoal(_ text: String, for patientID: String) async throws { await delay() }
     func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws { await delay() }
 
+    /// The portal's reschedule reasons, as RCH words them.
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions {
+        await delay()
+        let reasons = ["No Longer Need Service", "Patient/Child Unwell", "Time Unsuitable", "Other"]
+        return RescheduleOptions(reasons: reasons.enumerated().map { .init(id: "\($0.offset + 41)", title: $0.element) },
+                                 requiresReason: true, lastDay: EpicDay.number(for: .now) + 90,
+                                 rescheduleDat: appointmentID)
+    }
+
+    /// A few weekday times each week, a week per search, for 90 days.
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage {
+        await delay()
+        let today = EpicDay.number(for: .now)
+        let start = startDay ?? today + 3
+        let calendar = Calendar.current
+        let slots = (start..<start + 7).flatMap { day -> [AppointmentSlot] in
+            guard let date = calendar.date(byAdding: .day, value: day - today, to: calendar.startOfDay(for: .now)),
+                  !calendar.isDateInWeekend(date), day % 3 != 0 else { return [] }
+            return [(9, 30), (13, 0)].compactMap { hour, minute in
+                calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date)
+                    .map { AppointmentSlot(id: "mock-\(day)-\(hour)", date: $0, lengthMinutes: 30) }
+            }
+        }
+        let next = start + 7
+        return AppointmentSlotPage(slots: slots, nextStartDay: next <= options.lastDay ? next : nil)
+    }
+
+    var booksReschedules: Bool { true }
+
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws { await delay() }
+
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
         func link(_ title: String, _ url: String) -> (title: String, url: URL)? {
             URL(string: url).map { (title, $0) }

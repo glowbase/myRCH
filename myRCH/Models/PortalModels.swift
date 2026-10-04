@@ -107,6 +107,55 @@ struct Appointment: Identifiable, Hashable {
     }
 }
 
+/// What's needed to find new times for one visit, from the portal's
+/// reschedule workflow. The IDs are opaque and only sent back to the portal.
+struct RescheduleOptions: Hashable {
+    struct Reason: Identifiable, Hashable {
+        let id: String
+        let title: String
+    }
+
+    var reasons: [Reason]
+    var requiresReason: Bool
+    /// The last day (Epic day number) a new time can be on.
+    var lastDay: Int
+
+    var rescheduleDat = ""
+    var visitTypeID = ""
+    var reasonForVisitID = ""
+    var allowsProviderSelection = true
+    var providerDepartmentPairs: [(providerID: String, departmentID: String, isTeamMember: Bool)] = []
+    var schedulingPhone = ""
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rescheduleDat == rhs.rescheduleDat && lhs.reasons == rhs.reasons
+    }
+    func hash(into hasher: inout Hasher) { hasher.combine(rescheduleDat) }
+}
+
+/// A free time offered for rescheduling.
+struct AppointmentSlot: Identifiable, Hashable {
+    let id: String
+    let date: Date
+    let lengthMinutes: Int
+}
+
+/// One search's worth of free times, and where the next search starts.
+struct AppointmentSlotPage {
+    var slots: [AppointmentSlot]
+    /// The Epic day number to search from for later times; nil when there are no more.
+    var nextStartDay: Int?
+}
+
+/// Epic counts days from 31 December 1840 (day 1 is 1 January 1841).
+enum EpicDay {
+    private static let origin = DateComponents(calendar: .current, year: 1840, month: 12, day: 31).date!
+
+    static func number(for date: Date) -> Int {
+        Calendar.current.dateComponents([.day], from: origin, to: Calendar.current.startOfDay(for: date)).day ?? 0
+    }
+}
+
 /// A letter the hospital has shared (clinic letters, referrals, notes).
 struct Letter: Identifiable, Hashable {
     /// The letter's note id (`hnoId`), used with `csn` to load it.

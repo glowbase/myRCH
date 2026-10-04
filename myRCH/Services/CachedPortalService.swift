@@ -261,6 +261,24 @@ struct CachedPortalService: PortalService {
         await cache.remove(prefixes: ["appointments|\(patientID)"])
     }
 
+    // Free times change by the minute, so none of this is cached.
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions {
+        try await base.rescheduleOptions(appointmentID: appointmentID, for: patientID)
+    }
+
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage {
+        try await base.rescheduleSlots(options, appointmentID: appointmentID, startDay: startDay, for: patientID)
+    }
+
+    var booksReschedules: Bool { base.booksReschedules }
+
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws {
+        try await base.reschedule(appointmentID: appointmentID, to: slot, reason: reason, options: options, for: patientID)
+        await cache.remove(prefixes: ["appointments|\(patientID)"])
+    }
+
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
         try await cached("exploreMore|\(patientID)") { try await base.exploreMore(for: patientID) }
     }

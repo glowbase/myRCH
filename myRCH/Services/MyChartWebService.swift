@@ -759,6 +759,142 @@ actor MyChartWebService: PortalService {
         visitPageCache[csn]?.isOnWaitList = isOn
     }
 
+    // MARK: Rescheduling
+
+    /// Captured from the portal's Reschedule page (`Scheduling?workflow=reschedule&csn=…`).
+    /// The reply has the reschedule reasons and every ID GetSlots needs:
+    /// `OriginalAppointmentInfo.Dat`, the visit type, the reason for visit,
+    /// and the provider–department pairs.
+    func rescheduleOptions(appointmentID csn: String, for patientID: String) async throws -> RescheduleOptions {
+        let path = "Scheduling/GetSchedulingWorkflowData"
+        let json = try await postLegacy(for: patientID, path: path, query: [:], form: [
+            "schedulingParameters[workflow]": "reschedule",
+            "schedulingParameters[csn]": csn,
+            // The page sends a fresh 32-hex nonce per load.
+            "nonce": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        ], savesToDevice: false)
+        guard let data = json as? [String: Any], data["LoadError"] == nil || data["LoadError"] is NSNull,
+              let settings = data["WorkflowSettings"] as? [String: Any] else {
+            throw MyChartError.actionFailed(path)
+        }
+
+        // "Time Unsuitable (via Patient Portal)" → "Time Unsuitable"
+        let reasons = (settings["RescheduleReasons"] as? [[String: Any]] ?? []).compactMap { reason -> RescheduleOptions.Reason? in
+            guard let id = Self.string(reason, "Value"), let title = Self.string(reason, "Title") else { return nil }
+            return .init(id: id, title: title.replacingOccurrences(of: " (via Patient Portal)", with: ""))
+        }
+        let original = data["OriginalAppointmentInfo"] as? [String: Any] ?? [:]
+        let originalVisit = (original["OriginalAppointments"] as? [[String: Any]])?.first ?? [:]
+        let visitType = (originalVisit["VisitTypes"] as? [[String: Any]])?.first
+            ?? (data["VisitTypes"] as? [[String: Any]])?.first ?? [:]
+        let reasonForVisit = (data["ReasonsForVisit"] as? [[String: Any]])?.first ?? [:]
+        let department = (data["Departments"] as? [[String: Any]])?.first ?? [:]
+
+        var options = RescheduleOptions(
+            reasons: reasons,
+            requiresReason: settings["RequireRescheduleReason"] as? Bool ?? false,
+            lastDay: EpicDay.number(for: .now) + (Self.int(settings, "ToDaysOffset") ?? 90))
+        options.rescheduleDat = Self.string(original, "Dat") ?? ""
+        options.visitTypeID = Self.string(visitType, "ID") ?? ""
+        options.reasonForVisitID = Self.string(reasonForVisit, "Id") ?? options.visitTypeID
+        options.allowsProviderSelection = reasonForVisit["AllowProviderSelect"] as? Bool ?? true
+        options.providerDepartmentPairs = (data["ProviderDepartmentPairs"] as? [[String: Any]] ?? []).compactMap { pair in
+            guard let provider = Self.string(pair, "ProviderId"), let department = Self.string(pair, "DepartmentId") else { return nil }
+            return (provider, department, pair["IsTeamMember"] as? Bool ?? false)
+        }
+        options.schedulingPhone = Self.string(department, "PhoneNumber") ?? ""
+
+        guard !options.rescheduleDat.isEmpty, !options.visitTypeID.isEmpty,
+              !options.providerDepartmentPairs.isEmpty else {
+            if debugLogResponses { Self.logShape(json, label: path) }
+            throw MyChartError.actionFailed(path)
+        }
+        return options
+    }
+
+    /// Captured from the Reschedule page's time search. Each call covers
+    /// about a week from `startDte` (skipping ahead to the first week with
+    /// times), and `ContinueInfo.SearchRangeEndDte` says where it stopped,
+    /// so the next week starts the day after.
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID csn: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage {
+        let path = "Scheduling/GetSlots"
+        let visit = "appointmentBuilder.Appointments[0]"
+        var form: [String: String] = [
+            // 6 is the reschedule workflow (WorkflowSettings.WorkflowType).
+            "workflow.Type": "6",
+            "workflow.IsGuest": "false",
+            "workflow.IsAnonymous": "false",
+            "workflow.IsFromPrelogin": "false",
+            "workflow.RescheduleDat": options.rescheduleDat,
+            "workflow.SchedulingControllerParams.workflow": "reschedule",
+            "workflow.SchedulingControllerParams.csn": csn,
+            "workflow.BrowserId": browserID(),
+            "workflow.IsAuthenticatedWidget": "false",
+            "\(visit).VisitTypeId": options.visitTypeID,
+            "\(visit).RescheduleDat": options.rescheduleDat,
+            "\(visit).Slot": "",
+            "\(visit).SearchStartDte": "",
+            "\(visit).SelectedTelehealthMode": "0",
+            "\(visit).CanSkipLicensureCheck": "false",
+            "appointmentBuilder.ReasonForVisitLine": options.reasonForVisitID,
+            "appointmentBuilder.ReasonForVisitValue": "",
+            "appointmentBuilder.ReasonForVisitAllowProviderSelection": options.allowsProviderSelection ? "true" : "false",
+            "appointmentBuilder.UseInsuranceForVisit": "",
+            "appointmentBuilder.SchedulingPhone": options.schedulingPhone,
+            "appointmentBuilder.ClientIANATimeZone": TimeZone.current.identifier,
+            "startDte": String(startDay ?? EpicDay.number(for: .now)),
+            "useSchedulingPreferences": "false"
+        ]
+        for (index, pair) in options.providerDepartmentPairs.enumerated() {
+            let key = "\(visit).ProviderDepartmentPairs[\(index)]"
+            form["\(key).ProviderId"] = pair.providerID
+            form["\(key).DepartmentId"] = pair.departmentID
+            form["\(key).IsTeamMember"] = pair.isTeamMember ? "true" : "false"
+        }
+
+        let json = try await postLegacy(for: patientID, path: path, query: [:], form: form, savesToDevice: false)
+        guard let data = json as? [String: Any], data["ErrorCode"] == nil || data["ErrorCode"] is NSNull else {
+            if debugLogResponses { Self.logShape(json, label: path) }
+            throw MyChartError.actionFailed(path)
+        }
+
+        let iso = ISO8601DateFormatter()
+        var seen = Set<String>()
+        let slots = (data["Solutions"] as? [[String: Any]] ?? [])
+            .flatMap { $0["Slots"] as? [[String: Any]] ?? [] }
+            .compactMap { slot -> AppointmentSlot? in
+                // e.g. "2026-11-06T01:45:00Z"
+                guard let utc = Self.string(slot, "DisplayDateTimeUtc"), let date = iso.date(from: utc) else { return nil }
+                let id = "\(utc)|\(Self.string(slot, "ProviderId") ?? "")"
+                guard seen.insert(id).inserted else { return nil }
+                return AppointmentSlot(id: id, date: date, lengthMinutes: Self.int(slot, "LengthInMinutes") ?? 30)
+            }
+            .sorted { $0.date < $1.date }
+
+        let more = data["ContinueInfo"] as? [String: Any] ?? [:]
+        let next = (more["IsStopSearch"] as? Bool ?? false) ? nil : Self.int(more, "SearchRangeEndDte").map { $0 + 1 }
+        return AppointmentSlotPage(slots: slots, nextStartDay: next.flatMap { $0 <= options.lastDay ? $0 : nil })
+    }
+
+    /// The booking step hasn't been captured yet, so the sheet stops at
+    /// choosing a time (see `booksReschedules`).
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws {
+        throw MyChartError.actionFailed("Scheduling")
+    }
+
+    /// The site's `OSCountToken` cookie, which it sends as the scheduling
+    /// BrowserId. The page's script sets it, so a session that never loaded
+    /// the page may not have one; then make one in the same shape (20
+    /// letters and digits, then Unix seconds).
+    private func browserID() -> String {
+        let cookies = session.configuration.httpCookieStorage?.cookies(for: config.url("")) ?? []
+        if let token = cookies.first(where: { $0.name == "OSCountToken" })?.value { return token }
+        let characters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        return String((0..<20).map { _ in characters.randomElement()! }) + String(Int(Date.now.timeIntervalSince1970))
+    }
+
     func testResults(for patientID: String) async throws -> [TestResult] {
         // Captured from the site's test-results page. maxResults 0 means "no
         // limit". The orgFeatureFlags key is an opaque organisation ID; it's
