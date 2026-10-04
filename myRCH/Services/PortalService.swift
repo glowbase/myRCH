@@ -97,6 +97,12 @@ protocol PortalService: Sendable {
     /// Saves the editable contact details and answers the portal's updated copy.
     func updateContactInformation(_ update: ContactInformationUpdate,
                                   for patientID: String) async throws -> PersonalInformation
+    /// Password, two-step verification and device settings from Account Settings.
+    func securitySettings(for patientID: String) async throws -> SecuritySettings
+    /// Turns the portal's preview features on or off.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws
+    /// Turns "Remember logged-in devices" on or off.
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws
     /// Sets a linked account's nickname, colour (an index into
     /// `Theme.accountColours`) and, when given, a new JPEG photo, as the
     /// portal's Family Access page does. An empty nickname goes back to the

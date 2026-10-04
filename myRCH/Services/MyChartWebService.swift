@@ -1748,6 +1748,60 @@ actor MyChartWebService: PortalService {
         return Self.decodePersonalInformation(json)
     }
 
+    /// Captured from app/security-settings: an empty JSON POST answering flat
+    /// flags. `isUserOptedIntoPreviewFeatures` is the switch's state;
+    /// `arePreviewFeaturesEnabled` is whether they're live this session.
+    func securitySettings(for patientID: String) async throws -> SecuritySettings {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/security-settings/GetInitialSettings",
+            savesCopy: false,
+            referer: config.url("app/security-settings").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "GetInitialSettings") }
+        let root = json as? [String: Any] ?? [:]
+        func flag(_ key: String) -> Bool { root[key] as? Bool ?? false }
+        return SecuritySettings(
+            passwordLastChanged: root["passwordLastUpdated"] as? String ?? "",
+            passwordChangeAvailable: flag("passwordChangeAvailable"),
+            passkeysAvailable: flag("passkeyLoginAvailable"),
+            verifiesByEmailOrText: flag("twoFactorEmailSmsOn"),
+            verifiesByAuthenticatorApp: flag("twoFactorTOTPOn"),
+            twoStepRequired: flag("twoFactorRequired"),
+            remembersDevices: flag("rememberWebDevices"),
+            rememberDevicesAllowed: flag("rememberWebDevicesAllowed"),
+            previewFeaturesOn: flag("isUserOptedIntoPreviewFeatures"),
+            deactivateAccountAllowed: flag("deactivateAccountAllowed")
+        )
+    }
+
+    /// Captured from app/security-settings: `{"isOptedIn": Bool}`, answering
+    /// `{"success": true}`.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws {
+        try await setSecuritySwitch("api/security-settings/SetPreviewFeaturesStatus", isOn: isOn, for: patientID)
+    }
+
+    /// Captured from app/security-settings: the same `{"isOptedIn": Bool}`
+    /// body as preview features. Its reply wasn't captured, so only an
+    /// explicit `success: false` counts as failure.
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws {
+        try await setSecuritySwitch("api/security-settings/SetDeviceTrackingStatus", isOn: isOn, for: patientID)
+    }
+
+    private func setSecuritySwitch(_ action: String, isOn: Bool, for patientID: String) async throws {
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["isOptedIn": isOn],
+            savesCopy: false,
+            referer: config.url("app/security-settings").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: action) }
+        if (json as? [String: Any])?["success"] as? Bool == false {
+            throw MyChartError.actionFailed(action)
+        }
+    }
+
     private nonisolated static func decodePersonalInformation(_ json: Any) -> PersonalInformation {
         let root = json as? [String: Any] ?? [:]
         let values = root["currentValues"] as? [String: Any] ?? [:]

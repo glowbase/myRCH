@@ -88,6 +88,9 @@ struct EpicFHIRService: PortalService {
     func personalInformation(for patientID: String) async throws -> PersonalInformation { try notImplemented() }
     func updateContactInformation(_ update: ContactInformationUpdate,
                                   for patientID: String) async throws -> PersonalInformation { try notImplemented() }
+    func securitySettings(for patientID: String) async throws -> SecuritySettings { try notImplemented() }
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws { try notImplemented() }
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws { try notImplemented() }
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: Data?) async throws -> [LinkedAccount] { try notImplemented() }
     func accountPhotos() async -> [String: Data] { [:] }

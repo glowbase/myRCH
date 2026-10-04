@@ -299,6 +299,19 @@ struct CachedPortalService: PortalService {
         try await base.updateContactInformation(update, for: patientID)
     }
 
+    /// Not cached, so changes made on the portal show straight away.
+    func securitySettings(for patientID: String) async throws -> SecuritySettings {
+        try await base.securitySettings(for: patientID)
+    }
+
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws {
+        try await base.setPreviewFeatures(isOn, for: patientID)
+    }
+
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws {
+        try await base.setRemembersDevices(isOn, for: patientID)
+    }
+
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: Data?) async throws -> [LinkedAccount] {
         try await base.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)

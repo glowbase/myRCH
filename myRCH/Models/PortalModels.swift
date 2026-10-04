@@ -768,3 +768,22 @@ struct ContactInformationUpdate: Equatable, Sendable {
     var mobilePhone: String
     var workPhone: String
 }
+
+// MARK: - Security settings
+
+/// The account holder's login and verification settings from the portal's
+/// Account Settings page (`api/security-settings/GetInitialSettings`).
+struct SecuritySettings: Equatable, Sendable {
+    /// Already formatted by the portal, e.g. "29 Dec, 2025".
+    var passwordLastChanged: String
+    var passwordChangeAvailable: Bool
+    var passkeysAvailable: Bool
+    var verifiesByEmailOrText: Bool
+    var verifiesByAuthenticatorApp: Bool
+    /// At least one two-step method must stay on.
+    var twoStepRequired: Bool
+    var remembersDevices: Bool
+    var rememberDevicesAllowed: Bool
+    var previewFeaturesOn: Bool
+    var deactivateAccountAllowed: Bool
+}
