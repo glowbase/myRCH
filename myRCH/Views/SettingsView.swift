@@ -1,4 +1,3 @@
-import AppIntents
 import SwiftUI
 
 /// Chosen in Settings; applied at the app's root.
@@ -26,24 +25,16 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 /// Profile and settings, laid out like the Health app's profile: the person
 /// at the top, then grouped rows with coloured icons. Also where you switch
-/// between children.
+/// between children. Detailed settings live on their own pages (see
+/// AppSettingsViews.swift) so this one stays short.
 struct SettingsView: View {
     let profile: PatientProfile
     @Environment(Session.self) private var session
-    @Environment(\.openURL) private var openURL
 
     /// Explore More cards closed on Home (shared with the dashboard).
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
-    /// The Allergy Alert widget shows allergies without unlocking, so it's opt-in.
-    @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
-    @AppStorage(ActivityManager.enabledKey) private var liveActivitiesEnabled = true
     @State private var appLock = AppLock.shared
-    @AppStorage(MedicationStore.snoozeMinutesKey) private var snoozeMinutes = 10
-    @AppStorage(MedicationStore.followUpMinutesKey) private var followUpMinutes = 30
-    @AppStorage(DiscoverAlerts.newsKey) private var alertsForNews = false
-    @AppStorage(DiscoverAlerts.factSheetsKey) private var alertsForFactSheets = false
-    @Environment(MedicationStore.self) private var medicationStore
     /// From the portal's record header, for the profile row.
     @State private var urNumber: String?
     @State private var showsEditHome = false
@@ -52,11 +43,11 @@ struct SettingsView: View {
     var body: some View {
         List {
             profileHeader
+            recordsSection
             healthSection
-            accountsSection
-            homeSection
-            preferencesSection
-            dataSection
+            portalAccountSection
+            appSection
+            privacySection
             aboutSection
             signOutSection
         }
@@ -108,25 +99,10 @@ struct SettingsView: View {
         }
     }
 
-    private var healthSection: some View {
-        Section {
-            NavigationLink {
-                MedicalIDView(patientID: session.patientID)
-            } label: {
-                SettingsRow("Medical ID", symbol: "staroflife.fill", color: .red)
-            }
-            NavigationLink {
-                SharedRemindersView()
-            } label: {
-                SettingsRow("Share Medication Reminders", symbol: "person.2.fill", color: Theme.medication)
-            }
-        }
-    }
-
-    // MARK: - Accounts
+    // MARK: - Records
 
     @ViewBuilder
-    private var accountsSection: some View {
+    private var recordsSection: some View {
         if profile.linkedAccounts.count > 1 {
             Section {
                 ForEach(Array(profile.linkedAccounts.enumerated()), id: \.element.id) { index, account in
@@ -158,10 +134,51 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Home
+    // MARK: - Health
 
-    private var homeSection: some View {
-        Section("Home") {
+    /// For the selected child.
+    private var healthSection: some View {
+        Section("Health") {
+            NavigationLink {
+                MedicalIDView(patientID: session.patientID)
+            } label: {
+                SettingsRow("Medical ID", symbol: "staroflife.fill", color: .red)
+            }
+            NavigationLink {
+                SharedRemindersView()
+            } label: {
+                SettingsRow("Share Medication Reminders", symbol: "person.2.fill", color: Theme.medication)
+            }
+        }
+    }
+
+    // MARK: - Portal account
+
+    /// The signed-in adult's own details, whichever child is selected.
+    private var portalAccountSection: some View {
+        Section("Portal Account") {
+            NavigationLink {
+                PersonalInformationView()
+            } label: {
+                SettingsRow("Personal Information", symbol: "person.text.rectangle.fill", color: .teal)
+            }
+            NavigationLink {
+                SecuritySettingsView()
+            } label: {
+                SettingsRow("Login & Security", symbol: "lock.shield.fill", color: .gray)
+            }
+        }
+    }
+
+    // MARK: - App
+
+    private var appSection: some View {
+        Section("App") {
+            Picker(selection: $appearance) {
+                ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
+            } label: {
+                SettingsRow("Appearance", symbol: "circle.lefthalf.filled", color: .indigo)
+            }
             Button {
                 showsEditHome = true
             } label: {
@@ -175,118 +192,28 @@ struct SettingsView: View {
             }
             .foregroundStyle(.primary)
             .disabled(dismissedExplore.isEmpty)
-        }
-    }
-
-    // MARK: - Preferences
-
-    /// Asks for notification permission when an alert's turned on, and
-    /// schedules (or cancels) the background check.
-    private func discoverAlertsChanged(turnedOn: Bool) {
-        DiscoverAlerts.schedule()
-        guard turnedOn else { return }
-        Task {
-            // Gives the next check something to compare with.
-            await RCHContentStore.shared.refresh(minimumInterval: 0)
-            _ = await DiscoverAlerts.requestPermission()
-        }
-    }
-
-    @ViewBuilder
-    private var preferencesSection: some View {
-        Section {
             NavigationLink {
-                PersonalInformationView()
+                NotificationSettingsView()
             } label: {
-                SettingsRow("Personal Information", symbol: "person.text.rectangle.fill", color: .teal)
+                SettingsRow("Notifications", symbol: "bell.badge.fill", color: .red)
             }
             NavigationLink {
-                SecuritySettingsView()
+                LockScreenSettingsView()
             } label: {
-                SettingsRow("Login & Security", symbol: "lock.shield.fill", color: .gray)
+                SettingsRow("Lock Screen & Widgets", symbol: "platter.filled.bottom.iphone", color: .blue)
             }
-            Picker(selection: $appearance) {
-                ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
+            NavigationLink {
+                SiriSettingsView()
             } label: {
-                SettingsRow("Appearance", symbol: "circle.lefthalf.filled", color: .indigo)
+                SettingsRow("Siri & Shortcuts", symbol: "mic.fill", color: .purple)
             }
-            Button {
-                if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
-            } label: {
-                SettingsRow("Notifications", symbol: "bell.badge.fill", color: .red, showsChevron: true)
-            }
-            .foregroundStyle(.primary)
-        } header: {
-            Text("Preferences")
-        } footer: {
-            Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
-        }
-        Section {
-            Picker(selection: $snoozeMinutes) {
-                ForEach(MedicationStore.snoozeChoices, id: \.self) { Text("\($0) minutes").tag($0) }
-            } label: {
-                SettingsRow("Snooze", symbol: "clock.fill", color: Theme.medication)
-            }
-            Picker(selection: $followUpMinutes) {
-                ForEach(MedicationStore.followUpChoices, id: \.self) { minutes in
-                    Text(minutes == 0 ? "Off" : "After \(minutes) minutes").tag(minutes)
-                }
-            } label: {
-                SettingsRow("Follow-up Reminder", symbol: "bell.and.waves.left.and.right.fill", color: Theme.medication)
-            }
-        } header: {
-            Text("Medication Reminders")
-        } footer: {
-            Text("Snooze is how long Remind Me waits. A follow-up names any medication still not logged after its reminder.")
-        }
-        .onChange(of: snoozeMinutes) { NotificationPresenter.shared.registerCategories() }
-        .onChange(of: followUpMinutes) { medicationStore.refreshNotifications() }
-        Section {
-            Toggle(isOn: $alertsForNews) {
-                SettingsRow("New RCH News", symbol: "newspaper.fill", color: Theme.brand)
-            }
-            Toggle(isOn: $alertsForFactSheets) {
-                SettingsRow("New Fact Sheets", symbol: "doc.text.fill", color: Theme.green)
-            }
-        } header: {
-            Text("Discover Alerts")
-        } footer: {
-            Text("A notification when RCH News posts a story, or Kids or Teen Health Info adds a fact sheet. iOS checks every few hours, when Background App Refresh is on for myRCH.")
-        }
-        .onChange(of: alertsForNews) { _, isOn in discoverAlertsChanged(turnedOn: isOn) }
-        .onChange(of: alertsForFactSheets) { _, isOn in discoverAlertsChanged(turnedOn: isOn) }
-        Section {
-            ShortcutsLink()
-                .shortcutsLinkStyle(.automaticOutline)
-                .frame(maxWidth: .infinity)
-                .listRowBackground(Color.clear)
-        } footer: {
-            Text("Say \u{201C}Hey Siri, log next dose in myRCH\u{201D} to mark the next medication due today as taken.")
-        }
-        Section {
-            Toggle(isOn: $liveActivitiesEnabled) {
-                SettingsRow("Live Activities", symbol: "platter.filled.bottom.iphone", color: Theme.medication)
-            }
-            .onChange(of: liveActivitiesEnabled) { WidgetPublisher.shared.settingsChanged() }
-        } footer: {
-            Text("Shows a dose that's due, with Taken and Skip, and the day of a visit, on the Lock Screen and in the Dynamic Island. They start when you open myRCH.")
-        }
-        Section {
-            Toggle(isOn: $showsAllergiesOnLockScreen) {
-                SettingsRow("Allergies on Lock Screen", symbol: "allergens.fill", color: .orange)
-            }
-            .onChange(of: showsAllergiesOnLockScreen) { WidgetPublisher.shared.settingsChanged() }
-        } header: {
-            Text("Widgets")
-        } footer: {
-            Text("Lets the Allergy Alert widget show allergies without unlocking your iPhone, like Medical ID, so a first responder can see them. Anyone who picks up your phone can too.")
         }
     }
 
-    // MARK: - Data & privacy
+    // MARK: - Privacy
 
     @ViewBuilder
-    private var dataSection: some View {
+    private var privacySection: some View {
         @Bindable var session = session
         Section {
             Toggle(isOn: Binding(get: { appLock.isEnabled },
@@ -295,7 +222,7 @@ struct SettingsView: View {
             }
             .disabled(!appLock.isAvailable)
         } header: {
-            Text("Data & Privacy")
+            Text("Privacy")
         } footer: {
             Text(appLock.isAvailable
                  ? "Asks for \(appLock.method) each time you open myRCH, and hides your records in the app switcher. Your iPhone passcode works too."
