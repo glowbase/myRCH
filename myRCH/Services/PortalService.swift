@@ -22,6 +22,8 @@ protocol PortalService: Sendable {
     func letters(for patientID: String) async throws -> [Letter]
     /// A letter as a complete, self-contained HTML page.
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String
+    /// Referrals on the record, newest first.
+    func referrals(for patientID: String) async throws -> [Referral]
     func testResults(for patientID: String) async throws -> [TestResult]
     /// Fills in a result's values, ranges and report, which the list omits.
     func testResultDetails(_ result: TestResult, for patientID: String) async throws -> TestResult

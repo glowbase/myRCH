@@ -769,6 +769,36 @@ struct ContactInformationUpdate: Equatable, Sendable {
     var workPhone: String
 }
 
+// MARK: - Referrals
+
+/// A referral on the child's record, from the portal's Referrals page
+/// (`api/referrals/listReferrals`).
+struct Referral: Identifiable, Hashable, Sendable {
+    /// The portal's `internalId`.
+    let id: String
+    /// The referral number staff quote (`externalId`), e.g. "10000001".
+    var number: String
+    var status: Status
+    var created: Date?
+    /// Who the referral is to. Sometimes a first name only, sometimes empty.
+    var referredTo: String
+    var referredBy: String
+    var facility: String
+    /// When the referral is valid from and until. Either may be missing.
+    var validFrom: Date?
+    var validUntil: Date?
+
+    struct Status: Hashable, Sendable {
+        /// The portal's code; "1" (Authorised) and "6" (Closed) are the only
+        /// ones seen so far.
+        var code: String
+        /// As the portal words it, e.g. "Authorised".
+        var title: String
+
+        var isClosed: Bool { code == "6" }
+    }
+}
+
 // MARK: - Security settings
 
 /// The account holder's login and verification settings from the portal's

@@ -98,6 +98,7 @@ enum Theme {
         static let trackHealth = shade(0.00, 0.55, 0.58, dark: 0.24, 0.82, 0.82)   // teal
         static let implants = shade(0.62, 0.40, 0.22, dark: 0.86, 0.64, 0.44)      // warm brown
         static let letters = shade(0.76, 0.52, 0.00, dark: 1.00, 0.76, 0.28)       // gold
+        static let referrals = shade(0.30, 0.42, 0.58, dark: 0.58, 0.70, 0.88)     // slate blue
         static let healthSummary = shade(0.86, 0.26, 0.48, dark: 1.00, 0.54, 0.70) // pink
         static let messages = shade(0.10, 0.46, 0.92, dark: 0.42, 0.66, 1.00)      // blue
         static let sharing = shade(0.00, 0.58, 0.48, dark: 0.28, 0.84, 0.70)       // jade

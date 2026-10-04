@@ -1659,6 +1659,46 @@ actor MyChartWebService: PortalService {
         .sorted { $0.date > $1.date }
     }
 
+    /// Captured from app/referrals: an empty JSON POST answering
+    /// `referralList`, with days as "14/10/2025" (an empty string when
+    /// unknown) and `statusString` already worded for families. `dte` is the
+    /// creation day as an Epic day number, and is skipped in favour of
+    /// `creationDate`.
+    func referrals(for patientID: String) async throws -> [Referral] {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/referrals/listReferrals",
+            referer: config.url("app/referrals").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "listReferrals") }
+        let items = (json as? [String: Any])?["referralList"] as? [[String: Any]] ?? []
+        return items.compactMap { item -> Referral? in
+            guard let id = Self.string(item, "internalId") else { return nil }
+            return Referral(
+                id: id,
+                number: Self.string(item, "externalId") ?? "",
+                status: .init(code: Self.string(item, "status") ?? "",
+                              title: Self.string(item, "statusString") ?? "Unknown"),
+                created: Self.string(item, "creationDate").flatMap(Self.slashDay),
+                referredTo: Self.string(item, "referredToProviderName") ?? "",
+                referredBy: Self.string(item, "referredByProviderName") ?? "",
+                facility: Self.string(item, "referredToFacility") ?? "",
+                validFrom: Self.string(item, "start").flatMap(Self.slashDay),
+                validUntil: Self.string(item, "end").flatMap(Self.slashDay)
+            )
+        }
+        .sorted { ($0.created ?? .distantPast) > ($1.created ?? .distantPast) }
+    }
+
+    /// Australian day/month/year without leading zeros, e.g. "3/7/2026".
+    private nonisolated static func slashDay(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
+        formatter.dateFormat = "d/M/yyyy"
+        return formatter.date(from: text)
+    }
+
     private nonisolated static func isoDay(_ text: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")

@@ -209,6 +209,24 @@ struct MockPortalService: PortalService {
         ]
     }
 
+    func referrals(for patientID: String) async throws -> [Referral] {
+        await delay()
+        let rch = "The Royal Children's Hospital"
+        let authorised = Referral.Status(code: "1", title: "Authorised")
+        let closed = Referral.Status(code: "6", title: "Closed")
+        return [
+            Referral(id: "r1", number: "10000003", status: authorised, created: Self.date(2026, 7, 3),
+                     referredTo: "Kevin Chang, Consultant", referredBy: "Sarah Flynn, Registrar",
+                     facility: rch, validFrom: Self.date(2026, 7, 3), validUntil: nil),
+            Referral(id: "r2", number: "10000002", status: authorised, created: Self.date(2025, 12, 22),
+                     referredTo: "", referredBy: "Sarah Flynn, Registrar",
+                     facility: rch, validFrom: Self.date(2026, 8, 12), validUntil: nil),
+            Referral(id: "r3", number: "10000001", status: closed, created: Self.date(2025, 10, 14),
+                     referredTo: "Sarah Flynn, Registrar", referredBy: "Alex Morgan, GP",
+                     facility: rch, validFrom: Self.date(2025, 11, 17), validUntil: Self.date(2026, 2, 17))
+        ]
+    }
+
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String {
         await delay()
         return """

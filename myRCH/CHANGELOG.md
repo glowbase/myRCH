@@ -12,6 +12,9 @@ The app shows this file under Settings > Version, so keep each entry to one line
 
 ## [Unreleased]
 
+### Added
+- A Referrals section in Browse showing who your child was referred to, by whom, its status and how long it's valid.
+
 ## [1.0.0] - 2026-10-04
 
 The first numbered version, covering everything built since the project began on 25 September 2026.
