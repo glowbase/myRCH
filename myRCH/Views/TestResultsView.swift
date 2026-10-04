@@ -899,7 +899,7 @@ private struct DocumentPreviewSheet: View {
 }
 
 /// SwiftUI has no PDF view, so host PDFKit's.
-private struct PDFKitView: UIViewRepresentable {
+struct PDFKitView: UIViewRepresentable {
     let document: PDFDocument
 
     func makeUIView(context: Context) -> PDFView {

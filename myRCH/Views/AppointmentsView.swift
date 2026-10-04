@@ -3,6 +3,7 @@ import MapKit
 import EventKit
 import EventKitUI
 import WebKit
+import PDFKit
 
 // MARK: - Document styling
 
@@ -164,6 +165,63 @@ struct AppointmentRow: View {
     }
 }
 
+// MARK: - Visitor map
+
+/// The hospital's visitor directory map (a public PDF on rch.org.au), for
+/// finding the check-in desk.
+private struct VisitorMapSheet: View {
+    private static let url = URL(string: "https://www.rch.org.au/uploadedFiles/Main/Content/info/Visitor_Directory_Map.pdf")!
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var pdf: PDFDocument?
+    @State private var failed = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let pdf {
+                    PDFKitView(document: pdf)
+                        .ignoresSafeArea(edges: .bottom)
+                } else if failed {
+                    ContentUnavailableView {
+                        Label("Couldn't load the map", systemImage: "map")
+                    } description: {
+                        Text("Check your internet connection and try again.")
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView("Loading map…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Visitor Map")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareLink(item: Self.url)
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        failed = false
+        // The shared URL cache keeps it for next time, subject to the server's headers.
+        guard let (data, _) = try? await URLSession.shared.data(from: Self.url),
+              let document = PDFDocument(data: data) else {
+            failed = true
+            return
+        }
+        pdf = document
+    }
+}
+
 // MARK: - Detail
 
 struct AppointmentDetailView: View {
@@ -183,6 +241,7 @@ struct AppointmentDetailView: View {
     /// Notes and After Visit Summary, fetched when a past visit opens.
     @State private var documents: [VisitDocument] = []
     @State private var showsRecap = false
+    @State private var showsVisitorMap = false
 
     init(appointment: Appointment) {
         self.appointment = appointment
@@ -250,6 +309,7 @@ struct AppointmentDetailView: View {
             }
         }
         .sheet(isPresented: $showsRecap) { VisitRecapSheet(appointment: appointment, documents: documents) }
+        .sheet(isPresented: $showsVisitorMap) { VisitorMapSheet() }
         .task(id: appointment.id) { await loadDocuments() }
     }
 
@@ -595,7 +655,9 @@ struct AppointmentDetailView: View {
                 }
                 if let checkIn = appointment.checkInLocation {
                     Divider().padding(.leading, 52)
-                    detailRow(systemImage: "person.badge.clock.fill", title: "Check in at", value: checkIn)
+                    detailRow(systemImage: "person.badge.clock.fill", title: "Check in at", value: checkIn) {
+                        showsVisitorMap = true
+                    }
                 }
                 if let phone = appointment.phone {
                     Divider().padding(.leading, 52)
