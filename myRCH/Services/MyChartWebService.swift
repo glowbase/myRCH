@@ -1715,6 +1715,40 @@ actor MyChartWebService: PortalService {
             referer: config.url("app/personal-information").absoluteString
         )
         if debugLogResponses { Self.logShape(json, label: "GetContactInformation") }
+        return Self.decodePersonalInformation(json)
+    }
+
+    /// Captured from app/personal-information/edit-contact-information: the
+    /// body sends `temporaryAddress` (empty), `emailAddress` and the editable
+    /// phone numbers (mobile and work; home and the address are read-only).
+    /// An empty number clears it. The reply has the same shape as
+    /// GetContactInformation plus `savedSuccessfully`.
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        let action = "api/personalInformation/UpdateContactInformation"
+        let body: [String: Any] = [
+            "temporaryAddress": [String: Any](),
+            "emailAddress": update.email,
+            "phoneNumbers": [
+                ["type": "mobile", "phoneNumber": update.mobilePhone],
+                ["type": "work", "phoneNumber": update.workPhone]
+            ]
+        ]
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/personal-information/edit-contact-information").absoluteString
+        )
+        guard (json as? [String: Any])?["savedSuccessfully"] as? Bool == true else {
+            if debugLogResponses { Self.logShape(json, label: "UpdateContactInformation") }
+            throw MyChartError.actionFailed(action)
+        }
+        return Self.decodePersonalInformation(json)
+    }
+
+    private nonisolated static func decodePersonalInformation(_ json: Any) -> PersonalInformation {
         let root = json as? [String: Any] ?? [:]
         let values = root["currentValues"] as? [String: Any] ?? [:]
         let address = values["address"] as? [String: Any] ?? [:]
@@ -1725,11 +1759,23 @@ actor MyChartWebService: PortalService {
         return PersonalInformation(
             email: values["emailAddress"] as? String ?? "",
             phoneNumbers: phones,
-            addressLines: (address["formattedValues"] as? [String] ?? []).filter { !$0.isEmpty },
+            addressLines: addressLines(address),
             country: (address["country"] as? [String: Any])?["title"] as? String ?? "",
             emailNeedsVerification: root["emailNeedsVerification"] as? Bool ?? false,
             mobileNeedsVerification: root["mobilePhoneNeedsVerification"] as? Bool ?? false
         )
+    }
+
+    /// Street, then "City STATE postcode". The portal's own formattedValues
+    /// pack the second line as "CITY,State    3073", so they're only a fallback.
+    private nonisolated static func addressLines(_ address: [String: Any]) -> [String] {
+        let street = address["street"] as? String ?? ""
+        let city = address["city"] as? String ?? ""
+        let state = (address["state"] as? [String: Any])?["abbreviation"] as? String ?? ""
+        let zip = address["zip"] as? String ?? ""
+        let locality = [city, state, zip].filter { !$0.isEmpty }.joined(separator: " ")
+        let lines = [street, locality].filter { !$0.isEmpty }
+        return lines.isEmpty ? (address["formattedValues"] as? [String] ?? []).filter { !$0.isEmpty } : lines
     }
 
     /// Mirrors the site's `reconcileWebDevice`: the server issues a device ID

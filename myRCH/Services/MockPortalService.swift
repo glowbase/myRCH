@@ -82,6 +82,19 @@ struct MockPortalService: PortalService {
         )
     }
 
+    /// Answers the sample details with the edits applied; nothing is kept.
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        var information = try await personalInformation(for: patientID)
+        information.email = update.email
+        information.phoneNumbers = [
+            .init(type: "mobile", number: update.mobilePhone),
+            .init(type: "home", number: information.phone("home")),
+            .init(type: "work", number: update.workPhone)
+        ].filter { !$0.number.isEmpty }
+        return information
+    }
+
     func appointments(for patientID: String) async throws -> [Appointment] {
         await delay()
         let rchAddress = "50 Flemington Road, Parkville VIC 3052"

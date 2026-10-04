@@ -747,4 +747,16 @@ struct PersonalInformation: Equatable, Sendable {
     var country: String
     var emailNeedsVerification: Bool
     var mobileNeedsVerification: Bool
+
+    /// The first number of the given type, or "" if there isn't one.
+    func phone(_ type: String) -> String {
+        phoneNumbers.first { $0.type.lowercased() == type }?.number ?? ""
+    }
+}
+
+/// The contact details the portal lets the account holder change.
+struct ContactInformationUpdate: Equatable, Sendable {
+    var email: String
+    var mobilePhone: String
+    var workPhone: String
 }

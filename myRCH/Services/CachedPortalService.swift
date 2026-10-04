@@ -294,6 +294,11 @@ struct CachedPortalService: PortalService {
         try await base.personalInformation(for: patientID)
     }
 
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        try await base.updateContactInformation(update, for: patientID)
+    }
+
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
                           photo: Data?) async throws -> [LinkedAccount] {
         try await base.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
