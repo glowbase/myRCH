@@ -241,6 +241,8 @@ struct SummaryCard<Content: View>: View {
     let systemImage: String
     let color: Color
     var detail: String? = nil
+    /// Off where tapping the card doesn't open another page.
+    var showsChevron = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -255,9 +257,11 @@ struct SummaryCard<Content: View>: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
             content
                 .frame(maxWidth: .infinity, alignment: .leading)

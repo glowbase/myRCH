@@ -688,6 +688,7 @@ private struct MRNSheet: View {
 /// (e.g. "A1") gets its own box on the left, like a gate on a boarding pass.
 struct UpcomingAppointmentCard: View {
     let appointment: Appointment
+    var showsChevron = true
 
     private var dayText: String {
         let calendar = Calendar.current
@@ -700,7 +701,7 @@ struct UpcomingAppointmentCard: View {
         let art = Feature.visits.tileArt
         SummaryCard(category: appointment.isTelehealth ? "Telehealth" : "Visit",
                     systemImage: appointment.isTelehealth ? "video.fill" : art.symbol,
-                    color: art.color, detail: dayText) {
+                    color: art.color, detail: dayText, showsChevron: showsChevron) {
             HStack(alignment: .center, spacing: 14) {
                 if let desk = appointment.deskCode {
                     deskBox(desk, color: art.color)

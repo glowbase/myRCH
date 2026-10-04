@@ -222,6 +222,221 @@ private struct VisitorMapSheet: View {
     }
 }
 
+// MARK: - Rebook
+
+/// Rebook: choose a reason and one of the portal's free times, a week at a
+/// time, as on the portal's Reschedule page.
+private struct RescheduleSheet: View {
+    let appointment: Appointment
+    let onRescheduled: (Date) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(Session.self) private var session
+
+    @State private var options: RescheduleOptions?
+    @State private var slots: [AppointmentSlot] = []
+    @State private var reason: RescheduleOptions.Reason?
+    @State private var selected: AppointmentSlot?
+    @State private var loadError: String?
+    @State private var isLoadingMore = false
+    @State private var isBooking = false
+    @State private var bookingError: String?
+
+    private var canBook: Bool {
+        guard session.service.booksReschedules, selected != nil, !isBooking else { return false }
+        return reason != nil || !(options?.requiresReason ?? false)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let options {
+                    form(options)
+                } else if let loadError {
+                    ContentUnavailableView {
+                        Label("Couldn't find times", systemImage: "calendar.badge.exclamationmark")
+                    } description: {
+                        Text(loadError)
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView("Finding times…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle("Rebook")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isBooking {
+                        ProgressView()
+                    } else {
+                        Button("Rebook") { Task { await book() } }
+                            .disabled(!canBook)
+                    }
+                }
+            }
+        }
+        .task { await load() }
+        .alert("Couldn't rebook", isPresented: Binding(
+            get: { bookingError != nil },
+            set: { if !$0 { bookingError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(bookingError ?? "")
+        }
+    }
+
+    /// The current booking and each free time as upcoming visit cards, like Home's.
+    private func form(_ options: RescheduleOptions) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                header("Current booking")
+                UpcomingAppointmentCard(appointment: appointment, showsChevron: false)
+
+                if !options.reasons.isEmpty {
+                    reasonPicker(options)
+                }
+
+                header("Other times")
+                    .padding(.top, 8)
+                if slots.isEmpty, !isLoadingMore {
+                    Text("There are no other times in the next \(options.lastDay - EpicDay.number(for: .now)) days.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(slots) { slotCard($0) }
+
+                // Weeks arrive one search at a time; the cards fill in as they do.
+                if isLoadingMore {
+                    ProgressView(slots.isEmpty ? "Finding times…" : "Finding more times…")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+
+                if !session.service.booksReschedules {
+                    Text("Booking a new time from the app isn't connected yet. To move this visit, call the clinic\(appointment.phone.map { " on \($0)" } ?? "") or use My RCH Portal.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+            }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func header(_ title: String) -> some View {
+        Text(title)
+            .font(.title3.bold())
+            .foregroundStyle(Theme.ink)
+    }
+
+    private func reasonPicker(_ options: RescheduleOptions) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Reason")
+                Spacer()
+                Picker("Reason", selection: $reason) {
+                    Text("Choose").tag(RescheduleOptions.Reason?.none)
+                    ForEach(options.reasons) { reason in
+                        Text(reason.title).tag(Optional(reason))
+                    }
+                }
+                .labelsHidden()
+                .tint(Theme.brand)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+            if options.requiresReason {
+                Text("The clinic needs a reason to move the visit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    /// The visit as it would be at this time, outlined when chosen.
+    private func slotCard(_ slot: AppointmentSlot) -> some View {
+        var moved = appointment
+        moved.date = slot.date
+        moved.durationMinutes = slot.lengthMinutes
+        let isSelected = selected == slot
+        return Button {
+            selected = slot
+        } label: {
+            UpcomingAppointmentCard(appointment: moved, showsChevron: false)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(Theme.brand, lineWidth: isSelected ? 3 : 0)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white, Theme.brand)
+                            .padding(14)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func load() async {
+        loadError = nil
+        do {
+            options = try await session.service.rescheduleOptions(appointmentID: appointment.id, for: session.patientID)
+            await loadAllSlots()
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    /// Each search covers about a week, so keep searching until the portal
+    /// says there's nothing more (or the booking window ends).
+    private func loadAllSlots() async {
+        guard let options else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        var startDay: Int?
+        var searched = Set<Int>()
+        repeat {
+            do {
+                let page = try await session.service.rescheduleSlots(options, appointmentID: appointment.id,
+                                                                      startDay: startDay, for: session.patientID)
+                slots += page.slots.filter { new in !slots.contains { $0.id == new.id } }
+                startDay = page.nextStartDay
+            } catch {
+                // Keep the times already found; only a first failure replaces the sheet.
+                if slots.isEmpty { loadError = error.localizedDescription; self.options = nil }
+                return
+            }
+            // Guard against a search that doesn't move forward.
+            if let day = startDay, !searched.insert(day).inserted { break }
+        } while startDay != nil && !Task.isCancelled
+    }
+
+    private func book() async {
+        guard let options, let selected else { return }
+        isBooking = true
+        defer { isBooking = false }
+        do {
+            try await session.service.reschedule(appointmentID: appointment.id, to: selected, reason: reason,
+                                                 options: options, for: session.patientID)
+            onRescheduled(selected.date)
+            dismiss()
+        } catch {
+            bookingError = error.localizedDescription
+        }
+    }
+}
+
 // MARK: - Detail
 
 struct AppointmentDetailView: View {
@@ -278,9 +493,9 @@ struct AppointmentDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Appointment")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Rebook this appointment?", isPresented: $showsChangeOptions, titleVisibility: .visible) {
-            Button("Request a new time") {
-                confirmation = "The clinic will contact you to arrange a new time."
+        .sheet(isPresented: $showsChangeOptions) {
+            RescheduleSheet(appointment: appointment) { newDate in
+                confirmation = "Your visit is now on \(newDate.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute()))."
             }
         }
         .alert("Cancel this appointment?", isPresented: $showsCancelConfirmation) {

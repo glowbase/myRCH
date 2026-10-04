@@ -80,6 +80,16 @@ protocol PortalService: Sendable {
     /// Adds an upcoming visit to the portal's wait list for earlier times,
     /// or takes it off.
     func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws
+    /// Reasons and the details needed to look up new times for a visit.
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions
+    /// Free times from `startDay` (an Epic day number; nil for today).
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage
+    /// False until the portal's booking step has been mapped.
+    var booksReschedules: Bool { get }
+    /// Moves the visit to the chosen time.
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
     /// Sets a linked account's nickname, colour (an index into
@@ -108,6 +118,7 @@ enum PortalError: LocalizedError {
 
 extension PortalService {
     var readsAllergies: Bool { true }
+    var booksReschedules: Bool { false }
 
     /// The inbox, for the dashboard and notifications.
     func conversations(for patientID: String) async throws -> [Conversation] {
