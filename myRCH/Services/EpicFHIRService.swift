@@ -80,5 +80,7 @@ struct EpicFHIRService: PortalService {
     func setPatientGoal(_ text: String, for patientID: String) async throws { try notImplemented() }
     func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws { try notImplemented() }
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose] { try notImplemented() }
-    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] { try notImplemented() }
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: Data?) async throws -> [LinkedAccount] { try notImplemented() }
+    func accountPhoto(_ account: LinkedAccount) async throws -> Data? { try notImplemented() }
 }

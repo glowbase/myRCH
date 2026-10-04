@@ -45,18 +45,22 @@ struct MockPortalService: PortalService {
     ]
 
     /// Nothing is kept: the change lasts until the next sign-in.
-    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] {
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: Data?) async throws -> [LinkedAccount] {
         await delay()
         return Self.accounts.map { account in
             guard account.id == accountID else { return account }
             var updated = account
-            // As the portal does, an empty name goes back to the patient's own.
-            if !name.isEmpty { updated.name = name }
+            // As the portal does, an empty nickname goes back to the patient's own name.
+            if !nickname.isEmpty { updated.name = nickname }
             updated.initials = String(updated.name.prefix(1)).uppercased()
             updated.tabColor = colour
             return updated
         }
     }
+
+    /// Sample accounts have no photos.
+    func accountPhoto(_ account: LinkedAccount) async throws -> Data? { nil }
 
     /// A made-up UR number so the dashboard chip shows in demo mode.
     func recordHeader(for patientID: String) async throws -> RecordHeader {

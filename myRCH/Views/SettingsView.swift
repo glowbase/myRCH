@@ -73,7 +73,8 @@ struct SettingsView: View {
         Section {
             HStack(spacing: 14) {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                           tint: session.activeTint, size: 64)
+                           tint: session.activeTint, size: 64,
+                           image: session.activeAccount.flatMap { session.accountPhotos[$0.id] })
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(session.activeAccount?.name ?? profile.fullName)
@@ -133,9 +134,7 @@ struct SettingsView: View {
                         session.activeAccountID = account.id
                     } label: {
                         HStack(spacing: 14) {
-                            AvatarView(initials: account.initials,
-                                       tint: Theme.accountTint(account, at: index),
-                                       size: 34)
+                            AccountAvatar(account: account, index: index, size: 34)
                             Text(account.name).foregroundStyle(.primary)
                             Spacer()
                             if account.id == session.activeAccountID {
@@ -149,7 +148,7 @@ struct SettingsView: View {
                 NavigationLink {
                     EditAccountsView()
                 } label: {
-                    SettingsRow("Edit Names and Colours", symbol: "paintpalette.fill", color: Theme.proxy)
+                    SettingsRow("Nicknames and Photos", symbol: "person.crop.circle.badge.plus", color: Theme.proxy)
                 }
             } header: {
                 Text("Records")

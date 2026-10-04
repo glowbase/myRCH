@@ -15,7 +15,17 @@ final class Session {
     }
 
     private(set) var phase: Phase = .signedOut {
-        didSet { updateAppLock() }
+        didSet {
+            updateAppLock()
+            switch (oldValue, phase) {
+            case (.signedIn, .signedIn):
+                break
+            case let (_, .signedIn(profile)):
+                Task { await loadAccountPhotos(for: profile) }
+            default:
+                accountPhotos = [:]
+            }
+        }
     }
     var signInError: String?
     var verificationError: String?
@@ -153,10 +163,10 @@ final class Session {
         return Theme.accountTint(profile.linkedAccounts[idx], at: idx)
     }
 
-    /// Saves a linked account's name and colour on the portal, then shows
-    /// the portal's copy of that account.
-    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws {
-        let accounts = try await service.customiseAccount(accountID, name: name, colour: colour)
+    /// Saves a linked account's nickname, colour and (when given) new photo
+    /// on the portal, then shows the portal's copy of that account.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int, photo: Data?) async throws {
+        let accounts = try await service.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
         guard case var .signedIn(profile) = phase,
               let updated = accounts.first(where: { $0.id == accountID }),
               let index = profile.linkedAccounts.firstIndex(where: { $0.id == accountID }) else { return }
@@ -164,8 +174,21 @@ final class Session {
         account.name = updated.name
         account.initials = updated.initials
         account.tabColor = updated.tabColor ?? colour
+        account.photoPath = updated.photoPath
         profile.linkedAccounts[index] = account
         phase = .signedIn(profile)
+        if let photo, let image = UIImage(data: photo) { accountPhotos[accountID] = image }
+    }
+
+    /// Account photos from the portal, by account ID. Held in memory only.
+    private(set) var accountPhotos: [String: UIImage] = [:]
+
+    private func loadAccountPhotos(for profile: PatientProfile) async {
+        for account in profile.linkedAccounts where account.photoPath != nil {
+            if let data = try? await service.accountPhoto(account), let image = UIImage(data: data) {
+                accountPhotos[account.id] = image
+            }
+        }
     }
 
     var isAuthenticating: Bool {

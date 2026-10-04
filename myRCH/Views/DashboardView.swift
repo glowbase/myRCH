@@ -245,7 +245,8 @@ struct DashboardView: View {
                     SettingsView(profile: profile)
                 } label: {
                     AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                               tint: session.activeTint, size: 32)
+                               tint: session.activeTint, size: 32,
+                               image: session.activeAccount.flatMap { session.accountPhotos[$0.id] })
                 }
                 .accessibilityLabel("Profile and settings")
             }

@@ -59,6 +59,8 @@ struct LinkedAccount: Identifiable, Hashable {
     var dateOfBirth: Date? = nil
     /// The colour chosen on the portal, as an index into `Theme.accountColours`.
     var tabColor: Int? = nil
+    /// The account's photo on the portal, e.g. /MyRCHPortal/Image/Load?fileName=….
+    var photoPath: String? = nil
 }
 
 // MARK: - Appointments

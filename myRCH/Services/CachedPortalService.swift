@@ -271,7 +271,13 @@ struct CachedPortalService: PortalService {
         }
     }
 
-    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] {
-        try await base.customiseAccount(accountID, name: name, colour: colour)
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: Data?) async throws -> [LinkedAccount] {
+        try await base.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
+    }
+
+    /// `Session` keeps the photos it loads.
+    func accountPhoto(_ account: LinkedAccount) async throws -> Data? {
+        try await base.accountPhoto(account)
     }
 }
