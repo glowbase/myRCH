@@ -81,6 +81,24 @@ struct CategoryChip: View {
     }
 }
 
+/// A row of chips or pills that scrolls sideways rather than wrapping, like
+/// Home's and Discover's. On a page the chips scroll out to the screen
+/// edges; in a list row, pass `clipsToBounds: true` to keep them inside it.
+struct ChipRow<Content: View>: View {
+    var spacing: CGFloat = 8
+    var clipsToBounds = false
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: spacing) {
+                content()
+            }
+        }
+        .scrollClipDisabled(!clipsToBounds)
+    }
+}
+
 /// A small tinted capsule label, e.g. for diagnoses and allergies.
 struct Pill: View {
     let text: String
