@@ -51,7 +51,7 @@ struct CommunicationPreferencesView: View {
         } message: {
             Text(saveError ?? "")
         }
-        .task(id: session.patientID) {
+        .task(id: accountHolderID) {
             await load()
         }
         // Auto-save: wait for a short pause in toggling, then send the
@@ -65,6 +65,12 @@ struct CommunicationPreferencesView: View {
         }
     }
 
+    /// Preferences belong to the signed-in adult, and the portal only returns
+    /// them in that account's context, so use it even while a child is selected.
+    private var accountHolderID: String {
+        session.profile?.id ?? session.patientID
+    }
+
     private var hasChanges: Bool {
         guard let preferences, let savedPreferences else { return false }
         return preferences != savedPreferences
@@ -73,7 +79,7 @@ struct CommunicationPreferencesView: View {
     private func load() async {
         loadError = nil
         do {
-            let loaded = try await session.service.communicationPreferences(for: session.patientID)
+            let loaded = try await session.service.communicationPreferences(for: accountHolderID)
             preferences = loaded
             savedPreferences = loaded
         } catch {
@@ -91,7 +97,7 @@ struct CommunicationPreferencesView: View {
         defer { isSaving = false }
         while let current = preferences, current != savedPreferences {
             do {
-                try await session.service.updateCommunicationPreferences(current, for: session.patientID)
+                try await session.service.updateCommunicationPreferences(current, for: accountHolderID)
                 savedPreferences = current
             } catch {
                 // Put the switches back to what the portal actually has.
@@ -144,8 +150,20 @@ private struct CommunicationGroupRow: View {
     let group: CommunicationPreferenceGroup
 
     var body: some View {
-        HStack {
-            SettingsRow(group.title, symbol: symbol, color: color)
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(color.gradient, in: .rect(cornerRadius: 7))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(group.title)
+                if !group.description.isEmpty {
+                    Text(group.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Spacer()
             Text("\(enabledCount) of \(group.items.count) on")
                 .font(.subheadline)
