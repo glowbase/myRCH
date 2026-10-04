@@ -704,14 +704,35 @@ struct UpcomingAppointmentCard: View {
                 if let desk = appointment.deskCode {
                     deskBox(desk, color: art.color)
                 }
+                // Same order as the visits list: what, which clinic, then when.
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(appointment.date.formatted(date: .omitted, time: .shortened))
-                        .font(.system(.title, design: .rounded).bold())
+                    Text(appointment.title)
+                        .font(.system(.title3, design: .rounded).bold())
                         .foregroundStyle(.primary)
-                    // The clinic says more than the visit type (often just "Review").
-                    Text(appointment.department.isEmpty ? appointment.title : appointment.department)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
+                    if !appointment.department.isEmpty {
+                        Text(appointment.department)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 14) {
+                        Label {
+                            Text(appointment.date.formatted(date: .omitted, time: .shortened))
+                        } icon: {
+                            Image(systemName: "clock").foregroundStyle(art.color)
+                        }
+                        // Just the name: the portal adds the role, e.g. "Joanne Harrison, Consultant".
+                        if let provider = appointment.provider?.split(separator: ",").first {
+                            Label {
+                                Text(provider.trimmingCharacters(in: .whitespaces))
+                            } icon: {
+                                Image(systemName: "stethoscope").foregroundStyle(art.color)
+                            }
+                            .lineLimit(1)
+                        }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.top, 2)
                     // The desk box already says where; otherwise show the check-in text.
                     if appointment.deskCode == nil, !appointment.isTelehealth,
                        let location = appointment.checkInLocation {
