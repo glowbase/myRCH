@@ -25,6 +25,7 @@ The app shows this file under Settings > Version, so keep each entry to one line
 - Chips under a visit, test result or medication's title now scroll sideways instead of wrapping onto a second line.
 - A visit's check-in chip shows the full desk name, such as "Specialist Clinics Desk A1".
 - Widgets use each section's colour, and the Next Visit widget shows the check-in desk.
+- While the app signs in at launch, the leaves on the RCH tree pulse their colours on and off instead of showing a spinner.
 
 ### Fixed
 - Saving a child's nickname, colour or photo no longer fails after the portal signs you out in the background, or while another child's record is refreshing.

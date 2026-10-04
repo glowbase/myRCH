@@ -229,12 +229,14 @@ struct LoginView: View {
 struct LaunchArtwork<Accessory: View>: View {
     /// Matches the 480px @3x `LaunchIcon` the launch screen shows.
     static var iconSize: CGFloat { 160 }
+    /// Pulses the leaves' colours on and off, as a loading animation.
+    var pulsesLeaves = false
     @ViewBuilder var accessory: Accessory
 
+    @State private var start = Date.now
+
     var body: some View {
-        Image("LaunchIcon")
-            .resizable()
-            .scaledToFit()
+        icon
             .frame(width: Self.iconSize, height: Self.iconSize)
             .accessibilityHidden(true)
             .overlay(alignment: .top) {
@@ -246,16 +248,40 @@ struct LaunchArtwork<Accessory: View>: View {
             // The asset the launch screen uses, so the two match exactly.
             .background(Color("LaunchBackground").ignoresSafeArea())
     }
+
+    @ViewBuilder
+    private var icon: some View {
+        let image = Image("LaunchIcon").resizable().scaledToFit()
+        if pulsesLeaves {
+            TimelineView(.animation) { context in
+                let elapsed = Float(context.date.timeIntervalSince(start))
+                image.colorEffect(ShaderLibrary.leafPulse(
+                    .float(elapsed),
+                    .float(2.4),            // seconds for the colour to go round
+                    .float(elapsed / 0.8)   // eased in over the first 0.8s
+                ))
+            }
+        } else {
+            image
+        }
+    }
 }
 
-/// Shown while saved details sign in again at launch.
+/// Shown while saved details sign in again at launch: the logo's leaves
+/// pulse their colours on and off. With Reduce Motion, a still logo and a
+/// spinner instead.
 struct LaunchView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        LaunchArtwork {
-            ProgressView()
-                .controlSize(.large)
-                .accessibilityLabel("Signing in")
+        LaunchArtwork(pulsesLeaves: !reduceMotion) {
+            if reduceMotion {
+                ProgressView()
+                    .controlSize(.large)
+            }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Signing in")
     }
 }
 
