@@ -1,3 +1,4 @@
+import AuthenticationServices
 import SwiftUI
 
 /// The account holder's login, two-step verification and device settings,
@@ -211,15 +212,14 @@ private struct SecurityStatusRow: View {
 // MARK: - Passkeys
 
 /// The account holder's passkeys, which can be renamed and removed here.
-/// Adding one happens in Safari: iOS only lets an app create a passkey for
-/// a website that lists the app on its own server, and the portal can't
-/// list this one.
+/// Adding one happens on the portal's page in a Safari sheet: iOS only lets
+/// an app create a passkey for a website that lists the app on its own
+/// server, and the portal can't list this one.
 struct PasskeysView: View {
     let accountHolderID: String
 
     @Environment(Session.self) private var session
-    @Environment(\.openURL) private var openURL
-    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @State private var info: PasskeyInfo?
     @State private var loadError: String?
     @State private var renaming: Passkey?
@@ -231,8 +231,6 @@ struct PasskeysView: View {
     @State private var password = ""
     @State private var busyPasskeyID: String?
     @State private var actionError: String?
-    /// Set while Safari is open to add a passkey, so the list reloads on return.
-    @State private var isAddingInSafari = false
 
     var body: some View {
         Group {
@@ -259,11 +257,6 @@ struct PasskeysView: View {
         }
         .refreshable {
             await load()
-        }
-        .onChange(of: scenePhase) { _, phase in
-            guard phase == .active, isAddingInSafari else { return }
-            isAddingInSafari = false
-            Task { await load() }
         }
         .alert("Rename Passkey", isPresented: isPresent($renaming), presenting: renaming) { passkey in
             TextField("Name", text: $newName)
@@ -319,13 +312,25 @@ struct PasskeysView: View {
 
             Section {
                 Button("Add Passkey", systemImage: "plus") {
-                    isAddingInSafari = true
-                    openURL(MyChartConfig().url("app/passkey-management"))
+                    Task { await addOnPortal() }
                 }
             } footer: {
-                Text("Passkeys are added on the portal website in Safari, where you may need to sign in. iOS only lets the portal’s own website create them.")
+                Text("Passkeys are added on the portal’s own page, as iOS only lets the portal website create them. It opens here, and you may need to sign in to the portal there once. Tap Cancel when you’re done.")
             }
         }
+    }
+
+    /// Opens the portal's passkey page in a Safari sheet that shares Safari's
+    /// sign-in. The portal never redirects to the callback scheme, so the
+    /// sheet always ends with Cancel, after which the list reloads to show
+    /// anything added.
+    private func addOnPortal() async {
+        _ = try? await webAuthenticationSession.authenticate(
+            using: MyChartConfig().url("app/passkey-management"),
+            callbackURLScheme: "myrch-passkeys",
+            preferredBrowserSession: .shared
+        )
+        await load()
     }
 
     private func row(_ passkey: Passkey) -> some View {
