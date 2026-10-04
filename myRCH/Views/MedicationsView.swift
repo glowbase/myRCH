@@ -312,8 +312,8 @@ struct MedicationDetailView: View {
                 .textCase(.uppercase)
             Text(medication.titleName)
                 .font(.system(.title, design: .rounded).bold())
-            // Wraps at large text sizes, with up to three pills.
-            FlowLayout(spacing: 8) {
+            // Scrolls sideways at large text sizes, with up to three pills.
+            ChipRow {
                 if !medication.dose.isEmpty {
                     Pill(text: medication.dose, systemImage: "scalemass.fill",
                          tint: medication.isActive ? Feature.medication.accent : .secondary)

@@ -82,7 +82,7 @@ struct ShareSummaryView: View {
         }
         .navigationTitle("Share My Record")
         .navigationBarTitleDisplayMode(.inline)
-        .tint(Theme.brand)
+        .tint(Feature.sharing.accent)
         .task(id: patientID) { await load() }
         .task(id: selection) {
             guard !isLoading else { return }

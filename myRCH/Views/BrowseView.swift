@@ -302,6 +302,12 @@ struct FeatureDestination: View {
     }
 
     var body: some View {
+        // Buttons, switches and links take the section's Browse colour.
+        screen.tint(feature.accent)
+    }
+
+    @ViewBuilder
+    private var screen: some View {
         switch feature {
         case .visits: AppointmentsView(patientID: session.patientID)
         case .testResults: TestResultsView(patientID: session.patientID)

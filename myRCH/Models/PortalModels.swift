@@ -105,6 +105,21 @@ struct Appointment: Identifiable, Hashable {
         else { return nil }
         return location[range].split(separator: " ").last.map { $0.uppercased() }
     }
+
+    /// The check-in location up to and including the desk, e.g.
+    /// "Specialist Clinics Desk A1" from "RCH Specialist Clinics Desk A1-
+    /// Red Desk (Ground Floor)". The leading "RCH" and commas are dropped.
+    var deskName: String? {
+        guard let code = deskCode, let location = checkInLocation,
+              let range = location.range(of: #"\bDesk\s+[A-Z]\d+\b"#, options: [.regularExpression, .caseInsensitive])
+        else { return nil }
+        var words = location[..<range.lowerBound]
+            .replacingOccurrences(of: ",", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        if words.first?.uppercased() == "RCH" { words.removeFirst() }
+        return (words + ["Desk", code]).joined(separator: " ")
+    }
 }
 
 /// What's needed to find new times for one visit, from the portal's

@@ -79,24 +79,9 @@ enum Feature: String, Identifiable, CaseIterable {
         return (systemImage, color)
     }
 
-    var accent: Color {
-        switch self {
-        case .visits, .growthCharts: Theme.teal
-        // Not green: green means "within normal range" on results.
-        case .testResults: Theme.blue
-        case .trackHealth: Theme.green
-        case .medication: Theme.medication
-        case .immunisations: .purple
-        case .allergies: Theme.red
-        case .implants: Theme.yellow
-        // Navy, not yellow: yellow icons are too faint on white for a screen
-        // of letter rows.
-        case .letters: Theme.ink
-        case .referrals: Theme.Section.referrals
-        case .messages, .sharing: Theme.brand
-        case .medicalID: Theme.red
-        }
-    }
+    /// The section's colour on its own screens: the same as its Browse
+    /// tile, so a section looks the same wherever it's opened.
+    var accent: Color { tileArt.color }
 }
 
 struct DashboardView: View {

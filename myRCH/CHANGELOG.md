@@ -15,6 +15,11 @@ The app shows this file under Settings > Version, so keep each entry to one line
 ### Added
 - A Referrals section in Browse showing who your child was referred to and by whom, the departments and addresses, what the referral is for and its status.
 
+### Changed
+- Each section's screens now use the same colour as its icon in Browse.
+- Chips under a visit, test result or medication's title now scroll sideways instead of wrapping onto a second line.
+- A visit's check-in chip shows the full desk name, such as "Specialist Clinics Desk A1".
+
 ## [1.0.0] - 2026-10-04
 
 The first numbered version, covering everything built since the project began on 25 September 2026.

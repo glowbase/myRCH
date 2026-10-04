@@ -121,7 +121,7 @@ struct AppointmentRow: View {
                     .foregroundStyle(.secondary)
             }
             .frame(width: 44)
-            .foregroundStyle(Theme.brand)
+            .foregroundStyle(Feature.visits.accent)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -142,7 +142,7 @@ struct AppointmentRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if !pillKinds.isEmpty {
-                    FlowLayout(spacing: 6) {
+                    ChipRow(spacing: 6, clipsToBounds: true) {
                         ForEach(pillKinds, id: \.self) { kind in
                             Pill(text: kind.pillTitle, systemImage: kind.systemImage, tint: kind.tint)
                         }
@@ -347,7 +347,7 @@ private struct RescheduleSheet: View {
                     }
                 }
                 .labelsHidden()
-                .tint(Theme.brand)
+                .tint(Feature.visits.accent)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -373,13 +373,13 @@ private struct RescheduleSheet: View {
             UpcomingAppointmentCard(appointment: moved, showsChevron: false)
                 .overlay {
                     RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
-                        .strokeBorder(Theme.brand, lineWidth: isSelected ? 3 : 0)
+                        .strokeBorder(Feature.visits.accent, lineWidth: isSelected ? 3 : 0)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title2)
-                            .foregroundStyle(.white, Theme.brand)
+                            .foregroundStyle(.white, Feature.visits.accent)
                             .padding(14)
                     }
                 }
@@ -535,10 +535,10 @@ struct AppointmentDetailView: View {
             Text(appointment.title)
                 .font(.system(.largeTitle, design: .rounded).bold())
                 .foregroundStyle(Theme.ink)
-            FlowLayout(spacing: 8) {
+            ChipRow {
                 statusChip
-                if let desk = appointment.deskCode {
-                    CategoryChip(title: "Desk \(desk)", systemImage: "mappin.circle.fill", color: Theme.red)
+                if let desk = appointment.deskName {
+                    CategoryChip(title: desk, systemImage: "mappin.circle.fill", color: Theme.red)
                 }
             }
             Text(appointment.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
@@ -547,7 +547,7 @@ struct AppointmentDetailView: View {
             if isUpcoming {
                 Text(appointment.date.formatted(.relative(presentation: .named)).capitalized)
                     .font(.subheadline)
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(Feature.visits.accent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -559,8 +559,8 @@ struct AppointmentDetailView: View {
             switch appointment.status {
             case .scheduled:
                 return appointment.isTelehealth
-                    ? ("Phone appointment", "phone.fill", Theme.brand)
-                    : ("In person", "building.2.fill", Theme.brand)
+                    ? ("Phone appointment", "phone.fill", Feature.visits.accent)
+                    : ("In person", "building.2.fill", Feature.visits.accent)
             case .completed: return ("Completed", "checkmark.circle.fill", Theme.green)
             case .missed: return ("Missed", "exclamationmark.circle.fill", Theme.orange)
             case .cancelled: return ("Cancelled", "xmark.circle.fill", Theme.red)
@@ -612,7 +612,7 @@ struct AppointmentDetailView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Capsule()
-                    .fill(Theme.brand.opacity(0.35))
+                    .fill(Feature.visits.accent.opacity(0.35))
                     .frame(height: 3)
             }
             .frame(maxWidth: .infinity)
@@ -626,7 +626,7 @@ struct AppointmentDetailView: View {
         VStack(alignment: alignment, spacing: 2) {
             Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.visits.accent)
                 .textCase(.uppercase)
             Text(time)
                 .font(.title2.bold().monospacedDigit())
@@ -685,7 +685,7 @@ struct AppointmentDetailView: View {
                     get: { wantsEarlierOffers },
                     set: { isOn in Task { await setEarlierOffers(isOn) } }))
                     .labelsHidden()
-                    .tint(Theme.brand)
+                    .tint(Feature.visits.accent)
                     .disabled(isSavingEarlierOffers)
             }
         }
@@ -759,7 +759,7 @@ struct AppointmentDetailView: View {
                     Button("Call to rebook", systemImage: "phone.fill") { openURL(url) }
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.capsule)
-                        .tint(Theme.brand)
+                        .tint(Feature.visits.accent)
                 }
             }
         }
@@ -776,7 +776,7 @@ struct AppointmentDetailView: View {
                         Label("Share summary", systemImage: "square.and.arrow.up")
                             .font(.subheadline.weight(.semibold))
                     }
-                    .tint(Theme.brand)
+                    .tint(Feature.visits.accent)
                 }
             }
         }
@@ -905,7 +905,7 @@ struct AppointmentDetailView: View {
                            action: (() -> Void)? = nil) -> some View {
         let content = HStack(spacing: 14) {
             Image(systemName: systemImage)
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.visits.accent)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

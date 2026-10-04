@@ -141,7 +141,7 @@ struct MessagesView: View {
                                 Label(conversation.isUnread ? "Read" : "Unread",
                                       systemImage: conversation.isUnread ? "envelope.open" : "envelope.badge")
                             }
-                            .tint(Theme.brand)
+                            .tint(Feature.messages.accent)
                         }
                         .swipeActions(edge: .trailing) {
                             if folder == .trash {
@@ -151,7 +151,7 @@ struct MessagesView: View {
                                 } label: {
                                     Label("Unarchive", systemImage: "tray.and.arrow.up")
                                 }
-                                .tint(Theme.brand)
+                                .tint(Feature.messages.accent)
                             } else {
                                 Button {
                                     let id = conversation.id
@@ -159,7 +159,7 @@ struct MessagesView: View {
                                 } label: {
                                     Label("Archive", systemImage: "archivebox")
                                 }
-                                .tint(Theme.brand)
+                                .tint(Feature.messages.accent)
                                 Button {
                                     let id = conversation.id, on = !conversation.isBookmarked
                                     Task { await setBookmarked([id], on) }
@@ -189,7 +189,7 @@ struct MessagesView: View {
                         if session.canStartConversations && folder == .inbox {
                             Button("New message") { showsNewMessage = true }
                                 .buttonStyle(.borderedProminent)
-                                .tint(Theme.brand)
+                                .tint(Feature.messages.accent)
                         }
                     }
                 } else {
@@ -274,7 +274,7 @@ struct MessagesView: View {
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 
-    private func barButton(_ title: String, systemImage: String, tint: Color = Theme.brand,
+    private func barButton(_ title: String, systemImage: String, tint: Color = Feature.messages.accent,
                            action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 3) {
@@ -298,7 +298,7 @@ struct MessagesView: View {
                 Task { await undoTrash() }
             }
             .font(.subheadline.weight(.semibold))
-            .tint(Theme.brand)
+            .tint(Feature.messages.accent)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -426,13 +426,13 @@ struct ConversationRow: View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: conversation.participants.count > 1 ? "person.2.fill" : "person.fill")
                 .font(.subheadline)
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.messages.accent)
                 .frame(width: 40, height: 40)
-                .background(Theme.brand.opacity(0.12), in: .circle)
+                .background(Feature.messages.accent.opacity(0.12), in: .circle)
                 .overlay(alignment: .topTrailing) {
                     if conversation.isUnread {
                         Circle()
-                            .fill(Theme.brand)
+                            .fill(Feature.messages.accent)
                             .frame(width: 11, height: 11)
                             .overlay(Circle().strokeBorder(Color(.systemBackground), lineWidth: 2))
                             .offset(x: 2, y: -2)
@@ -605,7 +605,7 @@ struct ConversationDetailView: View {
             Divider()
             HStack(spacing: 12) {
                 Image(systemName: "info.circle.fill")
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(Feature.messages.accent)
                 Text("This conversation can't be replied to.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -613,7 +613,7 @@ struct ConversationDetailView: View {
                 if let url = session.portalURL(forConversation: conversation.id) {
                     Link("Open on Portal", destination: url)
                         .font(.footnote.weight(.semibold))
-                        .tint(Theme.brand)
+                        .tint(Feature.messages.accent)
                 }
             }
             .padding(.horizontal, 16)
@@ -633,7 +633,7 @@ struct ConversationDetailView: View {
                         Text("Include everyone with access to this record")
                             .font(.caption)
                     }
-                    .tint(Theme.brand)
+                    .tint(Feature.messages.accent)
 
                     Label("Call 000 in an emergency. Replies can take 2–3 business days.",
                           systemImage: "exclamationmark.triangle.fill")
@@ -656,7 +656,7 @@ struct ConversationDetailView: View {
                     } label: {
                         Image(systemName: "paperclip")
                             .font(.title3)
-                            .foregroundStyle(Theme.brand)
+                            .foregroundStyle(Feature.messages.accent)
                             .frame(width: 38, height: 38)
                     }
                     .disabled(isSending)
@@ -683,7 +683,7 @@ struct ConversationDetailView: View {
                         }
                         .foregroundStyle(.white)
                         .frame(width: 38, height: 38)
-                        .background(canSend ? Theme.brand : Theme.brandDisabled, in: .circle)
+                        .background(canSend ? Feature.messages.accent : Theme.brandDisabled, in: .circle)
                     }
                     .disabled(!canSend)
                     .accessibilityLabel("Send reply")
@@ -721,7 +721,7 @@ struct ConversationDetailView: View {
                     .font(.caption)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Theme.brand.opacity(0.12), in: .capsule)
+                    .background(Feature.messages.accent.opacity(0.12), in: .capsule)
                 }
                 if uploadingCount > 0 {
                     HStack(spacing: 6) {
@@ -819,7 +819,7 @@ private struct MessageBubble: View {
                         .foregroundStyle(.secondary)
                 }
                 if message.isFromMe {
-                    AvatarView(initials: "Me", tint: Theme.brand, size: 30)
+                    AvatarView(initials: "Me", tint: Feature.messages.accent, size: 30)
                 }
             }
 
@@ -833,10 +833,10 @@ private struct MessageBubble: View {
                 ForEach(message.attachmentNames, id: \.self) { name in
                     Label(name, systemImage: "paperclip")
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(message.isFromMe ? .white : Theme.brand)
+                        .foregroundStyle(message.isFromMe ? .white : Feature.messages.accent)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
-                        .background((message.isFromMe ? Color.white.opacity(0.2) : Theme.brand.opacity(0.12)),
+                        .background((message.isFromMe ? Color.white.opacity(0.2) : Feature.messages.accent.opacity(0.12)),
                                     in: .capsule)
                 }
             }
@@ -844,7 +844,7 @@ private struct MessageBubble: View {
             .background {
                 let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
                 if message.isFromMe {
-                    shape.fill(Theme.brand)
+                    shape.fill(Feature.messages.accent)
                 } else {
                     shape.fill(Color(.secondarySystemGroupedBackground))
                 }
@@ -936,7 +936,7 @@ private struct NewMessageSheet: View {
                         LabeledContent("Department", value: recipient.department)
                     }
                     Toggle("Include everyone with access to this record", isOn: $includeOthers)
-                        .tint(Theme.brand)
+                        .tint(Feature.messages.accent)
                 }
 
                 Section("Subject") {
