@@ -289,16 +289,31 @@ actor MyChartWebService: PortalService {
         // Family Access is the account holder's page: hold their context from
         // reading it to posting, so a child's background refresh can't switch
         // the session in between.
-        await acquireContext(subjectsCache.first(where: \.isSelf).map(Self.accountID) ?? "")
+        let holderID = subjectsCache.first(where: \.isSelf).map(Self.accountID) ?? ""
+        await acquireContext(holderID)
         defer { releaseContext() }
         // MyChartID isn't in ProxySwitch, only on the Family Access page,
         // which also hands out the token its own requests send.
-        let page: Data
-        do {
-            page = try await session.data(from: config.url("Proxies/FamilyAccess")).0
-        } catch {
-            if debugLogResponses { print("↩︎ \(action): Family Access didn't load: \(error.localizedDescription)") }
-            throw MyChartError.actionFailed(action)
+        func loadFamilyAccess() async throws -> (Data, URLResponse) {
+            do {
+                return try await session.data(from: config.url("Proxies/FamilyAccess"))
+            } catch {
+                if debugLogResponses { print("↩︎ \(action): Family Access didn't load: \(error.localizedDescription)") }
+                throw MyChartError.actionFailed(action)
+            }
+        }
+        let generation = contextGeneration
+        var (page, pageResponse) = try await loadFamilyAccess()
+        // A lapsed web session lands on the login page, even when the JSON
+        // APIs answered moments ago. Renew once, as reads do, and reload.
+        if Self.looksStale(page, pageResponse) || Self.isLoginPage(page) {
+            if debugLogResponses { print("↩︎ \(action): Family Access gave the login page, renewing the session") }
+            await recover(holderID, seenGeneration: generation)
+            (page, pageResponse) = try await loadFamilyAccess()
+            if Self.looksStale(page, pageResponse) || Self.isLoginPage(page) {
+                if debugLogResponses { print("↩︎ \(action): still the login page at \(Self.landingDescription(pageResponse))") }
+                throw MyChartError.sessionExpired
+            }
         }
         let html = String(decoding: page, as: UTF8.self)
         guard let myChartID = Self.myChartID(in: html, near: subject.id) else {
@@ -553,6 +568,12 @@ actor MyChartWebService: PortalService {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         return path.hasSuffix("/home/error") || path.contains("/authentication/login")
             || (status == 500 && data.count <= 2)
+    }
+
+    /// The portal's sign-in page, whatever URL it was served from.
+    private nonisolated static func isLoginPage(_ data: Data) -> Bool {
+        let html = String(decoding: data.prefix(20_000), as: UTF8.self)
+        return pageTitle(in: html)?.localizedCaseInsensitiveContains("login page") == true
     }
 
     /// Path plus any error code, for the log.

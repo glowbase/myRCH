@@ -13,7 +13,7 @@ The app shows this file under Settings > Version, so keep each entry to one line
 ## [Unreleased]
 
 ### Fixed
-- Saving a child's nickname, colour or photo no longer fails when another child's record is refreshing.
+- Saving a child's nickname, colour or photo no longer fails after the portal signs you out in the background, or while another child's record is refreshing.
 
 ## [1.0.0] - 2026-10-04
 
