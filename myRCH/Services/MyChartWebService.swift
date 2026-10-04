@@ -214,7 +214,7 @@ actor MyChartWebService: PortalService {
 
     private nonisolated static func linkedAccount(_ subject: ProxySubject) -> LinkedAccount {
         LinkedAccount(id: accountID(subject), name: subject.name, initials: initials(of: subject.name),
-                      unreadCount: 0, tabColor: subject.tabColor)
+                      unreadCount: 0, tabColor: subject.tabColor, photoPath: subject.photoPath)
     }
 
     // MARK: - Patient context (proxy switching)
@@ -233,9 +233,8 @@ actor MyChartWebService: PortalService {
         var isSelected: Bool
         /// Index into the portal's colour scheme (`Theme.accountColours`).
         var tabColor: Int?
-        /// What CustomizeSubject posts as `MyChartID` and `PatientID`.
-        var myChartID: String?
-        var patientID: String?
+        /// e.g. /MyRCHPortal/Image/Load?fileName=…
+        var photoPath: String?
     }
 
     private var subjectsCache: [ProxySubject] = []
@@ -260,47 +259,62 @@ actor MyChartWebService: PortalService {
                 linkURL: $0["LinkUrl"] as? String ?? "",
                 isSelected: $0["IsSelected"] as? Bool ?? false,
                 tabColor: Self.int($0, "TabColor"),
-                myChartID: Self.string($0, "MyChartID", "MyChartId"),
-                patientID: Self.string($0, "PatientID", "PatientId")
+                photoPath: Self.string($0, "PhotoUrl")
             )
         }
         subjectsCache = subjects
         currentContextID = subjects.first(where: \.isSelected).map(Self.accountID)
         if debugLogResponses {
             print("↩︎ ProxySwitch: \(subjects.count) accounts, current = \(currentContextID ?? "none")")
-            // Key names only: which fields hold the WP- IDs CustomizeSubject needs.
-            if let first = list.first {
-                let idKeys = first.filter { ($0.value as? String)?.hasPrefix("WP-") == true }.keys.sorted()
-                print("↩︎ ProxySwitch: keys \(first.keys.sorted()), WP- IDs in \(idKeys)")
-            }
         }
         return subjects
     }
 
     /// Captured from Family Access → customise: a multipart POST to
-    /// Proxies/FamilyAccess/CustomizeSubject with `RemoteRelId` (empty),
-    /// `MyChartID`, `PatientID`, `TabName` (empty for the patient's own name)
-    /// and `TabColor`. The reply hasn't been captured, so the change counts
-    /// once ProxySwitch, read again, shows it.
-    func customiseAccount(_ accountID: String, name: String, colour: Int) async throws -> [LinkedAccount] {
+    /// Proxies/FamilyAccess/CustomizeSubject with `File` (a JPEG named
+    /// profile.jpg, only when the photo changes), `RemoteRelId` (empty),
+    /// `MyChartID`, `PatientID` (ProxySwitch's `Id`), `TabName` (the
+    /// nickname; empty for the patient's own name) and `TabColor`. The reply
+    /// hasn't been captured, so the change counts once ProxySwitch, read
+    /// again, shows it.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: Data?) async throws -> [LinkedAccount] {
         let action = "CustomizeSubject"
         if subjectsCache.isEmpty { _ = await proxySubjects() }
-        guard let subject = subjectsCache.first(where: { Self.accountID($0) == accountID }),
-              let myChartID = subject.myChartID, let patientID = subject.patientID else {
-            if debugLogResponses { print("↩︎ \(action): no MyChartID/PatientID for \(accountID) in ProxySwitch") }
+        guard let subject = subjectsCache.first(where: { Self.accountID($0) == accountID }), !subject.id.isEmpty else {
+            if debugLogResponses { print("↩︎ \(action): no ProxySwitch Id for \(accountID)") }
             throw MyChartError.actionFailed(action)
         }
+        // MyChartID isn't in ProxySwitch, only on the Family Access page,
+        // which also hands out the token its own requests send.
+        guard let page = try? await session.data(from: config.url("Proxies/FamilyAccess")).0 else {
+            throw MyChartError.actionFailed(action)
+        }
+        let html = String(decoding: page, as: UTF8.self)
+        guard let myChartID = Self.myChartID(in: html, near: subject.id) else {
+            if debugLogResponses { print("↩︎ \(action): no MyChartID on Family Access (\(page.count) bytes, title \(Self.pageTitle(in: html) ?? "none"))") }
+            throw MyChartError.actionFailed(action)
+        }
+        let token = Self.formInputs(in: html, containerID: "__CSRFContainer")["__RequestVerificationToken"]
+            ?? Self.extractToken(from: html) ?? apiToken
 
         let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var body = Data()
+        func append(_ text: String) { body.append(Data(text.utf8)) }
+        if let photo {
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"; filename=\"profile.jpg\"\r\n")
+            append("Content-Type: image/jpeg\r\n\r\n")
+            body.append(photo)
+            append("\r\n")
+        }
         let fields: [(String, String)] = [
-            ("RemoteRelId", ""), ("MyChartID", myChartID), ("PatientID", patientID),
-            ("TabName", name), ("TabColor", String(colour))
+            ("RemoteRelId", ""), ("MyChartID", myChartID), ("PatientID", subject.id),
+            ("TabName", nickname), ("TabColor", String(colour))
         ]
         for (field, value) in fields {
-            body.append(Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field)\"\r\n\r\n\(value)\r\n".utf8))
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field)\"\r\n\r\n\(value)\r\n")
         }
-        body.append(Data("--\(boundary)--\r\n".utf8))
+        append("--\(boundary)--\r\n")
 
         var components = URLComponents(url: config.url("Proxies/FamilyAccess/\(action)"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "noCache", value: String(Double.random(in: 0..<1)))]
@@ -311,23 +325,53 @@ actor MyChartWebService: PortalService {
         request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
         request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
         request.setValue(config.url("Proxies/FamilyAccess").absoluteString, forHTTPHeaderField: "Referer")
-        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+        if let token { request.setValue(token, forHTTPHeaderField: "__RequestVerificationToken") }
         request.httpBody = body
 
         let (reply, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if debugLogResponses { print("→ \(action): HTTP \(status), \(reply.count) bytes at \(Self.landingDescription(response))") }
+        if debugLogResponses {
+            print("→ \(action): HTTP \(status), \(reply.count) bytes at \(Self.landingDescription(response))")
+            print("↩︎ \(String(decoding: reply.prefix(300), as: UTF8.self))")
+        }
         if Self.looksStale(reply, response) { throw MyChartError.sessionExpired }
         guard (200..<300).contains(status) else { throw MyChartError.actionFailed(action) }
 
         let subjects = await proxySubjects()
-        // Only checkable when ProxySwitch reports colours at all.
-        if let updated = subjects.first(where: { Self.accountID($0) == accountID }),
-           updated.tabColor != nil, updated.tabColor != colour {
+        if let updated = subjects.first(where: { Self.accountID($0) == accountID }), updated.tabColor != colour {
             if debugLogResponses { print("↩︎ \(action): ProxySwitch still shows the old colour") }
             throw MyChartError.actionFailed(action)
         }
         return subjects.map(Self.linkedAccount)
+    }
+
+    /// The `WP-…` value that follows a "MyChartID" on the Family Access page.
+    /// With several accounts listed, the one nearest this account's
+    /// PatientID. Read from the page's text, so markup changes may need this
+    /// looked at again; failures are logged.
+    private nonisolated static func myChartID(in html: String, near patientID: String) -> String? {
+        let label = /(?i)my_?chart_?id/
+        let value = /WP-[A-Za-z0-9\-]+/
+        var found: [(offset: Int, id: String)] = []
+        for match in html.matches(of: label) {
+            let window = html[match.range.upperBound...].prefix(400)
+            guard let id = window.firstMatch(of: value), String(id.output) != patientID else { continue }
+            found.append((html.distance(from: html.startIndex, to: match.range.lowerBound), String(id.output)))
+        }
+        let anchors = html.ranges(of: patientID).map { html.distance(from: html.startIndex, to: $0.lowerBound) }
+        guard !anchors.isEmpty else { return found.first?.id }
+        return found.min { a, b in
+            anchors.map { abs($0 - a.offset) }.min()! < anchors.map { abs($0 - b.offset) }.min()!
+        }?.id
+    }
+
+    /// Photos are `Image/Load` pages on the portal, behind the session.
+    func accountPhoto(_ account: LinkedAccount) async throws -> Data? {
+        guard let path = account.photoPath, path.hasPrefix("/"),
+              let url = URL(string: "https://\(config.host)\(path)") else { return nil }
+        let (data, response) = try await session.data(from: url)
+        let type = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type") ?? ""
+        return type.hasPrefix("image/") ? data : nil
     }
 
     /// The switch in flight, so concurrent requests wait for it rather than

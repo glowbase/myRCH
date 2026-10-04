@@ -5,14 +5,40 @@ struct AvatarView: View {
     var initials: String
     var tint: Color = Theme.brand
     var size: CGFloat = 32
+    /// Shown in place of the initials, e.g. the account's portal photo.
+    var image: UIImage? = nil
 
     var body: some View {
-        Text(initials)
-            .font(.system(size: size * 0.45, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(tint, in: .circle)
-            .accessibilityHidden(true)
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(.circle)
+            } else {
+                Text(initials)
+                    .font(.system(size: size * 0.45, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: size, height: size)
+                    .background(tint, in: .circle)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A linked account's avatar: its portal photo, or initials in its colour.
+struct AccountAvatar: View {
+    let account: LinkedAccount
+    /// Position in the account list, for the fallback colour.
+    let index: Int
+    var size: CGFloat = 32
+    @Environment(Session.self) private var session
+
+    var body: some View {
+        AvatarView(initials: account.initials, tint: Theme.accountTint(account, at: index),
+                   size: size, image: session.accountPhotos[account.id])
     }
 }
 
