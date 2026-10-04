@@ -49,6 +49,9 @@ struct EditAccountView: View {
     @State private var photoItem: PhotosPickerItem?
     /// A newly chosen photo, ready to upload.
     @State private var newPhoto: (image: UIImage, jpeg: Data)?
+    /// Remove Photo was chosen; cleared again by picking a new photo.
+    @State private var removesPhoto = false
+    @State private var confirmsRemovePhoto = false
     @State private var isSaving = false
     @State private var errorMessage: String?
 
@@ -74,23 +77,46 @@ struct EditAccountView: View {
     }
 
     private var hasChanges: Bool {
-        trimmedNickname != account.name || colour != account.tabColor || newPhoto != nil
+        trimmedNickname != account.name || colour != account.tabColor || photoChange != .keep
+    }
+
+    private var photoChange: AccountPhotoChange {
+        if let newPhoto { return .replace(newPhoto.jpeg) }
+        return removesPhoto ? .remove : .keep
     }
 
     var body: some View {
-        let photo = newPhoto?.image ?? session.accountPhotos[account.id]
+        let photo = newPhoto?.image ?? (removesPhoto ? nil : session.accountPhotos[account.id])
         // Worked out here: the picker's label closure is Sendable.
         let photoTitle = photo == nil ? "Add Photo" : "Change Photo"
         Form {
             Section {
                 VStack(spacing: 12) {
                     AvatarView(initials: initials, tint: tint, size: 96, image: photo)
-                    PhotosPicker(selection: $photoItem, matching: .images) {
-                        Text(photoTitle)
+                    HStack(spacing: 12) {
+                        PhotosPicker(selection: $photoItem, matching: .images) {
+                            Text(photoTitle)
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        if photo != nil {
+                            Button("Remove", role: .destructive) {
+                                confirmsRemovePhoto = true
+                            }
                             .font(.subheadline.weight(.semibold))
+                        }
                     }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
+                    .confirmationDialog("Remove this photo?", isPresented: $confirmsRemovePhoto,
+                                        titleVisibility: .visible) {
+                        Button("Remove Photo", role: .destructive) {
+                            newPhoto = nil
+                            photoItem = nil
+                            removesPhoto = true
+                        }
+                    } message: {
+                        Text("The portal shows initials instead, once you save.")
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
@@ -185,6 +211,7 @@ struct EditAccountView: View {
             return
         }
         newPhoto = (image, jpeg)
+        removesPhoto = false
     }
 
     private func save() {
@@ -195,7 +222,7 @@ struct EditAccountView: View {
             defer { isSaving = false }
             do {
                 try await session.customiseAccount(account.id, nickname: trimmedNickname,
-                                                   colour: chosen, photo: newPhoto?.jpeg)
+                                                   colour: chosen, photo: photoChange)
                 dismiss()
             } catch {
                 errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

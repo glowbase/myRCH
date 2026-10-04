@@ -51,6 +51,16 @@ nonisolated struct RecordHeader: Hashable, Sendable {
     var urNumber: String?
 }
 
+/// What a save does to a linked account's photo on the portal.
+enum AccountPhotoChange: Equatable, Sendable {
+    /// Leaves the current photo as it is.
+    case keep
+    /// Uploads a new JPEG.
+    case replace(Data)
+    /// Clears it, so the avatar goes back to initials.
+    case remove
+}
+
 struct LinkedAccount: Identifiable, Hashable {
     let id: String
     var name: String

@@ -163,9 +163,10 @@ final class Session {
         return Theme.accountTint(profile.linkedAccounts[idx], at: idx)
     }
 
-    /// Saves a linked account's nickname, colour and (when given) new photo
-    /// on the portal, then shows the portal's copy of that account.
-    func customiseAccount(_ accountID: String, nickname: String, colour: Int, photo: Data?) async throws {
+    /// Saves a linked account's nickname, colour and photo change on the
+    /// portal, then shows the portal's copy of that account.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws {
         let accounts = try await service.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
         guard case var .signedIn(profile) = phase,
               let updated = accounts.first(where: { $0.id == accountID }),
@@ -177,7 +178,11 @@ final class Session {
         account.photoPath = updated.photoPath
         profile.linkedAccounts[index] = account
         phase = .signedIn(profile)
-        if let photo, let image = UIImage(data: photo) { accountPhotos[accountID] = image }
+        switch photo {
+        case .keep: break
+        case let .replace(jpeg): accountPhotos[accountID] = UIImage(data: jpeg)
+        case .remove: accountPhotos[accountID] = nil
+        }
     }
 
     /// Account photos from the portal, by account ID. Held in memory only.

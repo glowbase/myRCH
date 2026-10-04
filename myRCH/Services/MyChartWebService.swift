@@ -273,27 +273,56 @@ actor MyChartWebService: PortalService {
 
     /// Captured from Family Access → customise: a multipart POST to
     /// Proxies/FamilyAccess/CustomizeSubject with `File` (a JPEG named
-    /// profile.jpg, only when the photo changes), `RemoteRelId` (empty),
+    /// profile.jpg for a new photo, or the plain value `-` to remove it;
+    /// left out to keep the current one), `RemoteRelId` (empty),
     /// `MyChartID`, `PatientID` (ProxySwitch's `Id`), `TabName` (the
     /// nickname; empty for the patient's own name) and `TabColor`. The reply
     /// hasn't been captured, so the change counts once ProxySwitch, read
     /// again, shows it.
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
-                          photo: Data?) async throws -> [LinkedAccount] {
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
         let action = "CustomizeSubject"
         if subjectsCache.isEmpty { _ = await proxySubjects() }
         guard let subject = subjectsCache.first(where: { Self.accountID($0) == accountID }), !subject.id.isEmpty else {
             if debugLogResponses { print("↩︎ \(action): no ProxySwitch Id for \(accountID)") }
             throw MyChartError.actionFailed(action)
         }
+        // Family Access is the account holder's page: hold their context from
+        // reading it to posting, so a child's background refresh can't switch
+        // the session in between.
+        let holderID = subjectsCache.first(where: \.isSelf).map(Self.accountID) ?? ""
+        await acquireContext(holderID)
+        defer { releaseContext() }
         // MyChartID isn't in ProxySwitch, only on the Family Access page,
         // which also hands out the token its own requests send.
-        guard let page = try? await session.data(from: config.url("Proxies/FamilyAccess")).0 else {
-            throw MyChartError.actionFailed(action)
+        func loadFamilyAccess() async throws -> (Data, URLResponse) {
+            do {
+                return try await session.data(from: config.url("Proxies/FamilyAccess"))
+            } catch {
+                if debugLogResponses { print("↩︎ \(action): Family Access didn't load: \(error.localizedDescription)") }
+                throw MyChartError.actionFailed(action)
+            }
+        }
+        let generation = contextGeneration
+        var (page, pageResponse) = try await loadFamilyAccess()
+        // A lapsed web session lands on the login page, even when the JSON
+        // APIs answered moments ago. Renew once, as reads do, and reload.
+        if Self.looksStale(page, pageResponse) || Self.isLoginPage(page) {
+            if debugLogResponses { print("↩︎ \(action): Family Access gave the login page, renewing the session") }
+            await recover(holderID, seenGeneration: generation)
+            (page, pageResponse) = try await loadFamilyAccess()
+            if Self.looksStale(page, pageResponse) || Self.isLoginPage(page) {
+                if debugLogResponses { print("↩︎ \(action): still the login page at \(Self.landingDescription(pageResponse))") }
+                throw MyChartError.sessionExpired
+            }
         }
         let html = String(decoding: page, as: UTF8.self)
         guard let myChartID = Self.myChartID(in: html, near: subject.id) else {
-            if debugLogResponses { print("↩︎ \(action): no MyChartID on Family Access (\(page.count) bytes, title \(Self.pageTitle(in: html) ?? "none"))") }
+            if debugLogResponses {
+                let status = (pageResponse as? HTTPURLResponse)?.statusCode ?? 0
+                print("↩︎ \(action): no MyChartID on Family Access (HTTP \(status), \(page.count) bytes, title \(Self.pageTitle(in: html) ?? "none"), landed at \(Self.landingDescription(pageResponse)))")
+                print("   context \(currentContextID ?? "none"), holder \(holderID); MyChartID label \(html.contains(/(?i)my_?chart_?id/) ? "present" : "absent"), patient Id \(html.contains(subject.id) ? "present" : "absent")")
+            }
             throw MyChartError.actionFailed(action)
         }
         let token = Self.formInputs(in: html, containerID: "__CSRFContainer")["__RequestVerificationToken"]
@@ -302,11 +331,17 @@ actor MyChartWebService: PortalService {
         let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var body = Data()
         func append(_ text: String) { body.append(Data(text.utf8)) }
-        if let photo {
+        switch photo {
+        case .keep:
+            break
+        case let .replace(jpeg):
             append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"; filename=\"profile.jpg\"\r\n")
             append("Content-Type: image/jpeg\r\n\r\n")
-            body.append(photo)
+            body.append(jpeg)
             append("\r\n")
+        case .remove:
+            // As the page sends after Remove Photo: a plain field, not a file.
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"\r\n\r\n-\r\n")
         }
         let fields: [(String, String)] = [
             ("RemoteRelId", ""), ("MyChartID", myChartID), ("PatientID", subject.id),
@@ -336,7 +371,10 @@ actor MyChartWebService: PortalService {
             print("↩︎ \(String(decoding: reply.prefix(300), as: UTF8.self))")
         }
         if Self.looksStale(reply, response) { throw MyChartError.sessionExpired }
-        guard (200..<300).contains(status) else { throw MyChartError.actionFailed(action) }
+        guard (200..<300).contains(status) else {
+            if debugLogResponses { print("↩︎ \(action): refused with HTTP \(status)") }
+            throw MyChartError.actionFailed(action)
+        }
 
         let subjects = await proxySubjects()
         if let updated = subjects.first(where: { Self.accountID($0) == accountID }), updated.tabColor != colour {
@@ -541,6 +579,12 @@ actor MyChartWebService: PortalService {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         return path.hasSuffix("/home/error") || path.contains("/authentication/login")
             || (status == 500 && data.count <= 2)
+    }
+
+    /// The portal's sign-in page, whatever URL it was served from.
+    private nonisolated static func isLoginPage(_ data: Data) -> Bool {
+        let html = String(decoding: data.prefix(20_000), as: UTF8.self)
+        return pageTitle(in: html)?.localizedCaseInsensitiveContains("login page") == true
     }
 
     /// Path plus any error code, for the log.

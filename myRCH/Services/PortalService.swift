@@ -108,7 +108,7 @@ protocol PortalService: Sendable {
     /// portal's Family Access page does. An empty nickname goes back to the
     /// patient's own name. Answers the updated accounts.
     func customiseAccount(_ accountID: String, nickname: String, colour: Int,
-                          photo: Data?) async throws -> [LinkedAccount]
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount]
     /// Each linked account's photo, by account ID, for those that have one.
     func accountPhotos() async -> [String: Data]
 }
