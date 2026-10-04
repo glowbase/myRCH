@@ -98,6 +98,22 @@ struct MockPortalService: PortalService {
         return information
     }
 
+    func securitySettings(for patientID: String) async throws -> SecuritySettings {
+        await delay()
+        return SecuritySettings(
+            passwordLastChanged: "29 Dec, 2025",
+            passwordChangeAvailable: true,
+            passkeysAvailable: true,
+            verifiesByEmailOrText: false,
+            verifiesByAuthenticatorApp: true,
+            twoStepRequired: true,
+            remembersDevices: true,
+            rememberDevicesAllowed: true,
+            previewFeaturesOn: true,
+            deactivateAccountAllowed: true
+        )
+    }
+
     func appointments(for patientID: String) async throws -> [Appointment] {
         await delay()
         let rchAddress = "50 Flemington Road, Parkville VIC 3052"

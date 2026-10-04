@@ -200,6 +200,11 @@ struct SettingsView: View {
             } label: {
                 SettingsRow("Personal Information", symbol: "person.text.rectangle.fill", color: .teal)
             }
+            NavigationLink {
+                SecuritySettingsView()
+            } label: {
+                SettingsRow("Login & Security", symbol: "lock.shield.fill", color: .gray)
+            }
             Picker(selection: $appearance) {
                 ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
             } label: {
