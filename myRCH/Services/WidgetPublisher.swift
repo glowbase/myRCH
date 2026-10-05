@@ -17,13 +17,14 @@ final class WidgetPublisher {
     private init() {}
 
     /// From Home, after loading a child's portal data.
-    func updateChild(id: String, name: String, urNumber: String?, nextVisit: WidgetSnapshot.Visit?,
+    func updateChild(id: String, name: String, urNumber: String?, upcomingVisits: [WidgetSnapshot.Visit],
                      allergies: [WidgetSnapshot.Allergy], allergiesKnown: Bool,
                      unreadMessages: Int, newResults: Int) {
         var child = snapshot.children[id] ?? WidgetSnapshot.Child(id: id, name: name, updated: .now)
         child.name = name
         child.urNumber = urNumber
-        child.nextVisit = nextVisit
+        child.nextVisit = upcomingVisits.first
+        child.upcomingVisits = upcomingVisits
         child.allergies = allergies
         child.allergiesKnown = allergiesKnown
         child.unreadMessages = unreadMessages

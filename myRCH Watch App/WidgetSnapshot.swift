@@ -19,6 +19,9 @@ nonisolated struct WidgetSnapshot: Codable, Sendable {
         var isTelehealth: Bool
         /// Where to check in, e.g. "Specialist Clinics, Desk A1".
         var location: String?
+        /// The check-in desk on its own, e.g. "Specialist Clinics Desk A1".
+        /// Nil in older snapshots and for visits without a desk.
+        var desk: String? = nil
     }
 
     struct Dose: Codable, Sendable, Hashable {
@@ -38,6 +41,8 @@ nonisolated struct WidgetSnapshot: Codable, Sendable {
         var name: String
         var urNumber: String?
         var nextVisit: Visit?
+        /// The next few visits, soonest first. Nil in older snapshots.
+        var upcomingVisits: [Visit]? = nil
         /// Today's scheduled doses still to log, earliest first.
         var upcomingDoses: [Dose] = []
         var dosesDue = 0
@@ -50,6 +55,11 @@ nonisolated struct WidgetSnapshot: Codable, Sendable {
         var newResults = 0
         /// When the portal data (visit, results, messages) was last loaded.
         var updated: Date
+
+        /// Upcoming visits, falling back to the next one for older snapshots.
+        var visits: [Visit] {
+            upcomingVisits ?? nextVisit.map { [$0] } ?? []
+        }
 
         /// The next time something's due, and everything due then.
         var nextSlot: (time: Date, medicines: [String])? {

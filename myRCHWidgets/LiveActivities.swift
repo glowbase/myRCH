@@ -111,7 +111,7 @@ struct VisitLiveActivity: Widget {
                     Label(attributes.isTelehealth ? "Telehealth" : "Visit",
                           systemImage: attributes.isTelehealth ? "video.fill" : "calendar")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.red)
+                        .foregroundStyle(WidgetColors.visits)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Countdown(date: date).font(.caption.weight(.semibold))
@@ -127,11 +127,11 @@ struct VisitLiveActivity: Widget {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } compactLeading: {
-                Image(systemName: attributes.isTelehealth ? "video.fill" : "calendar").foregroundStyle(.red)
+                Image(systemName: attributes.isTelehealth ? "video.fill" : "calendar").foregroundStyle(WidgetColors.visits)
             } compactTrailing: {
                 Text(date, format: .dateTime.hour().minute()).font(.caption2.weight(.semibold))
             } minimal: {
-                Image(systemName: "calendar").foregroundStyle(.red)
+                Image(systemName: "calendar").foregroundStyle(WidgetColors.visits)
             }
             .widgetURL(DeepLink.visitURL(child: attributes.patientID, id: attributes.visitID))
         }
@@ -150,7 +150,7 @@ private struct VisitLockScreenView: View {
                                               : "\(attributes.childName)'s visit today",
                       systemImage: attributes.isTelehealth ? "video.fill" : "calendar")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.red)
+                    .foregroundStyle(WidgetColors.visits)
                 Spacer()
                 Countdown(date: date)
                     .font(.subheadline.weight(.semibold))
