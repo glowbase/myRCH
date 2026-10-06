@@ -31,8 +31,8 @@ nonisolated struct SyncRef: Codable, Hashable, Sendable {
     }
 }
 
-/// Shares medication reminders, the dose log and notes between parents
-/// through CloudKit. The child's owner (whoever started sharing) keeps a
+/// Shares medication reminders, the dose log, notes and visit questions
+/// between parents through CloudKit. The child's owner (whoever started sharing) keeps a
 /// record zone in their private database, shared zone-wide with a CKShare;
 /// the other parent sees it in their shared database. Two CKSyncEngines,
 /// one per database, do the fetching, sending, retrying and push handling.
@@ -56,12 +56,15 @@ final class CareSync: CKSyncEngineDelegate {
     /// Record kinds, by the first part of the record's name.
     enum Kind: String {
         case schedule = "s", dose = "d", asNeeded = "a", note = "n"
+        /// A question to ask at an upcoming visit (`AppointmentQuestionsStore`).
+        case question = "q"
 
         var recordType: String {
             switch self {
             case .schedule: "Schedule"
             case .dose, .asNeeded: "Dose"
             case .note: "Note"
+            case .question: "Question"
             }
         }
     }
@@ -134,6 +137,11 @@ final class CareSync: CKSyncEngineDelegate {
 
     func zone(forPatient patientID: String) -> String? { saved.children[patientID] }
 
+    /// This phone's patient ids for a child's zone (normally one).
+    func patients(inZone zone: String) -> [String] {
+        saved.children.filter { $0.value == zone }.map(\.key)
+    }
+
     func role(forPatient patientID: String) -> Role? {
         zone(forPatient: patientID).flatMap { zones[$0]?.role }
     }
@@ -150,10 +158,16 @@ final class CareSync: CKSyncEngineDelegate {
     /// Queues everything this phone has for a child's zone: on first
     /// sharing, and when joining someone else's share.
     private func uploadAll(zone: String) {
-        guard let store else { return }
-        for (kind, name) in store.recordNames(inZone: zone) {
+        let names = (store?.recordNames(inZone: zone) ?? [])
+            + AppointmentQuestionsStore.shared.recordNames(inZone: zone)
+        for (kind, name) in names {
             changed(kind, name: name, zone: zone)
         }
+    }
+
+    /// Visit questions live in their own store; everything else is medication.
+    private func isQuestion(_ recordName: String) -> Bool {
+        recordName.hasPrefix(Kind.question.rawValue + ".")
     }
 
     // MARK: Sharing
@@ -190,7 +204,7 @@ final class CareSync: CKSyncEngineDelegate {
             return share
         }
         let share = CKShare(recordZoneID: id)
-        share[CKShare.SystemFieldKey.title] = "\(childName)'s medication reminders"
+        share[CKShare.SystemFieldKey.title] = "\(childName)'s reminders and visit questions"
         share.publicPermission = .none
         let results = try await database.modifyRecords(saving: [share], deleting: [])
         if case let .success(record)? = results.saveResults[share.recordID], let saved = record as? CKShare {
@@ -267,12 +281,21 @@ final class CareSync: CKSyncEngineDelegate {
                 let record = modification.record
                 let zone = record.recordID.zoneID.zoneName
                 saved.systemFields[fieldsKey(record.recordID)] = Self.encodeSystemFields(record)
-                store?.applyRemote(record, zone: zone)
+                if isQuestion(record.recordID.recordName) {
+                    AppointmentQuestionsStore.shared.applyRemote(record, zone: zone)
+                } else {
+                    store?.applyRemote(record, zone: zone)
+                }
             }
             for deletion in changes.deletions {
                 saved.systemFields[fieldsKey(deletion.recordID)] = nil
-                store?.applyRemoteDeletion(recordName: deletion.recordID.recordName,
-                                           zone: deletion.recordID.zoneID.zoneName)
+                let name = deletion.recordID.recordName
+                let zone = deletion.recordID.zoneID.zoneName
+                if isQuestion(name) {
+                    AppointmentQuestionsStore.shared.applyRemoteDeletion(recordName: name, zone: zone)
+                } else {
+                    store?.applyRemoteDeletion(recordName: name, zone: zone)
+                }
             }
             persist()
 
@@ -328,7 +351,10 @@ final class CareSync: CKSyncEngineDelegate {
         guard let kind = Kind(rawValue: String(name.prefix { $0 != "." })) else { return nil }
         let record = saved.systemFields[fieldsKey(id)].flatMap(Self.decodeSystemFields)
             ?? CKRecord(recordType: kind.recordType, recordID: id)
-        guard store?.fill(record, zone: id.zoneID.zoneName) == true else {
+        let filled = kind == .question
+            ? AppointmentQuestionsStore.shared.fill(record, zone: id.zoneID.zoneName)
+            : store?.fill(record, zone: id.zoneID.zoneName) == true
+        guard filled else {
             engine.state.remove(pendingRecordZoneChanges: [.saveRecord(id)])
             return nil
         }

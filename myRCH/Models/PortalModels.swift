@@ -6,6 +6,75 @@ import Foundation
 // Observation, MedicationRequest, Communication) so a real Epic FHIR / SMART
 // on FHIR backend can be mapped onto them without changing the UI layer.
 
+// MARK: - Communication preferences
+
+struct CommunicationPreferences: Equatable, Sendable {
+    var groups: [CommunicationPreferenceGroup]
+    var contactInformation: CommunicationContactInformation
+}
+
+struct CommunicationPreferenceGroup: Identifiable, Equatable, Sendable {
+    let id: String
+    var title: String
+    var description: String
+    var items: [CommunicationPreferenceItem]
+}
+
+struct CommunicationPreferenceItem: Identifiable, Equatable, Sendable {
+    let id: String
+    var title: String
+    var description: String
+    var channels: [CommunicationChannel]
+}
+
+struct CommunicationChannel: Identifiable, Equatable, Sendable {
+    enum Kind: String, Equatable, Sendable {
+        case email
+        case textMessage
+        case pushNotification
+        case other
+
+        var title: String {
+            switch self {
+            case .email: "Email"
+            case .textMessage: "Text"
+            case .pushNotification: "Push"
+            case .other: "Other"
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .email: "envelope.fill"
+            case .textMessage: "message.fill"
+            case .pushNotification: "bell.fill"
+            case .other: "dot.radiowaves.left.and.right"
+            }
+        }
+    }
+
+    enum Status: Int, Equatable, Sendable {
+        case off = 0
+        case on = 1
+        case unavailable = 3
+    }
+
+    let id: String
+    /// Portal media type sent back to UpdatePreferences (for example, 1 or 6).
+    var portalType: String
+    var kind: Kind
+    var status: Status
+}
+
+struct CommunicationContactInformation: Equatable, Sendable {
+    var email: String
+    var mobilePhone: String
+    var emailPending: Bool
+    var mobilePending: Bool
+    var mobileIsVerified: Bool
+    var showLinkToContactInfo: Bool
+}
+
 /// The signed-in person, plus any linked proxy accounts (e.g. a parent
 /// managing a child's record — mirrors the account switcher in the portal).
 struct PatientProfile: Identifiable, Hashable {
@@ -51,12 +120,26 @@ nonisolated struct RecordHeader: Hashable, Sendable {
     var urNumber: String?
 }
 
+/// What a save does to a linked account's photo on the portal.
+enum AccountPhotoChange: Equatable, Sendable {
+    /// Leaves the current photo as it is.
+    case keep
+    /// Uploads a new JPEG.
+    case replace(Data)
+    /// Clears it, so the avatar goes back to initials.
+    case remove
+}
+
 struct LinkedAccount: Identifiable, Hashable {
     let id: String
     var name: String
     var initials: String
     var unreadCount: Int
     var dateOfBirth: Date? = nil
+    /// The colour chosen on the portal, as an index into `Theme.accountColours`.
+    var tabColor: Int? = nil
+    /// The account's photo on the portal, e.g. /MyRCHPortal/Image/Load?fileName=….
+    var photoPath: String? = nil
 }
 
 // MARK: - Appointments
@@ -83,12 +166,88 @@ struct Appointment: Identifiable, Hashable {
     var phone: String? = nil
     /// Where to report on arrival, e.g. a clinic desk.
     var checkInLocation: String? = nil
+    /// Whether the visit is on the wait list for earlier times; nil when
+    /// unknown (e.g. the visit page couldn't be read).
+    var isOnWaitList: Bool? = nil
     /// Preparation steps shown before the visit.
     var instructions: [String] = []
     /// After Visit Summary text for past appointments.
     var visitSummary: String? = nil
 
     var endDate: Date { date.addingTimeInterval(TimeInterval(durationMinutes * 60)) }
+
+    /// The desk from the check-in location, e.g. "A1" from "RCH Specialist
+    /// Clinics Desk A1- Red Desk (Ground Floor)". Nil when it doesn't name one.
+    var deskCode: String? {
+        guard !isTelehealth, let location = checkInLocation,
+              let range = location.range(of: #"\bDesk\s+[A-Z]\d+\b"#, options: [.regularExpression, .caseInsensitive])
+        else { return nil }
+        return location[range].split(separator: " ").last.map { $0.uppercased() }
+    }
+
+    /// The check-in location up to and including the desk, e.g.
+    /// "Specialist Clinics Desk A1" from "RCH Specialist Clinics Desk A1-
+    /// Red Desk (Ground Floor)". The leading "RCH" and commas are dropped.
+    var deskName: String? {
+        guard let code = deskCode, let location = checkInLocation,
+              let range = location.range(of: #"\bDesk\s+[A-Z]\d+\b"#, options: [.regularExpression, .caseInsensitive])
+        else { return nil }
+        var words = location[..<range.lowerBound]
+            .replacingOccurrences(of: ",", with: " ")
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+        if words.first?.uppercased() == "RCH" { words.removeFirst() }
+        return (words + ["Desk", code]).joined(separator: " ")
+    }
+}
+
+/// What's needed to find new times for one visit, from the portal's
+/// reschedule workflow. The IDs are opaque and only sent back to the portal.
+struct RescheduleOptions: Hashable {
+    struct Reason: Identifiable, Hashable {
+        let id: String
+        let title: String
+    }
+
+    var reasons: [Reason]
+    var requiresReason: Bool
+    /// The last day (Epic day number) a new time can be on.
+    var lastDay: Int
+
+    var rescheduleDat = ""
+    var visitTypeID = ""
+    var reasonForVisitID = ""
+    var allowsProviderSelection = true
+    var providerDepartmentPairs: [(providerID: String, departmentID: String, isTeamMember: Bool)] = []
+    var schedulingPhone = ""
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rescheduleDat == rhs.rescheduleDat && lhs.reasons == rhs.reasons
+    }
+    func hash(into hasher: inout Hasher) { hasher.combine(rescheduleDat) }
+}
+
+/// A free time offered for rescheduling.
+struct AppointmentSlot: Identifiable, Hashable {
+    let id: String
+    let date: Date
+    let lengthMinutes: Int
+}
+
+/// One search's worth of free times, and where the next search starts.
+struct AppointmentSlotPage {
+    var slots: [AppointmentSlot]
+    /// The Epic day number to search from for later times; nil when there are no more.
+    var nextStartDay: Int?
+}
+
+/// Epic counts days from 31 December 1840 (day 1 is 1 January 1841).
+enum EpicDay {
+    private static let origin = DateComponents(calendar: .current, year: 1840, month: 12, day: 31).date!
+
+    static func number(for date: Date) -> Int {
+        Calendar.current.dateComponents([.day], from: origin, to: Calendar.current.startOfDay(for: date)).day ?? 0
+    }
 }
 
 /// A letter the hospital has shared (clinic letters, referrals, notes).
@@ -341,6 +500,12 @@ struct Medication: Identifiable, Hashable {
     /// The name exactly as the portal gave it, before strength and form
     /// were split out.
     var sourceName: String? = nil
+    /// The portal's raw name, before the app tidies its capitalisation;
+    /// sent back when removing the medication.
+    var portalName: String? = nil
+    /// For an addition still awaiting review, the portal's id for that
+    /// pending update (`updateInformation.referenceID`), which removes it.
+    var updateReferenceID: String? = nil
 }
 
 extension Medication {
@@ -654,4 +819,149 @@ struct ImmunisationDose: Identifiable, Hashable {
     var lotNumber: String?
 
     var id: Date { date }
+}
+
+// MARK: - Personal information
+
+/// The account holder's contact details from the portal's Personal
+/// Information page (`api/personalInformation/GetContactInformation`).
+struct PersonalInformation: Equatable, Sendable {
+    struct PhoneNumber: Identifiable, Equatable, Sendable {
+        /// The portal's label, e.g. "mobile" or "home".
+        var type: String
+        var number: String
+
+        var id: String { type + number }
+    }
+
+    var email: String
+    var phoneNumbers: [PhoneNumber]
+    /// Address parts as the portal stores them (it uses US names: city, zip).
+    var street: String
+    var suburb: String
+    /// Full name, e.g. "Victoria".
+    var state: String
+    var postcode: String
+    var country: String
+
+    var hasAddress: Bool {
+        ![street, suburb, state, postcode, country].allSatisfy(\.isEmpty)
+    }
+    var emailNeedsVerification: Bool
+    var mobileNeedsVerification: Bool
+
+    /// The first number of the given type, or "" if there isn't one.
+    func phone(_ type: String) -> String {
+        phoneNumbers.first { $0.type.lowercased() == type }?.number ?? ""
+    }
+}
+
+/// The contact details the portal lets the account holder change.
+struct ContactInformationUpdate: Equatable, Sendable {
+    var email: String
+    var mobilePhone: String
+    var workPhone: String
+}
+
+// MARK: - Referrals
+
+/// A referral on the child's record, from the portal's Referrals page
+/// (`api/referrals/listReferrals`).
+struct Referral: Identifiable, Hashable, Sendable {
+    /// The portal's `internalId`.
+    let id: String
+    /// The referral number staff quote (`externalId`), e.g. "10000001".
+    var number: String
+    var status: Status
+    var created: Date?
+    /// Who the referral is to. Sometimes a first name only, sometimes empty.
+    var referredTo: String
+    var referredBy: String
+    var facility: String
+    /// The portal's `start` and `end`, shown as "Requested after …". Either
+    /// may be missing.
+    var requestedAfter: Date?
+    var requestedBefore: Date?
+
+    struct Status: Hashable, Sendable {
+        /// The portal's code; "1" (Authorised) and "6" (Closed) are the only
+        /// ones seen so far.
+        var code: String
+        /// As the portal words it, e.g. "Authorised".
+        var title: String
+
+        var isClosed: Bool { code == "6" }
+    }
+}
+
+/// The rest of a referral, from `api/referrals/getReferralDetails`: where
+/// it's from and to, and what it's for.
+struct ReferralDetails: Hashable, Sendable {
+    var referredTo: Party
+    var referredBy: Party
+    /// e.g. "Referral to outpatient genetics", with the portal's code
+    /// ("REF26 - ") removed.
+    var services: [String]
+    /// The portal's referral type, e.g. "Non VINAH Reportable".
+    var type: String
+
+    /// One end of the referral: the clinician and where they work. Any
+    /// field may be empty.
+    struct Party: Hashable, Sendable {
+        var provider: String
+        /// The clinician's specialty, e.g. "Respiratory Medicine".
+        var providerSpecialty: String
+        /// e.g. "Victorian Clinical Genetics Services".
+        var department: String
+        /// e.g. "Genetics".
+        var departmentSpecialty: String
+        var facility: String
+        /// Address lines, tidied ("Parkville, Victoria 3052").
+        var address: [String]
+        var phone: String
+    }
+}
+
+// MARK: - Security settings
+
+/// The account holder's login and verification settings from the portal's
+/// Account Settings page (`api/security-settings/GetInitialSettings`).
+struct SecuritySettings: Equatable, Sendable {
+    /// Already formatted by the portal, e.g. "29 Dec, 2025".
+    var passwordLastChanged: String
+    var passwordChangeAvailable: Bool
+    var passkeysAvailable: Bool
+    var verifiesByEmailOrText: Bool
+    var verifiesByAuthenticatorApp: Bool
+    /// At least one two-step method must stay on.
+    var twoStepRequired: Bool
+    var remembersDevices: Bool
+    var rememberDevicesAllowed: Bool
+    var previewFeaturesOn: Bool
+    var deactivateAccountAllowed: Bool
+}
+
+/// A passkey on the account holder's login, from the portal's Passkey
+/// Management page (`api/passkey-management/LoadPasskeyInfo`).
+struct Passkey: Identifiable, Equatable, Sendable {
+    /// The credential's `rawId`, which rename and remove are keyed by.
+    var id: String
+    var name: String
+    /// As the portal records it, e.g. "Mac - Safari".
+    var createdOnDevice: String
+    var created: Date?
+}
+
+/// The passkeys, and until when the portal will accept changes without
+/// asking for the password again.
+struct PasskeyInfo: Equatable, Sendable {
+    var passkeys: [Passkey]
+    var verifiedUntil: Date?
+}
+
+/// The portal's answer to re-entering the password before a change.
+struct PasswordCheck: Equatable, Sendable {
+    var verified: Bool
+    /// The portal's `mustLogout`, presumably after too many wrong attempts.
+    var mustSignOut: Bool
 }

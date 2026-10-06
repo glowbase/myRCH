@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // MARK: - Live RCH portal backend (unsanctioned web API)
 //
@@ -68,7 +69,17 @@ actor MyChartWebService: PortalService {
     /// Set while the portal is waiting for a verification code.
     private var twoFactor: TwoFactorContext?
 
-    init(config: MyChartConfig = .init(), debugLogResponses: Bool = true) {
+    /// Logging is on for Debug builds only, so TestFlight and release builds
+    /// never write portal responses to the console.
+    private static let logsByDefault: Bool = {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }()
+
+    init(config: MyChartConfig = .init(), debugLogResponses: Bool = MyChartWebService.logsByDefault) {
         self.config = config
         self.debugLogResponses = debugLogResponses
         // Ephemeral gives a private, in-memory cookie jar that URLSession
@@ -208,10 +219,13 @@ actor MyChartWebService: PortalService {
             fullName: name,
             preferredName: name.split(separator: " ").first.map(String.init) ?? name,
             initials: Self.initials(of: name),
-            linkedAccounts: subjects.map {
-                LinkedAccount(id: Self.accountID($0), name: $0.name, initials: Self.initials(of: $0.name), unreadCount: 0)
-            }
+            linkedAccounts: subjects.map(Self.linkedAccount)
         )
+    }
+
+    private nonisolated static func linkedAccount(_ subject: ProxySubject) -> LinkedAccount {
+        LinkedAccount(id: accountID(subject), name: subject.name, initials: initials(of: subject.name),
+                      unreadCount: 0, tabColor: subject.tabColor, photoPath: subject.photoPath)
     }
 
     // MARK: - Patient context (proxy switching)
@@ -228,6 +242,10 @@ actor MyChartWebService: PortalService {
         var isSelf: Bool
         var linkURL: String
         var isSelected: Bool
+        /// Index into the portal's colour scheme (`Theme.accountColours`).
+        var tabColor: Int?
+        /// e.g. /MyRCHPortal/Image/Load?fileName=…
+        var photoPath: String?
     }
 
     private var subjectsCache: [ProxySubject] = []
@@ -250,7 +268,9 @@ actor MyChartWebService: PortalService {
                 name: $0["DisplayName"] as? String ?? "",
                 isSelf: $0["IsSelf"] as? Bool ?? false,
                 linkURL: $0["LinkUrl"] as? String ?? "",
-                isSelected: $0["IsSelected"] as? Bool ?? false
+                isSelected: $0["IsSelected"] as? Bool ?? false,
+                tabColor: Self.int($0, "TabColor"),
+                photoPath: Self.string($0, "PhotoUrl")
             )
         }
         subjectsCache = subjects
@@ -261,9 +281,210 @@ actor MyChartWebService: PortalService {
         return subjects
     }
 
+    /// Captured from Family Access → customise: a multipart POST to
+    /// Proxies/FamilyAccess/CustomizeSubject with `File` (a JPEG named
+    /// profile.jpg for a new photo, or the plain value `-` to remove it;
+    /// left out to keep the current one), `RemoteRelId` (empty),
+    /// `MyChartID`, `PatientID` (ProxySwitch's `Id`), `TabName` (the
+    /// nickname; empty for the patient's own name) and `TabColor`. The reply
+    /// hasn't been captured, so the change counts once ProxySwitch, read
+    /// again, shows it.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
+        let action = "CustomizeSubject"
+        if subjectsCache.isEmpty { _ = await proxySubjects() }
+        guard let subject = subjectsCache.first(where: { Self.accountID($0) == accountID }), !subject.id.isEmpty else {
+            if debugLogResponses { print("↩︎ \(action): no ProxySwitch Id for \(accountID)") }
+            throw MyChartError.actionFailed(action)
+        }
+        // Family Access is the account holder's page: hold their context from
+        // reading it to posting, so a child's background refresh can't switch
+        // the session in between.
+        let holderID = subjectsCache.first(where: \.isSelf).map(Self.accountID) ?? ""
+        await acquireContext(holderID)
+        defer { releaseContext() }
+        // MyChartID isn't in ProxySwitch, only on the Family Access page,
+        // which also hands out the token its own requests send.
+        func loadFamilyAccess() async throws -> (Data, URLResponse) {
+            do {
+                return try await session.data(from: config.url("Proxies/FamilyAccess"))
+            } catch {
+                if debugLogResponses { print("↩︎ \(action): Family Access didn't load: \(error.localizedDescription)") }
+                throw MyChartError.actionFailed(action)
+            }
+        }
+        let generation = contextGeneration
+        var (page, pageResponse) = try await loadFamilyAccess()
+        // A lapsed web session lands on the login page, even when the JSON
+        // APIs answered moments ago. Renew once, as reads do, and reload.
+        if Self.looksStale(page, pageResponse) || Self.isLoginPage(page) {
+            if debugLogResponses { print("↩︎ \(action): Family Access gave the login page, renewing the session") }
+            await recover(holderID, seenGeneration: generation)
+            (page, pageResponse) = try await loadFamilyAccess()
+            if Self.looksStale(page, pageResponse) || Self.isLoginPage(page) {
+                if debugLogResponses { print("↩︎ \(action): still the login page at \(Self.landingDescription(pageResponse))") }
+                throw MyChartError.sessionExpired
+            }
+        }
+        let html = String(decoding: page, as: UTF8.self)
+        guard let myChartID = Self.myChartID(in: html, near: subject.id) else {
+            if debugLogResponses {
+                let status = (pageResponse as? HTTPURLResponse)?.statusCode ?? 0
+                print("↩︎ \(action): no MyChartID on Family Access (HTTP \(status), \(page.count) bytes, title \(Self.pageTitle(in: html) ?? "none"), landed at \(Self.landingDescription(pageResponse)))")
+                print("   context \(currentContextID ?? "none"), holder \(holderID); MyChartID label \(html.contains(/(?i)my_?chart_?id/) ? "present" : "absent"), patient Id \(html.contains(subject.id) ? "present" : "absent")")
+            }
+            throw MyChartError.actionFailed(action)
+        }
+        let token = Self.formInputs(in: html, containerID: "__CSRFContainer")["__RequestVerificationToken"]
+            ?? Self.extractToken(from: html) ?? apiToken
+
+        let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var body = Data()
+        func append(_ text: String) { body.append(Data(text.utf8)) }
+        switch photo {
+        case .keep:
+            break
+        case let .replace(jpeg):
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"; filename=\"profile.jpg\"\r\n")
+            append("Content-Type: image/jpeg\r\n\r\n")
+            body.append(jpeg)
+            append("\r\n")
+        case .remove:
+            // As the page sends after Remove Photo: a plain field, not a file.
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"File\"\r\n\r\n-\r\n")
+        }
+        let fields: [(String, String)] = [
+            ("RemoteRelId", ""), ("MyChartID", myChartID), ("PatientID", subject.id),
+            ("TabName", nickname), ("TabColor", String(colour))
+        ]
+        for (field, value) in fields {
+            append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(field)\"\r\n\r\n\(value)\r\n")
+        }
+        append("--\(boundary)--\r\n")
+
+        var components = URLComponents(url: config.url("Proxies/FamilyAccess/\(action)"), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "noCache", value: String(Double.random(in: 0..<1)))]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+        request.setValue(config.url("Proxies/FamilyAccess").absoluteString, forHTTPHeaderField: "Referer")
+        if let token { request.setValue(token, forHTTPHeaderField: "__RequestVerificationToken") }
+        request.httpBody = body
+
+        let (reply, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if debugLogResponses {
+            print("→ \(action): HTTP \(status), \(reply.count) bytes at \(Self.landingDescription(response))")
+            print("↩︎ \(String(decoding: reply.prefix(300), as: UTF8.self))")
+        }
+        if Self.looksStale(reply, response) { throw MyChartError.sessionExpired }
+        guard (200..<300).contains(status) else {
+            if debugLogResponses { print("↩︎ \(action): refused with HTTP \(status)") }
+            throw MyChartError.actionFailed(action)
+        }
+
+        let subjects = await proxySubjects()
+        if let updated = subjects.first(where: { Self.accountID($0) == accountID }), updated.tabColor != colour {
+            if debugLogResponses { print("↩︎ \(action): ProxySwitch still shows the old colour") }
+            throw MyChartError.actionFailed(action)
+        }
+        return subjects.map(Self.linkedAccount)
+    }
+
+    /// The `WP-…` value that follows a "MyChartID" on the Family Access page.
+    /// With several accounts listed, the one nearest this account's
+    /// PatientID. Read from the page's text, so markup changes may need this
+    /// looked at again; failures are logged.
+    private nonisolated static func myChartID(in html: String, near patientID: String) -> String? {
+        let label = /(?i)my_?chart_?id/
+        let value = /WP-[A-Za-z0-9\-]+/
+        var found: [(offset: Int, id: String)] = []
+        for match in html.matches(of: label) {
+            let window = html[match.range.upperBound...].prefix(400)
+            guard let id = window.firstMatch(of: value), String(id.output) != patientID else { continue }
+            found.append((html.distance(from: html.startIndex, to: match.range.lowerBound), String(id.output)))
+        }
+        let anchors = html.ranges(of: patientID).map { html.distance(from: html.startIndex, to: $0.lowerBound) }
+        guard !anchors.isEmpty else { return found.first?.id }
+        return found.min { a, b in
+            anchors.map { abs($0 - a.offset) }.min()! < anchors.map { abs($0 - b.offset) }.min()!
+        }?.id
+    }
+
+    /// Photos are `Image/Load` pages on the portal, behind the session.
+    /// `PhotoUrl` names a file the server sets up for that ProxySwitch reply:
+    /// loaded later (after the context switches that follow sign-in) it
+    /// comes back empty. So, like the page, read ProxySwitch and load each
+    /// photo straight away, once any switch in flight is done.
+    func accountPhotos() async -> [String: Data] {
+        if let pending = contextSwitch { await pending.task.value }
+        var photos: [String: Data] = [:]
+        for subject in await proxySubjects() {
+            if let path = subject.photoPath, let data = await photo(at: path) {
+                photos[Self.accountID(subject)] = data
+            }
+        }
+        return photos
+    }
+
+    /// Loaded the way the page's `<img>` does. The reply's Content-Type isn't
+    /// trusted; the bytes have to decode as an image instead.
+    private func photo(at path: String) async -> Data? {
+        let url: URL? = path.hasPrefix("http") ? URL(string: path)
+            : path.hasPrefix("/") ? URL(string: "https://\(config.host)\(path)")
+            : URL(string: path, relativeTo: config.url(""))?.absoluteURL
+        guard let url else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("image/webp,image/avif,image/jxl,image/heic,image/*,*/*;q=0.8", forHTTPHeaderField: "Accept")
+        request.setValue(config.url("Home").absoluteString, forHTTPHeaderField: "Referer")
+        guard let (data, response) = try? await session.data(for: request) else { return nil }
+        let isImage = UIImage(data: data) != nil
+        if debugLogResponses {
+            let http = response as? HTTPURLResponse
+            print("→ Image/Load: HTTP \(http?.statusCode ?? 0), \(data.count) bytes, "
+                  + "\(http?.value(forHTTPHeaderField: "Content-Type") ?? "no type"), "
+                  + "\(isImage ? "image" : "not an image") at \(Self.landingDescription(response))")
+        }
+        return isImage ? data : nil
+    }
+
     /// The switch in flight, so concurrent requests wait for it rather than
     /// each switching (and racing each other to a different account).
     private var contextSwitch: (id: String, task: Task<Void, Never>)?
+
+    /// Requests running in the current context. While any are, a request for
+    /// another account waits rather than switching the session under them.
+    private var contextHolds = 0
+    private var holdWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Switches to `patientID` and keeps the session there until the matching
+    /// `releaseContext()`. Without the hold, a page for the account holder
+    /// (e.g. Personal Information) could switch away from the child, only for
+    /// a background refresh of the child's record to switch back before its
+    /// request reached the portal.
+    private func acquireContext(_ patientID: String) async {
+        while !patientID.isEmpty, currentContextID != patientID {
+            if contextHolds > 0 {
+                await withCheckedContinuation { holdWaiters.append($0) }
+                continue
+            }
+            await ensureContext(patientID)
+            // No matching account: carry on in the current context, as before.
+            if currentContextID != patientID { break }
+        }
+        contextHolds += 1
+    }
+
+    private func releaseContext() {
+        contextHolds -= 1
+        guard contextHolds == 0 else { return }
+        let waiters = holdWaiters
+        holdWaiters = []
+        waiters.forEach { $0.resume() }
+    }
 
     /// Switches the session to `patientID` if it isn't already there.
     private func ensureContext(_ patientID: String) async {
@@ -289,9 +510,99 @@ actor MyChartWebService: PortalService {
             return
         }
         // LinkUrl is relative, e.g. inside.asp?mode=proxyswitch&action=switchcontext&eid=…
-        _ = try? await session.data(from: config.url(subject.linkURL))
+        let landing = try? await session.data(from: config.url(subject.linkURL)).1
+        if debugLogResponses { print("↩︎ Context → \(subject.name) (landed at \(landing.map(Self.landingDescription) ?? "nowhere"))") }
+        // In the browser the switch is a full page load, which hands out a
+        // new anti-forgery token; the old one sends api/ calls to Home/Error.
+        await refreshAPIToken()
         currentContextID = patientID
-        if debugLogResponses { print("↩︎ Context → \(subject.name)") }
+        contextGeneration += 1
+    }
+
+    /// Bumped on every switch, so a burst of requests failing together
+    /// recovers with one switch rather than one each.
+    private var contextGeneration = 0
+
+    /// Re-reads the api/ token from the app page named as Referer, as at sign-in.
+    private func refreshAPIToken() async {
+        if let (data, _) = try? await session.data(from: config.url("app/health-summary")) {
+            let html = String(decoding: data, as: UTF8.self)
+            if let token = Self.formInputs(in: html, containerID: "__CSRFContainer")["__RequestVerificationToken"]
+                ?? Self.extractToken(from: html), !token.isEmpty {
+                if debugLogResponses { print("↩︎ CSRF token: refreshed from app/health-summary (\(token == apiToken ? "unchanged" : "changed"))") }
+                apiToken = token
+                return
+            }
+        }
+        if let token = try? await fetchCSRFToken() { apiToken = token }
+    }
+
+    /// The renewal in flight, so a burst of failing requests waits for one.
+    private var renewal: Task<Void, Never>?
+
+    /// A read failed the way a stale session does (see `looksStale`). Renew it
+    /// unless another request already did since `generation`, then get back
+    /// into this child's record for the retry.
+    private func recover(_ patientID: String, seenGeneration generation: Int) async {
+        if let renewal {
+            await renewal.value
+        } else if generation == contextGeneration {
+            let task = Task { await renewSession() }
+            renewal = task
+            await task.value
+            renewal = nil
+        }
+        await ensureContext(patientID)
+    }
+
+    /// The portal signs the session out after a while idle, and the app only
+    /// signed in at launch, so coming back to it later found every request
+    /// failing. The account list only loads while signed in: if it's gone,
+    /// sign in again with the saved details, as at launch. If it's there, the
+    /// context or token went stale, so switch again with a fresh list (its
+    /// links may have expired).
+    private func renewSession() async {
+        defer { contextGeneration += 1 }
+        subjectsCache = []
+        if !(await proxySubjects()).isEmpty {
+            if debugLogResponses { print("↩︎ Still signed in: switching context again") }
+            currentContextID = nil
+            return
+        }
+        guard let credentials = Keychain.loadCredentials() else { return }
+        if debugLogResponses { print("↩︎ Session expired: signing in again") }
+        // Start from an empty cookie jar, like a fresh launch.
+        session.configuration.httpCookieStorage?.removeCookies(since: .distantPast)
+        do {
+            _ = try await signIn(username: credentials.username, password: credentials.password)
+        } catch {
+            // A verification code can't be asked for here; the failed read
+            // shows its error and the next launch signs in properly.
+            if debugLogResponses { print("↩︎ Signing in again failed: \(error.localizedDescription)") }
+        }
+    }
+
+    /// How a stale session answers: the portal's error page (e.g.
+    /// Home/Error?code=15), the login page, or a 500 with an empty body.
+    private nonisolated static func looksStale(_ data: Data, _ response: URLResponse) -> Bool {
+        let path = response.url?.path.lowercased() ?? ""
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        return path.hasSuffix("/home/error") || path.contains("/authentication/login")
+            || (status == 500 && data.count <= 2)
+    }
+
+    /// The portal's sign-in page, whatever URL it was served from.
+    private nonisolated static func isLoginPage(_ data: Data) -> Bool {
+        let html = String(decoding: data.prefix(20_000), as: UTF8.self)
+        return pageTitle(in: html)?.localizedCaseInsensitiveContains("login page") == true
+    }
+
+    /// Path plus any error code, for the log.
+    private nonisolated static func landingDescription(_ response: URLResponse) -> String {
+        guard let url = response.url else { return "?" }
+        let code = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?.first { $0.name == "code" }?.value
+        return url.path + (code.map { "?code=\($0)" } ?? "")
     }
 
     /// The self entry has an empty Id; give it a stable stand-in.
@@ -385,7 +696,8 @@ actor MyChartWebService: PortalService {
         // Home's print header names the patient whose context we're in:
         // <div class="printheader">Name: … | DOB: … | MRN: 12345678 | …</div>
         // (RCH calls the MRN a UR number.)
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let (data, _) = try await session.data(from: config.url("Home"))
         let html = String(decoding: data, as: UTF8.self)
         if html.contains("Authentication/Login") { throw MyChartError.sessionExpired }
@@ -442,9 +754,232 @@ actor MyChartWebService: PortalService {
         do { pastJSON = try await past } catch { failure = error }
         if upcomingJSON == nil, pastJSON == nil, let failure { throw failure }
 
-        let scheduled = decodeAppointments(upcomingJSON, status: .scheduled)
+        let scheduled = await addingVisitPageDetails(to: decodeAppointments(upcomingJSON, status: .scheduled), for: patientID)
         let completed = decodeAppointments(pastJSON, status: .completed)
         return scheduled + completed
+    }
+
+    /// What an upcoming visit's own page adds to the visits list.
+    private struct VisitPageDetails {
+        var directions: String?
+        var isOnWaitList: Bool?
+    }
+
+    /// Visit pages already read, keyed by Csn, so refreshing the list
+    /// doesn't reload every page.
+    private var visitPageCache: [String: VisitPageDetails] = [:]
+
+    /// The visits list doesn't say which desk to go to or whether the visit
+    /// is on the wait list, but each visit's page does. In-person visits
+    /// use the page's "Directions for <department>" as their check-in
+    /// location when the list doesn't give one.
+    private func addingVisitPageDetails(to appointments: [Appointment], for patientID: String) async -> [Appointment] {
+        var result = appointments
+        for index in result.indices {
+            guard let details = await visitPageDetails(csn: result[index].id, for: patientID) else { continue }
+            if result[index].checkInLocation == nil, !result[index].isTelehealth {
+                result[index].checkInLocation = details.directions
+            }
+            result[index].isOnWaitList = details.isOnWaitList
+        }
+        return result
+    }
+
+    private func visitPageDetails(csn: String, for patientID: String) async -> VisitPageDetails? {
+        if let cached = visitPageCache[csn] { return cached }
+        var components = URLComponents(url: config.url("Visits/visitdetails"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "csn", value: csn)]
+        guard let url = components?.url else { return nil }
+        await acquireContext(patientID)
+        defer { releaseContext() }
+        guard let (data, _) = try? await session.data(from: url) else { return nil }
+        let html = String(decoding: data, as: UTF8.self)
+        // A login page means the session lapsed; don't cache that as an empty page.
+        if html.contains("Authentication/Login") { return nil }
+        let details = VisitPageDetails(directions: Self.departmentDirections(in: html),
+                                       isOnWaitList: Self.isOnWaitList(in: html))
+        if debugLogResponses {
+            print("↩︎ visit page: directions \(details.directions == nil ? "none" : "found"), wait list \(details.isOnWaitList.map(String.init) ?? "not found")")
+        }
+        visitPageCache[csn] = details
+        return details
+    }
+
+    /// The page's wait list link offers the opposite of the current setting:
+    /// `<a id="updatewaitlist" data-add="0">Opt out of notifications</a>`
+    /// when the visit is on the list, and `data-add="1"` when it isn't.
+    nonisolated static func isOnWaitList(in html: String) -> Bool? {
+        guard let tag = html.range(of: #"<a\b[^>]*\bid="updatewaitlist"[^>]*>"#, options: .regularExpression),
+              let attribute = html[tag].range(of: #"data-add="[01]""#, options: .regularExpression) else { return nil }
+        return html[attribute].contains("\"0\"")
+    }
+
+    /// The text of each `instructionContent` inside the page's
+    /// `departmentdirections` block, e.g. "RCH Specialist Clinics Desk A1-
+    /// Red Desk (Ground Floor)".
+    nonisolated static func departmentDirections(in html: String) -> String? {
+        guard let start = html.range(of: #"class="departmentdirections""#) else { return nil }
+        // The block ends at the next section heading, if there is one.
+        let rest = html[start.upperBound...]
+        let block = rest.range(of: "<h2").map { rest[..<$0.lowerBound] } ?? rest
+        guard let regex = try? NSRegularExpression(pattern: #"class="instructionContent"[^>]*>([\s\S]*?)</div>"#) else { return nil }
+        let text = String(block)
+        let lines = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { match -> String? in
+            guard let range = Range(match.range(at: 1), in: text) else { return nil }
+            let line = plainText(fromHTML: String(text[range]))
+            return line.isEmpty ? nil : line
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+
+    /// Captured from the visit page's "Notify me of earlier visits" option:
+    /// `addRemove` is 1 to join the wait list and 2 to opt out, and the
+    /// reply is `{"success": true}`.
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID csn: String, for patientID: String) async throws {
+        let path = "Scheduling/AutoWaitList/AddAppointmentToWaitList"
+        let json = try await postLegacy(for: patientID, path: path, query: [:],
+                                        form: ["csn": csn, "addRemove": isOn ? "1" : "2"],
+                                        savesToDevice: false)
+        guard (json as? [String: Any])?["success"] as? Bool == true else {
+            throw MyChartError.actionFailed(path)
+        }
+        visitPageCache[csn]?.isOnWaitList = isOn
+    }
+
+    // MARK: Rescheduling
+
+    /// Captured from the portal's Reschedule page (`Scheduling?workflow=reschedule&csn=…`).
+    /// The reply has the reschedule reasons and every ID GetSlots needs:
+    /// `OriginalAppointmentInfo.Dat`, the visit type, the reason for visit,
+    /// and the provider–department pairs.
+    func rescheduleOptions(appointmentID csn: String, for patientID: String) async throws -> RescheduleOptions {
+        let path = "Scheduling/GetSchedulingWorkflowData"
+        let json = try await postLegacy(for: patientID, path: path, query: [:], form: [
+            "schedulingParameters[workflow]": "reschedule",
+            "schedulingParameters[csn]": csn,
+            // The page sends a fresh 32-hex nonce per load.
+            "nonce": UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        ], savesToDevice: false)
+        guard let data = json as? [String: Any], data["LoadError"] == nil || data["LoadError"] is NSNull,
+              let settings = data["WorkflowSettings"] as? [String: Any] else {
+            throw MyChartError.actionFailed(path)
+        }
+
+        // "Time Unsuitable (via Patient Portal)" → "Time Unsuitable"
+        let reasons = (settings["RescheduleReasons"] as? [[String: Any]] ?? []).compactMap { reason -> RescheduleOptions.Reason? in
+            guard let id = Self.string(reason, "Value"), let title = Self.string(reason, "Title") else { return nil }
+            return .init(id: id, title: title.replacingOccurrences(of: " (via Patient Portal)", with: ""))
+        }
+        let original = data["OriginalAppointmentInfo"] as? [String: Any] ?? [:]
+        let originalVisit = (original["OriginalAppointments"] as? [[String: Any]])?.first ?? [:]
+        let visitType = (originalVisit["VisitTypes"] as? [[String: Any]])?.first
+            ?? (data["VisitTypes"] as? [[String: Any]])?.first ?? [:]
+        let reasonForVisit = (data["ReasonsForVisit"] as? [[String: Any]])?.first ?? [:]
+        let department = (data["Departments"] as? [[String: Any]])?.first ?? [:]
+
+        var options = RescheduleOptions(
+            reasons: reasons,
+            requiresReason: settings["RequireRescheduleReason"] as? Bool ?? false,
+            lastDay: EpicDay.number(for: .now) + (Self.int(settings, "ToDaysOffset") ?? 90))
+        options.rescheduleDat = Self.string(original, "Dat") ?? ""
+        options.visitTypeID = Self.string(visitType, "ID") ?? ""
+        options.reasonForVisitID = Self.string(reasonForVisit, "Id") ?? options.visitTypeID
+        options.allowsProviderSelection = reasonForVisit["AllowProviderSelect"] as? Bool ?? true
+        options.providerDepartmentPairs = (data["ProviderDepartmentPairs"] as? [[String: Any]] ?? []).compactMap { pair in
+            guard let provider = Self.string(pair, "ProviderId"), let department = Self.string(pair, "DepartmentId") else { return nil }
+            return (provider, department, pair["IsTeamMember"] as? Bool ?? false)
+        }
+        options.schedulingPhone = Self.string(department, "PhoneNumber") ?? ""
+
+        guard !options.rescheduleDat.isEmpty, !options.visitTypeID.isEmpty,
+              !options.providerDepartmentPairs.isEmpty else {
+            if debugLogResponses { Self.logShape(json, label: path) }
+            throw MyChartError.actionFailed(path)
+        }
+        return options
+    }
+
+    /// Captured from the Reschedule page's time search. Each call covers
+    /// about a week from `startDte` (skipping ahead to the first week with
+    /// times), and `ContinueInfo.SearchRangeEndDte` says where it stopped,
+    /// so the next week starts the day after.
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID csn: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage {
+        let path = "Scheduling/GetSlots"
+        let visit = "appointmentBuilder.Appointments[0]"
+        var form: [String: String] = [
+            // 6 is the reschedule workflow (WorkflowSettings.WorkflowType).
+            "workflow.Type": "6",
+            "workflow.IsGuest": "false",
+            "workflow.IsAnonymous": "false",
+            "workflow.IsFromPrelogin": "false",
+            "workflow.RescheduleDat": options.rescheduleDat,
+            "workflow.SchedulingControllerParams.workflow": "reschedule",
+            "workflow.SchedulingControllerParams.csn": csn,
+            "workflow.BrowserId": browserID(),
+            "workflow.IsAuthenticatedWidget": "false",
+            "\(visit).VisitTypeId": options.visitTypeID,
+            "\(visit).RescheduleDat": options.rescheduleDat,
+            "\(visit).Slot": "",
+            "\(visit).SearchStartDte": "",
+            "\(visit).SelectedTelehealthMode": "0",
+            "\(visit).CanSkipLicensureCheck": "false",
+            "appointmentBuilder.ReasonForVisitLine": options.reasonForVisitID,
+            "appointmentBuilder.ReasonForVisitValue": "",
+            "appointmentBuilder.ReasonForVisitAllowProviderSelection": options.allowsProviderSelection ? "true" : "false",
+            "appointmentBuilder.UseInsuranceForVisit": "",
+            "appointmentBuilder.SchedulingPhone": options.schedulingPhone,
+            "appointmentBuilder.ClientIANATimeZone": TimeZone.current.identifier,
+            "startDte": String(startDay ?? EpicDay.number(for: .now)),
+            "useSchedulingPreferences": "false"
+        ]
+        for (index, pair) in options.providerDepartmentPairs.enumerated() {
+            let key = "\(visit).ProviderDepartmentPairs[\(index)]"
+            form["\(key).ProviderId"] = pair.providerID
+            form["\(key).DepartmentId"] = pair.departmentID
+            form["\(key).IsTeamMember"] = pair.isTeamMember ? "true" : "false"
+        }
+
+        let json = try await postLegacy(for: patientID, path: path, query: [:], form: form, savesToDevice: false)
+        guard let data = json as? [String: Any], data["ErrorCode"] == nil || data["ErrorCode"] is NSNull else {
+            if debugLogResponses { Self.logShape(json, label: path) }
+            throw MyChartError.actionFailed(path)
+        }
+
+        let iso = ISO8601DateFormatter()
+        var seen = Set<String>()
+        let slots = (data["Solutions"] as? [[String: Any]] ?? [])
+            .flatMap { $0["Slots"] as? [[String: Any]] ?? [] }
+            .compactMap { slot -> AppointmentSlot? in
+                // e.g. "2026-11-06T01:45:00Z"
+                guard let utc = Self.string(slot, "DisplayDateTimeUtc"), let date = iso.date(from: utc) else { return nil }
+                let id = "\(utc)|\(Self.string(slot, "ProviderId") ?? "")"
+                guard seen.insert(id).inserted else { return nil }
+                return AppointmentSlot(id: id, date: date, lengthMinutes: Self.int(slot, "LengthInMinutes") ?? 30)
+            }
+            .sorted { $0.date < $1.date }
+
+        let more = data["ContinueInfo"] as? [String: Any] ?? [:]
+        let next = (more["IsStopSearch"] as? Bool ?? false) ? nil : Self.int(more, "SearchRangeEndDte").map { $0 + 1 }
+        return AppointmentSlotPage(slots: slots, nextStartDay: next.flatMap { $0 <= options.lastDay ? $0 : nil })
+    }
+
+    /// The booking step hasn't been captured yet, so the sheet stops at
+    /// choosing a time (see `booksReschedules`).
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws {
+        throw MyChartError.actionFailed("Scheduling")
+    }
+
+    /// The site's `OSCountToken` cookie, which it sends as the scheduling
+    /// BrowserId. The page's script sets it, so a session that never loaded
+    /// the page may not have one; then make one in the same shape (20
+    /// letters and digits, then Unix seconds).
+    private func browserID() -> String {
+        let cookies = session.configuration.httpCookieStorage?.cookies(for: config.url("")) ?? []
+        if let token = cookies.first(where: { $0.name == "OSCountToken" })?.value { return token }
+        let characters = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        return String((0..<20).map { _ in characters.randomElement()! }) + String(Int(Date.now.timeIntervalSince1970))
     }
 
     func testResults(for patientID: String) async throws -> [TestResult] {
@@ -679,7 +1214,8 @@ actor MyChartWebService: PortalService {
               let url = URL(string: "https://\(config.host)\(config.basePath)\(path)") else {
             throw MyChartError.decoding(action: "document", snippet: "no download path")
         }
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         // A plain link on the site, so GET with the page as Referer.
         var request = URLRequest(url: url)
         request.setValue(config.url("app/test-results").absoluteString, forHTTPHeaderField: "Referer")
@@ -745,6 +1281,64 @@ actor MyChartWebService: PortalService {
         let reply = json as? [String: Any] ?? [:]
         if reply["isSuccess"] as? Bool == false || !(reply["errors"] as? [Any] ?? []).isEmpty {
             throw MyChartError.actionFailed("SubmitMedicationUpdate")
+        }
+    }
+
+    /// Captured from the Medications page, removing a medication the family
+    /// added (still awaiting review): a legacy form POST to
+    /// `Clinical/Medications/SubmitUpdate?noCache=…` with `name` (the
+    /// portal's raw name), `action=4`, `referenceID` and
+    /// `IsFilteredList=false`. `referenceID`
+    /// is the pending update's `updateInformation.referenceID`, not the
+    /// medication's `id`. A refusal answers `{"success": false}`. Success is
+    /// also checked by reloading the list and making sure it has gone.
+    func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        // Only pending additions carry the id; anything else can't be
+        // removed this way.
+        guard let referenceID = medication.updateReferenceID else {
+            throw MyChartError.actionFailed("SubmitUpdate")
+        }
+        await acquireContext(patientID)
+        defer { releaseContext() }
+        let path = "Clinical/Medications/SubmitUpdate"
+        var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
+        components.queryItems = [URLQueryItem(name: "noCache", value: String(Double.random(in: 0..<1)))]
+
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("*/*", forHTTPHeaderField: "Accept")
+        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+        request.setValue(config.url("Clinical/Medications").absoluteString, forHTTPHeaderField: "Referer")
+        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+        request.httpBody = Self.formEncode([
+            "name": medication.portalName ?? medication.sourceName ?? medication.name,
+            "action": "4",
+            "referenceID": referenceID,
+            "IsFilteredList": "false"
+        ]).data(using: .utf8)
+
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if debugLogResponses { print("→ \(path): HTTP \(status), \(data.count) bytes") }
+        let text = String(decoding: data, as: UTF8.self)
+        if text.contains("Authentication/Login") { throw MyChartError.sessionExpired }
+        guard (200..<300).contains(status) else { throw MyChartError.actionFailed("SubmitUpdate") }
+        if let reply = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           reply["success"] as? Bool == false {
+            throw MyChartError.actionFailed("SubmitUpdate")
+        }
+
+        // The portal answered, but only a fresh list without it proves it's
+        // gone. Drop the device's saved list too, so it doesn't come back.
+        let body: [String: Any] = ["context": 2]
+        PortalDiskCache.shared.remove(PortalDiskCache.shared.key(
+            patientID: patientID, endpoint: "api/medications/LoadMedicationsPage", parameters: body))
+        let json = try await postJSON(for: patientID, action: "api/medications/LoadMedicationsPage",
+                                      body: body, savesCopy: false)
+        if decodeMedications(json).contains(where: { $0.id == medication.id && $0.isActive }) {
+            throw MyChartError.actionFailed("SubmitUpdate")
         }
     }
 
@@ -923,7 +1517,8 @@ actor MyChartWebService: PortalService {
     /// FileDisplayName, …}]}`; `DocumentId` goes in the reply's `documentIds`.
     func uploadAttachment(_ data: Data, fileName: String, mimeType: String,
                           for patientID: String) async throws -> MessageAttachment {
-        await ensureContext(patientID)
+        await acquireContext(patientID)
+        defer { releaseContext() }
         let boundary = "----myRCHFormBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var body = Data()
         func append(_ text: String) { body.append(Data(text.utf8)) }
@@ -1014,9 +1609,17 @@ actor MyChartWebService: PortalService {
     }
 
     func allergies(for patientID: String) async throws -> [Allergy] {
-        let json = try await postJSON(for: patientID, action: "api/allergies/LoadAllergies")
+        // Captured from the health-summary page, like LoadHealthIssuesData.
+        let json = try await postJSON(for: patientID, action: "api/allergies/LoadAllergies",
+                                      body: ["isHealthSummary": true])
+        // Field names and types only, never values, to map the decoder from.
+        if debugLogResponses { Self.logShape(json, label: "LoadAllergies") }
         return decodeAllergies(json)
     }
+
+    /// Not yet: `decodeAllergies` is unmapped, so its empty list means
+    /// "unknown", not "none". Flip once it reads the portal's response.
+    nonisolated var readsAllergies: Bool { false }
 
     func immunisations(for patientID: String) async throws -> [Immunisation] {
         let json = try await postJSON(for: patientID, action: "api/immunizations/LoadImmunizations")
@@ -1110,6 +1713,111 @@ actor MyChartWebService: PortalService {
         .sorted { $0.date > $1.date }
     }
 
+    /// Captured from app/referrals: an empty JSON POST answering
+    /// `referralList`, with days as "14/10/2025" (an empty string when
+    /// unknown) and `statusString` already worded for families. `dte` is the
+    /// creation day as an Epic day number, and is skipped in favour of
+    /// `creationDate`.
+    func referrals(for patientID: String) async throws -> [Referral] {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/referrals/listReferrals",
+            referer: config.url("app/referrals").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "listReferrals") }
+        let items = (json as? [String: Any])?["referralList"] as? [[String: Any]] ?? []
+        return items.compactMap { item -> Referral? in
+            guard let id = Self.string(item, "internalId") else { return nil }
+            return Referral(
+                id: id,
+                number: Self.string(item, "externalId") ?? "",
+                status: .init(code: Self.string(item, "status") ?? "",
+                              title: Self.string(item, "statusString") ?? "Unknown"),
+                created: Self.string(item, "creationDate").flatMap(Self.slashDay),
+                referredTo: Self.string(item, "referredToProviderName") ?? "",
+                referredBy: Self.string(item, "referredByProviderName") ?? "",
+                facility: Self.string(item, "referredToFacility") ?? "",
+                requestedAfter: Self.string(item, "start").flatMap(Self.slashDay),
+                requestedBefore: Self.string(item, "end").flatMap(Self.slashDay)
+            )
+        }
+        .sorted { ($0.created ?? .distantPast) > ($1.created ?? .distantPast) }
+    }
+
+    /// Captured from app/referrals/details: `{"RflId": internalId,
+    /// "GetFullRFL": false}`, answering `nativeReport` with `referredTo` and
+    /// `referredBy` (each a `placeOfService` and a `provider`),
+    /// `referralServices` and `type`. Its `referralListEntry` repeats the
+    /// list's entry with most fields blank, so the list's copy is kept.
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails {
+        let action = "api/referrals/getReferralDetails"
+        var referer = URLComponents(url: config.url("app/referrals/details"), resolvingAgainstBaseURL: false)
+        referer?.queryItems = [URLQueryItem(name: "rflId", value: referral.id)]
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["RflId": referral.id, "GetFullRFL": false],
+            referer: referer?.url?.absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "getReferralDetails") }
+        guard let report = (json as? [String: Any])?["nativeReport"] as? [String: Any] else {
+            throw MyChartError.actionFailed(action)
+        }
+        return ReferralDetails(
+            referredTo: Self.referralParty(report["referredTo"]),
+            referredBy: Self.referralParty(report["referredBy"]),
+            services: (report["referralServices"] as? [String] ?? []).compactMap(Self.referralService),
+            type: Self.string(report, "type") ?? ""
+        )
+    }
+
+    private nonisolated static func referralParty(_ json: Any?) -> ReferralDetails.Party {
+        let party = json as? [String: Any] ?? [:]
+        let place = party["placeOfService"] as? [String: Any] ?? [:]
+        let provider = party["provider"] as? [String: Any] ?? [:]
+        return ReferralDetails.Party(
+            provider: string(provider, "name") ?? "",
+            providerSpecialty: string(provider, "primarySpecialty") ?? "",
+            department: string(place, "department") ?? "",
+            departmentSpecialty: string(place, "departmentSpecialty") ?? "",
+            facility: string(place, "facility") ?? "",
+            address: (place["address"] as? [String] ?? []).compactMap(tidyAddressLine),
+            phone: string(place, "phoneNumber") ?? ""
+        )
+    }
+
+    /// "Parkville,Victoria    3052" → "Parkville, Victoria 3052".
+    private nonisolated static func tidyAddressLine(_ line: String) -> String? {
+        let words = line.replacingOccurrences(of: ",", with: ", ")
+            .split(whereSeparator: \.isWhitespace)
+        return words.isEmpty ? nil : words.joined(separator: " ")
+    }
+
+    /// "REF26 - REFERRAL TO OUTPATIENT GENETICS" → "Referral to outpatient
+    /// genetics": the code means nothing to families, and capitals read as
+    /// shouting.
+    private nonisolated static func referralService(_ text: String) -> String? {
+        var name = text.trimmingCharacters(in: .whitespaces)
+        if let dash = name.range(of: " - "),
+           name[..<dash.lowerBound].allSatisfy({ $0.isUppercase || $0.isNumber }) {
+            name = String(name[dash.upperBound...])
+        }
+        guard !name.isEmpty else { return nil }
+        if name == name.uppercased() {
+            name = name.prefix(1) + name.dropFirst().lowercased()
+        }
+        return name
+    }
+
+    /// Australian day/month/year without leading zeros, e.g. "3/7/2026".
+    private nonisolated static func slashDay(_ text: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Australia/Melbourne")
+        formatter.dateFormat = "d/M/yyyy"
+        return formatter.date(from: text)
+    }
+
     private nonisolated static func isoDay(_ text: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -1153,6 +1861,209 @@ actor MyChartWebService: PortalService {
         return value
     }
 
+    /// Captured from app/personal-information: an empty JSON POST whose reply
+    /// holds `currentValues` (address, emailAddress, phoneNumbers[] of
+    /// type/phoneNumber) plus verification flags. GetDetailsAboutMeInformation
+    /// and GetRelationships answer with flags only for the account holder,
+    /// so they aren't read.
+    func personalInformation(for patientID: String) async throws -> PersonalInformation {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/personalInformation/GetContactInformation",
+            savesCopy: false,
+            referer: config.url("app/personal-information").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "GetContactInformation") }
+        return Self.decodePersonalInformation(json)
+    }
+
+    /// Captured from app/personal-information/edit-contact-information: the
+    /// body sends `temporaryAddress` (empty), `emailAddress` and the editable
+    /// phone numbers (mobile and work; home and the address are read-only).
+    /// An empty number clears it. The reply has the same shape as
+    /// GetContactInformation plus `savedSuccessfully`.
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        let action = "api/personalInformation/UpdateContactInformation"
+        let body: [String: Any] = [
+            "temporaryAddress": [String: Any](),
+            "emailAddress": update.email,
+            "phoneNumbers": [
+                ["type": "mobile", "phoneNumber": update.mobilePhone],
+                ["type": "work", "phoneNumber": update.workPhone]
+            ]
+        ]
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/personal-information/edit-contact-information").absoluteString
+        )
+        guard (json as? [String: Any])?["savedSuccessfully"] as? Bool == true else {
+            if debugLogResponses { Self.logShape(json, label: "UpdateContactInformation") }
+            throw MyChartError.actionFailed(action)
+        }
+        return Self.decodePersonalInformation(json)
+    }
+
+    /// Captured from app/security-settings: an empty JSON POST answering flat
+    /// flags. `isUserOptedIntoPreviewFeatures` is the switch's state;
+    /// `arePreviewFeaturesEnabled` is whether they're live this session.
+    func securitySettings(for patientID: String) async throws -> SecuritySettings {
+        let json = try await postJSON(
+            for: patientID,
+            action: "api/security-settings/GetInitialSettings",
+            savesCopy: false,
+            referer: config.url("app/security-settings").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: "GetInitialSettings") }
+        let root = json as? [String: Any] ?? [:]
+        func flag(_ key: String) -> Bool { root[key] as? Bool ?? false }
+        return SecuritySettings(
+            passwordLastChanged: root["passwordLastUpdated"] as? String ?? "",
+            passwordChangeAvailable: flag("passwordChangeAvailable"),
+            passkeysAvailable: flag("passkeyLoginAvailable"),
+            verifiesByEmailOrText: flag("twoFactorEmailSmsOn"),
+            verifiesByAuthenticatorApp: flag("twoFactorTOTPOn"),
+            twoStepRequired: flag("twoFactorRequired"),
+            remembersDevices: flag("rememberWebDevices"),
+            rememberDevicesAllowed: flag("rememberWebDevicesAllowed"),
+            previewFeaturesOn: flag("isUserOptedIntoPreviewFeatures"),
+            deactivateAccountAllowed: flag("deactivateAccountAllowed")
+        )
+    }
+
+    /// Captured from app/security-settings: `{"isOptedIn": Bool}`, answering
+    /// `{"success": true}`.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws {
+        try await setSecuritySwitch("api/security-settings/SetPreviewFeaturesStatus", isOn: isOn, for: patientID)
+    }
+
+    /// Captured from app/security-settings: the same `{"isOptedIn": Bool}`
+    /// body as preview features. Its reply wasn't captured, so only an
+    /// explicit `success: false` counts as failure.
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws {
+        try await setSecuritySwitch("api/security-settings/SetDeviceTrackingStatus", isOn: isOn, for: patientID)
+    }
+
+    private func setSecuritySwitch(_ action: String, isOn: Bool, for patientID: String) async throws {
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["isOptedIn": isOn],
+            savesCopy: false,
+            referer: config.url("app/security-settings").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: action) }
+        if (json as? [String: Any])?["success"] as? Bool == false {
+            throw MyChartError.actionFailed(action)
+        }
+    }
+
+    /// Captured from app/passkey-management: `{"hostname": host}`, answering
+    /// `data.passkeys` (name, rawId, createdOnDevice, creationInstant) and
+    /// `data.lastAuthentication`, whose `expirationTime` is ten minutes after
+    /// the password was last re-entered.
+    func passkeys(for patientID: String) async throws -> PasskeyInfo {
+        let action = "api/passkey-management/LoadPasskeyInfo"
+        let data = try await passkeyAction(action, body: ["hostname": config.host], for: patientID)
+        let root = data as? [String: Any] ?? [:]
+        let passkeys = (root["passkeys"] as? [[String: Any]] ?? []).compactMap(Self.decodePasskey)
+        let authentication = root["lastAuthentication"] as? [String: Any] ?? [:]
+        let verifiedUntil = authentication["hasAuthenticated"] as? Bool == true
+            ? (authentication["expirationTime"] as? String).flatMap(ISO8601DateFormatter().date(from:))
+            : nil
+        return PasskeyInfo(passkeys: passkeys, verifiedUntil: verifiedUntil)
+    }
+
+    /// Captured from app/passkey-management: `{"rawId", "newName"}`,
+    /// answering the renamed passkey in `data`.
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey {
+        let action = "api/passkey-management/RenamePasskey"
+        let data = try await passkeyAction(action, body: ["rawId": passkeyID, "newName": name], for: patientID)
+        guard let passkey = (data as? [String: Any]).flatMap(Self.decodePasskey) else {
+            throw MyChartError.actionFailed(action)
+        }
+        return passkey
+    }
+
+    /// Captured from app/passkey-management: `{"rawId"}`, answering
+    /// `data: true`.
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws {
+        let action = "api/passkey-management/DeletePasskey"
+        let data = try await passkeyAction(action, body: ["rawId": passkeyID], for: patientID)
+        guard data as? Bool == true else { throw MyChartError.actionFailed(action) }
+    }
+
+    /// Captured from app/passkey-management: the site sends the password
+    /// base64-encoded as `{"password"}` and gets back `passwordVerified` and
+    /// `mustLogout` beside `success`, with no `data`.
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck {
+        let action = "api/username-password/VerifyPassword"
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: ["password": Data(password.utf8).base64EncodedString()],
+            savesCopy: false,
+            referer: config.url("app/passkey-management").absoluteString
+        )
+        // A wrong password's reply wasn't captured, so `success` isn't relied
+        // on: anything short of `passwordVerified: true` counts as wrong.
+        let root = json as? [String: Any] ?? [:]
+        return PasswordCheck(
+            verified: root["passwordVerified"] as? Bool ?? false,
+            mustSignOut: root["mustLogout"] as? Bool ?? false
+        )
+    }
+
+    /// Passkey Management's api/ calls all answer `{"success", "data"}`;
+    /// this checks `success` and answers `data`.
+    private func passkeyAction(_ action: String, body: [String: Any], for patientID: String) async throws -> Any? {
+        let json = try await postJSON(
+            for: patientID,
+            action: action,
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/passkey-management").absoluteString
+        )
+        if debugLogResponses { Self.logShape(json, label: action) }
+        let root = json as? [String: Any] ?? [:]
+        guard root["success"] as? Bool == true else { throw MyChartError.actionFailed(action) }
+        return root["data"]
+    }
+
+    private nonisolated static func decodePasskey(_ json: [String: Any]) -> Passkey? {
+        guard let id = json["rawId"] as? String, !id.isEmpty else { return nil }
+        return Passkey(
+            id: id,
+            name: json["name"] as? String ?? "Passkey",
+            createdOnDevice: json["createdOnDevice"] as? String ?? "",
+            created: (json["creationInstant"] as? String).flatMap(ISO8601DateFormatter().date(from:))
+        )
+    }
+
+    private nonisolated static func decodePersonalInformation(_ json: Any) -> PersonalInformation {
+        let root = json as? [String: Any] ?? [:]
+        let values = root["currentValues"] as? [String: Any] ?? [:]
+        let address = values["address"] as? [String: Any] ?? [:]
+        let phones = (values["phoneNumbers"] as? [[String: Any]] ?? []).compactMap { phone -> PersonalInformation.PhoneNumber? in
+            guard let number = phone["phoneNumber"] as? String, !number.isEmpty else { return nil }
+            return .init(type: phone["type"] as? String ?? "", number: number)
+        }
+        return PersonalInformation(
+            email: values["emailAddress"] as? String ?? "",
+            phoneNumbers: phones,
+            street: address["street"] as? String ?? "",
+            suburb: address["city"] as? String ?? "",
+            state: (address["state"] as? [String: Any])?["title"] as? String ?? "",
+            postcode: address["zip"] as? String ?? "",
+            country: (address["country"] as? [String: Any])?["title"] as? String ?? "",
+            emailNeedsVerification: root["emailNeedsVerification"] as? Bool ?? false,
+            mobileNeedsVerification: root["mobilePhoneNeedsVerification"] as? Bool ?? false
+        )
+    }
+
     /// Mirrors the site's `reconcileWebDevice`: the server issues a device ID
     /// that the browser keeps in localStorage and sends with future logins.
     /// Best effort — a failure here shouldn't block sign-in.
@@ -1173,6 +2084,157 @@ actor MyChartWebService: PortalService {
               let issued = json["deviceId"] as? String, !issued.isEmpty else { return }
         let forceUpdate = json["forceUpdate"] as? Bool ?? false
         if forceUpdate || stored == nil { Keychain.deviceID = issued }
+    }
+
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences {
+        let referer = config.url("app/communication-preferences").absoluteString
+        let preferencesAction = "api/communicationPreferences/GetPreferences"
+        let preferencesBody = ["campaignID": "", "expandID": ""]
+        // Toggles must reflect the portal now, not an earlier saved copy.
+        PortalDiskCache.shared.remove(PortalDiskCache.shared.key(
+            patientID: patientID, endpoint: preferencesAction, parameters: preferencesBody))
+        let preferencesJSON = try await postJSON(
+            for: patientID,
+            action: preferencesAction,
+            body: preferencesBody,
+            referer: referer
+        )
+        let contactJSON = try await postJSON(
+            for: patientID,
+            action: "api/communicationPreferences/GetContactInformation",
+            referer: referer
+        )
+        if debugLogResponses {
+            Self.logShape(preferencesJSON, label: "GetPreferences")
+            Self.logShape(contactJSON, label: "GetContactInformation")
+        }
+
+        let root = preferencesJSON as? [String: Any] ?? [:]
+        let groupers = root["groupers"] as? [String: [String: Any]] ?? [:]
+        let concepts = root["concepts"] as? [String: [String: Any]] ?? [:]
+        let medias = root["medias"] as? [String: [String: Any]] ?? [:]
+        func entry(
+            identifiedBy identifier: String,
+            in dictionary: [String: [String: Any]],
+            identifierKey: String
+        ) -> (key: String, value: [String: Any])? {
+            if let value = dictionary[identifier] {
+                return (identifier, value)
+            }
+            return dictionary.first { $0.value[identifierKey] as? String == identifier }
+                .map { ($0.key, $0.value) }
+        }
+
+        let orderedGroupIDs = root["grouperOrder"] as? [String] ?? []
+        var orderedGroupEntries = orderedGroupIDs.compactMap {
+            entry(identifiedBy: $0, in: groupers, identifierKey: "hstId")
+        }
+        let orderedKeys = Set(orderedGroupEntries.map(\.key))
+        orderedGroupEntries.append(
+            contentsOf: groupers
+                .filter { !orderedKeys.contains($0.key) }
+                .sorted {
+                    ($0.value["title"] as? String ?? "") < ($1.value["title"] as? String ?? "")
+                }
+                .map { ($0.key, $0.value) }
+        )
+
+        let groups = orderedGroupEntries.compactMap { groupKey, grouper -> CommunicationPreferenceGroup? in
+            let conceptIDs = grouper["conceptIds"] as? [String] ?? []
+            let items = conceptIDs.compactMap { conceptID -> CommunicationPreferenceItem? in
+                guard let (_, concept) = entry(
+                    identifiedBy: conceptID,
+                    in: concepts,
+                    identifierKey: "hstId"
+                ),
+                let title = concept["title"] as? String,
+                !title.isEmpty else { return nil }
+
+                let mediaIDs = concept["mediaIds"] as? [String] ?? []
+                let channels = mediaIDs.compactMap { mediaID -> CommunicationChannel? in
+                    guard let (mediaKey, media) = entry(
+                        identifiedBy: mediaID,
+                        in: medias,
+                        identifierKey: "mediaId"
+                    ),
+                    let type = media["type"] as? String,
+                    let rawStatus = media["toggleStatus"] as? Int,
+                    let status = CommunicationChannel.Status(rawValue: rawStatus) else { return nil }
+
+                    let kind: CommunicationChannel.Kind = switch type {
+                    case "1": .email
+                    case "6": .pushNotification
+                    case "100": .textMessage
+                    default: .other
+                    }
+                    return CommunicationChannel(
+                        id: mediaKey,
+                        portalType: type,
+                        kind: kind,
+                        status: status
+                    )
+                }
+                return CommunicationPreferenceItem(
+                    id: concept["hstId"] as? String ?? conceptID,
+                    title: title,
+                    description: concept["description"] as? String ?? "",
+                    channels: channels
+                )
+            }
+            guard !items.isEmpty else { return nil }
+            return CommunicationPreferenceGroup(
+                id: grouper["hstId"] as? String ?? groupKey,
+                title: grouper["title"] as? String ?? "Other",
+                description: grouper["description"] as? String ?? "",
+                items: items
+            )
+        }
+
+        let contact = contactJSON as? [String: Any] ?? [:]
+        return CommunicationPreferences(
+            groups: groups,
+            contactInformation: CommunicationContactInformation(
+                email: contact["email"] as? String ?? "",
+                mobilePhone: contact["mobilePhone"] as? String ?? "",
+                emailPending: contact["emailPending"] as? Bool ?? false,
+                mobilePending: contact["mobilePending"] as? Bool ?? false,
+                mobileIsVerified: contact["mobileIsVerified"] as? Bool ?? false,
+                showLinkToContactInfo: contact["showLinkToContactInfo"] as? Bool ?? false
+            )
+        )
+    }
+
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws {
+        let concepts = preferences.groups.flatMap(\.items).map { item -> [String: Any] in
+            let medias = Dictionary(uniqueKeysWithValues: item.channels.map {
+                ($0.portalType, $0.status.rawValue)
+            })
+            return ["hstId": item.id, "medias": medias]
+        }
+        let body: [String: Any] = [
+            "applyToAll": false,
+            "concepts": concepts,
+            "generalSettingsUsed": false,
+            "grouperSettingsUsed": true,
+            "advancedSettingsUsed": false,
+            "campaignID": ""
+        ]
+        let response = try await postJSON(
+            for: patientID,
+            action: "api/communicationPreferences/UpdatePreferences",
+            body: body,
+            savesCopy: false,
+            referer: config.url("app/communication-preferences").absoluteString
+        )
+        guard (response as? [String: Any])?["isSuccess"] as? Bool == true else {
+            throw MyChartError.decoding(
+                action: "api/communicationPreferences/UpdatePreferences",
+                snippet: "The portal did not confirm the update."
+            )
+        }
+        // Avoid showing the saved pre-update response if the page is reopened.
+        PortalDiskCache.shared.removeAll()
     }
 
     // MARK: - Transport
@@ -1207,49 +2269,63 @@ actor MyChartWebService: PortalService {
     /// string, the body is form-encoded, and `noCache` defeats caching the way
     /// the site's own jQuery calls do.
     private func postLegacy(for patientID: String, path: String,
-                            query: [String: String], form: [String: String] = [:]) async throws -> Any {
+                            query: [String: String], form: [String: String] = [:],
+                            savesToDevice: Bool = true) async throws -> Any {
         // Saved copy first (if enabled in Settings), before any context switch.
+        // Actions that change something skip the device cache both ways.
         let diskKey = PortalDiskCache.shared.key(patientID: patientID, endpoint: path,
                                                  parameters: query.merging(form) { a, _ in a })
-        if let saved = PortalDiskCache.shared.read(diskKey),
+        if savesToDevice, let saved = PortalDiskCache.shared.read(diskKey),
            let json = try? JSONSerialization.jsonObject(with: saved) {
             if debugLogResponses { print("→ \(path): from device cache") }
             return json
         }
 
-        await ensureContext(patientID)
+        // Built per attempt, so a retry carries the refreshed token.
+        func send() async throws -> (Data, URLResponse) {
+            var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
+            components.queryItems = (query.merging(["noCache": String(Double.random(in: 0..<1))]) { a, _ in a })
+                .map { URLQueryItem(name: $0.key, value: $0.value) }
 
-        var components = URLComponents(url: config.url(path), resolvingAgainstBaseURL: false)!
-        components.queryItems = (query.merging(["noCache": String(Double.random(in: 0..<1))]) { a, _ in a })
-            .map { URLQueryItem(name: $0.key, value: $0.value) }
+            var request = URLRequest(url: components.url!)
+            request.httpMethod = "POST"
+            request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
+            request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
+            request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+            request.setValue(config.url("Visits").absoluteString, forHTTPHeaderField: "Referer")
+            if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+            if !form.isEmpty {
+                request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
+                request.httpBody = Self.formEncode(form).data(using: .utf8)
+            }
 
-        var request = URLRequest(url: components.url!)
-        request.httpMethod = "POST"
-        request.setValue("application/json, text/javascript, */*; q=0.01", forHTTPHeaderField: "Accept")
-        request.setValue("XMLHttpRequest", forHTTPHeaderField: "X-Requested-With")
-        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
-        request.setValue(config.url("Visits").absoluteString, forHTTPHeaderField: "Referer")
-        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
-        if !form.isEmpty {
-            request.setValue("application/x-www-form-urlencoded; charset=UTF-8", forHTTPHeaderField: "Content-Type")
-            request.httpBody = Self.formEncode(form).data(using: .utf8)
+            let (data, response) = try await session.data(for: request)
+            if debugLogResponses {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("→ \(path): HTTP \(status), \(data.count) bytes")
+            }
+            return (data, response)
         }
 
-        let (data, response) = try await session.data(for: request)
-        if debugLogResponses {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("→ \(path): HTTP \(status), \(data.count) bytes")
+        await acquireContext(patientID)
+        defer { releaseContext() }
+        let generation = contextGeneration
+        var (data, response) = try await send()
+        // Once only: a second error page is reported as before.
+        if Self.looksStale(data, response) {
+            await recover(patientID, seenGeneration: generation)
+            (data, response) = try await send()
         }
         guard let json = try? JSONSerialization.jsonObject(with: data) else {
             let text = String(decoding: data, as: UTF8.self)
             if debugLogResponses {
                 // Page title only — enough to tell a login or error page apart.
-                print("   not JSON (\(Self.pageTitle(in: text) ?? "no title")) at \(response.url?.path ?? "?")")
+                print("   not JSON (\(Self.pageTitle(in: text) ?? "no title")) at \(Self.landingDescription(response))")
             }
             if text.contains("Authentication/Login") { throw MyChartError.sessionExpired }
             throw MyChartError.decoding(action: path, snippet: String(text.prefix(200)))
         }
-        PortalDiskCache.shared.write(data, for: diskKey)
+        if savesToDevice { PortalDiskCache.shared.write(data, for: diskKey) }
         return json
     }
 
@@ -1267,30 +2343,46 @@ actor MyChartWebService: PortalService {
             return json
         }
 
-        await ensureContext(patientID)
-        var request = URLRequest(url: config.url(action))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        // Match Safari's captured api/ requests: the React client sends Origin
-        // and the app page as Referer, and no X-Requested-With.
-        request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
-        request.setValue(referer ?? config.url("app/health-summary").absoluteString, forHTTPHeaderField: "Referer")
-        if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let httpBody = try JSONSerialization.data(withJSONObject: body)
+        // Built per attempt, so a retry carries the refreshed token.
+        func send() async throws -> (Data, URLResponse) {
+            var request = URLRequest(url: config.url(action))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            // Match Safari's captured api/ requests: the React client sends Origin
+            // and the app page as Referer, and no X-Requested-With.
+            request.setValue("https://\(config.host)", forHTTPHeaderField: "Origin")
+            request.setValue(referer ?? config.url("app/health-summary").absoluteString, forHTTPHeaderField: "Referer")
+            if let apiToken { request.setValue(apiToken, forHTTPHeaderField: "__RequestVerificationToken") }
+            request.httpBody = httpBody
 
-        let (data, response) = try await session.data(for: request)
-        if debugLogResponses {
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("→ \(action): HTTP \(status) at \(response.url?.path ?? "?")")
-            if status >= 500, let http = response as? HTTPURLResponse {
-                // Epic sometimes explains a failure in headers rather than the body.
-                let headers = http.allHeaderFields
-                    .map { "\($0.key): \($0.value)" }
-                    .filter { !$0.lowercased().hasPrefix("set-cookie") && !$0.lowercased().hasPrefix("content-security-policy") }
-                    .sorted()
-                print("   headers: \(headers)")
+            let (data, response) = try await session.data(for: request)
+            if debugLogResponses {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("→ \(action): HTTP \(status) at \(Self.landingDescription(response))")
+                if status >= 500, let http = response as? HTTPURLResponse {
+                    // Epic sometimes explains a failure in headers rather than the body.
+                    let headers = http.allHeaderFields
+                        .map { "\($0.key): \($0.value)" }
+                        .filter { !$0.lowercased().hasPrefix("set-cookie") && !$0.lowercased().hasPrefix("content-security-policy") }
+                        .sorted()
+                    print("   headers: \(headers)")
+                }
             }
+            return (data, response)
+        }
+
+        await acquireContext(patientID)
+        defer { releaseContext() }
+        let generation = contextGeneration
+        var (data, response) = try await send()
+        // Once only: a second error page is reported as before. Reads only:
+        // an action that changes something (e.g. sending a reply) might have
+        // run before the redirect, so it isn't repeated.
+        if Self.looksStale(data, response) {
+            await recover(patientID, seenGeneration: generation)
+            if savesCopy { (data, response) = try await send() }
         }
 
         // Session expiry returns 200 with login-page HTML rather than JSON.
@@ -1667,7 +2759,8 @@ actor MyChartWebService: PortalService {
 
     /// Report HTML to plain text: one line per paragraph/row, blank
     /// paragraphs (`&nbsp;`) kept as single blank lines between sections.
-    private nonisolated static func plainText(fromHTML html: String) -> String {
+    /// Also used to give documents' text to the on-device model.
+    nonisolated static func plainText(fromHTML html: String) -> String {
         let text = html
             .replacingOccurrences(of: "\r\n", with: "\n")
             // Markup-only content: embedded CSS and comments.
@@ -1729,15 +2822,23 @@ actor MyChartWebService: PortalService {
         return prescriptions.enumerated().map { index, item in
             let name = Self.medicationName(Self.string(item, "name") ?? "Unknown medicine")
             // patientFriendlyName is the plain-language name, e.g. "Hypersal";
-            // only useful when it differs from the prescription name.
-            let friendly = Self.string(item, "patientFriendlyName")
+            // only useful when it differs from the prescription name. The
+            // live portal sends it as {caption, captionType, text}; a plain
+            // string is still accepted.
+            let friendly = (item["patientFriendlyName"] as? [String: Any]).flatMap { Self.string($0, "text") }
+                ?? Self.string(item, "patientFriendlyName")
             let provider = (item["authorizingProvider"] as? [String: Any])
                 ?? (item["orderingProvider"] as? [String: Any])
             let refill = item["refillDetails"] as? [String: Any] ?? [:]
             // The portal gives one name holding strength and form; split
             // them out. Ones the family added follow the Add Medication
             // screen's format; prescriptions follow the pharmacy's.
-            let isPatientReported = item["isPatientReported"] as? Bool ?? false
+            // A live proxy account showed `isPatientReported` false on
+            // everything; the family's additions were the only ones with
+            // `isClinicReported` false (and `isPendingUpdate` and
+            // `showPendingUndoAddButton` true, awaiting review).
+            let isPatientReported = item["isPatientReported"] as? Bool == true
+                || item["isClinicReported"] as? Bool == false
             let parts = isPatientReported ? Medication.splitReportedName(name) : Medication.splitPrescriptionName(name)
             return Medication(
                 id: Self.string(item, "id") ?? Self.string(item, "prescriptionNumber") ?? "med-\(index)",
@@ -1749,7 +2850,10 @@ actor MyChartWebService: PortalService {
                 // These come from the current-medications list, so treat them
                 // as active unless the portal flags a pending removal.
                 isActive: !(item["showPendingUndoDeleteButton"] as? Bool ?? false),
-                commonName: friendly == name || friendly == parts.name ? nil : friendly,
+                commonName: friendly.flatMap { friendly in
+                    [name, parts.name, Self.string(item, "name") ?? ""]
+                        .contains { $0.caseInsensitiveCompare(friendly) == .orderedSame } ? nil : friendly
+                },
                 form: Self.medicationForm(name: name, sig: Self.string(item, "sig")),
                 prescribedDate: Self.portalDate(Self.string(item, "startDate"))
                     ?? Self.portalDate(Self.string(item, "dateToDisplay")),
@@ -1758,7 +2862,9 @@ actor MyChartWebService: PortalService {
                 canRequestRepeat: item["showRefillButton"] as? Bool ?? false,
                 isPatientReported: isPatientReported,
                 productForm: parts.form,
-                sourceName: name
+                sourceName: name,
+                portalName: Self.string(item, "name"),
+                updateReferenceID: Self.string(item["updateInformation"] as? [String: Any] ?? [:], "referenceID")
             )
         }
     }

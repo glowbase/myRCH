@@ -5,6 +5,7 @@ private actor MockAddedMedications {
     static let shared = MockAddedMedications()
     private(set) var items: [Medication] = []
     func add(_ medication: Medication) { items.append(medication) }
+    func remove(id: String) { items.removeAll { $0.id == id } }
 }
 
 /// In-memory backend with realistic sample data mirroring the portal
@@ -32,18 +33,180 @@ struct MockPortalService: PortalService {
             fullName: "Sallie Anderson",
             preferredName: "Sallie",
             initials: "S",
-            linkedAccounts: [
-                LinkedAccount(id: "acct-sallie", name: "Sallie", initials: "S", unreadCount: 1,
-                              dateOfBirth: Self.date(2018, 3, 14)),
-                LinkedAccount(id: "acct-sal", name: "Sal", initials: "S", unreadCount: 0,
-                              dateOfBirth: Self.date(2025, 9, 10))
-            ]
+            linkedAccounts: Self.accounts
         )
+    }
+
+    private static let accounts = [
+        LinkedAccount(id: "acct-sallie", name: "Sallie", initials: "S", unreadCount: 1,
+                      dateOfBirth: date(2018, 3, 14), tabColor: 5),
+        LinkedAccount(id: "acct-sal", name: "Sal", initials: "S", unreadCount: 0,
+                      dateOfBirth: date(2025, 9, 10), tabColor: 0)
+    ]
+
+    /// Nothing is kept: the change lasts until the next sign-in.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
+        await delay()
+        return Self.accounts.map { account in
+            guard account.id == accountID else { return account }
+            var updated = account
+            // As the portal does, an empty nickname goes back to the patient's own name.
+            if !nickname.isEmpty { updated.name = nickname }
+            updated.initials = String(updated.name.prefix(1)).uppercased()
+            updated.tabColor = colour
+            return updated
+        }
+    }
+
+    /// Sample accounts have no photos.
+    func accountPhotos() async -> [String: Data] { [:] }
+
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences {
+        await delay()
+        let email = CommunicationChannel(id: "email", portalType: "1", kind: .email, status: .on)
+        let text = CommunicationChannel(id: "text", portalType: "6", kind: .pushNotification, status: .on)
+        return CommunicationPreferences(
+            groups: [
+                CommunicationPreferenceGroup(
+                    id: "messages",
+                    title: "Messages",
+                    description: "Receive updates from your healthcare organisation.",
+                    items: [
+                        CommunicationPreferenceItem(
+                            id: "new-message",
+                            title: "New Message",
+                            description: "",
+                            channels: [email, text]
+                        ),
+                        CommunicationPreferenceItem(
+                            id: "letters",
+                            title: "Letters",
+                            description: "",
+                            channels: [CommunicationChannel(id: "letters-email", portalType: "1", kind: .email, status: .off), text]
+                        )
+                    ]
+                ),
+                CommunicationPreferenceGroup(
+                    id: "health",
+                    title: "Health",
+                    description: "Notifications when new information is available about your care.",
+                    items: [
+                        CommunicationPreferenceItem(
+                            id: "test-result",
+                            title: "Test Result",
+                            description: "",
+                            channels: [email, text]
+                        )
+                    ]
+                ),
+                CommunicationPreferenceGroup(
+                    id: "appointments",
+                    title: "Appointments",
+                    description: "Alerts and notifications about upcoming or past appointments.",
+                    items: [
+                        CommunicationPreferenceItem(
+                            id: "appointment-information",
+                            title: "Appointment Information",
+                            description: "",
+                            channels: [email, text]
+                        )
+                    ]
+                )
+            ],
+            contactInformation: CommunicationContactInformation(
+                email: "parent@example.com",
+                mobilePhone: "04•• ••• •••",
+                emailPending: false,
+                mobilePending: false,
+                mobileIsVerified: true,
+                showLinkToContactInfo: true
+            )
+        )
+    }
+
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws {
+        await delay()
     }
 
     /// A made-up UR number so the dashboard chip shows in demo mode.
     func recordHeader(for patientID: String) async throws -> RecordHeader {
         RecordHeader(fullName: patientID == "acct-sal" ? "Sal Anderson" : "Sallie Anderson", urNumber: "10000001")
+    }
+
+    func personalInformation(for patientID: String) async throws -> PersonalInformation {
+        await delay()
+        return PersonalInformation(
+            email: "parent@example.com",
+            phoneNumbers: [
+                .init(type: "mobile", number: "0400 000 000"),
+                .init(type: "home", number: "03 9000 0000")
+            ],
+            street: "1 Example Street",
+            suburb: "Parkville",
+            state: "Victoria",
+            postcode: "3052",
+            country: "Australia",
+            emailNeedsVerification: false,
+            mobileNeedsVerification: false
+        )
+    }
+
+    /// Answers the sample details with the edits applied; nothing is kept.
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        var information = try await personalInformation(for: patientID)
+        information.email = update.email
+        information.phoneNumbers = [
+            .init(type: "mobile", number: update.mobilePhone),
+            .init(type: "home", number: information.phone("home")),
+            .init(type: "work", number: update.workPhone)
+        ].filter { !$0.number.isEmpty }
+        return information
+    }
+
+    func securitySettings(for patientID: String) async throws -> SecuritySettings {
+        await delay()
+        return SecuritySettings(
+            passwordLastChanged: "29 Dec, 2025",
+            passwordChangeAvailable: true,
+            passkeysAvailable: true,
+            verifiesByEmailOrText: false,
+            verifiesByAuthenticatorApp: true,
+            twoStepRequired: true,
+            remembersDevices: true,
+            rememberDevicesAllowed: true,
+            previewFeaturesOn: true,
+            deactivateAccountAllowed: true
+        )
+    }
+
+    /// Nothing is kept; the page shows the change until it reloads.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws { await delay() }
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws { await delay() }
+
+    func passkeys(for patientID: String) async throws -> PasskeyInfo {
+        await delay()
+        return PasskeyInfo(passkeys: [
+            Passkey(id: "demo-1", name: "iPhone", createdOnDevice: "iPhone - Safari",
+                    created: .now.addingTimeInterval(-40 * 86_400)),
+            Passkey(id: "demo-2", name: "Passkey 2", createdOnDevice: "Mac - Safari",
+                    created: .now.addingTimeInterval(-3 * 86_400))
+        ], verifiedUntil: nil)
+    }
+
+    /// Nothing is kept; the list shows the change until it reloads.
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey {
+        await delay()
+        return Passkey(id: passkeyID, name: name, createdOnDevice: "iPhone - Safari", created: .now)
+    }
+
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws { await delay() }
+
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck {
+        await delay()
+        return PasswordCheck(verified: !password.isEmpty, mustSignOut: false)
     }
 
     func appointments(for patientID: String) async throws -> [Appointment] {
@@ -137,6 +300,39 @@ struct MockPortalService: PortalService {
         ]
     }
 
+    func referrals(for patientID: String) async throws -> [Referral] {
+        await delay()
+        let rch = "The Royal Children's Hospital"
+        let authorised = Referral.Status(code: "1", title: "Authorised")
+        let closed = Referral.Status(code: "6", title: "Closed")
+        return [
+            Referral(id: "r1", number: "10000003", status: authorised, created: Self.date(2026, 7, 3),
+                     referredTo: "Kevin Chang, Consultant", referredBy: "Sarah Flynn, Registrar",
+                     facility: rch, requestedAfter: Self.date(2026, 7, 3), requestedBefore: nil),
+            Referral(id: "r2", number: "10000002", status: authorised, created: Self.date(2025, 12, 22),
+                     referredTo: "", referredBy: "Sarah Flynn, Registrar",
+                     facility: rch, requestedAfter: Self.date(2026, 8, 12), requestedBefore: nil),
+            Referral(id: "r3", number: "10000001", status: closed, created: Self.date(2025, 10, 14),
+                     referredTo: "Sarah Flynn, Registrar", referredBy: "Alex Morgan, GP",
+                     facility: rch, requestedAfter: Self.date(2025, 11, 17), requestedBefore: Self.date(2026, 2, 17))
+        ]
+    }
+
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails {
+        await delay()
+        let address = ["50 Flemington Road", "Parkville, Victoria 3052"]
+        return ReferralDetails(
+            referredTo: .init(provider: referral.referredTo, providerSpecialty: "",
+                              department: "Nephrology Clinic", departmentSpecialty: "Nephrology",
+                              facility: referral.facility, address: address, phone: "03 9345 5818"),
+            referredBy: .init(provider: referral.referredBy, providerSpecialty: "Dermatology",
+                              department: "Dermatology Streamline Access Clinic", departmentSpecialty: "",
+                              facility: referral.facility, address: address, phone: ""),
+            services: ["Referral to outpatient nephrology"],
+            type: "Non VINAH Reportable"
+        )
+    }
+
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String {
         await delay()
         return """
@@ -197,40 +393,47 @@ struct MockPortalService: PortalService {
             50 Flemington Road, Parkville VIC 3052
             03 9345 4200
             """
+        // A child with cystic fibrosis (F508del homozygous): routine cough
+        // swabs, the fat-soluble vitamin and liver checks CF teams run, lung
+        // function, and the newborn-screening sweat test.
         return [
-            TestResult(id: "t1", name: "Thyroid Function",
-                       date: Self.date(2026, 9, 3, 9), kind: .lab,
-                       orderingProvider: "Kevin Chang, Consultant", isUnread: true, summary: nil,
+            TestResult(id: "t1", name: "Cough Swab Culture",
+                       date: Self.date(2026, 9, 3, 9), kind: .pathology,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: true,
+                       summary: "Light growth of Staphylococcus aureus. No Pseudomonas aeruginosa isolated.",
                        components: [
-                        ResultComponent(id: "t1a", name: "TSH", value: 5.9, unit: "mIU/L",
-                                        normalLow: 0.5, normalHigh: 4.5),
-                        ResultComponent(id: "t1b", name: "Free T4", value: 13.2, unit: "pmol/L",
-                                        normalLow: 10, normalHigh: 20)
+                        ResultComponent(id: "t1a", name: "Culture", value: nil, unit: "",
+                                        normalLow: nil, normalHigh: nil,
+                                        valueText: "Organism 1\nStaphylococcus aureus\nColony Count Qualitative: light")
                        ],
-                       specimen: "Blood", authorisingClinician: "Joanne Harrison, Consultant",
-                       resultDate: Self.date(2026, 9, 4, 15), resultingLab: rchLab),
-            TestResult(id: "t2", name: "Vitamin D",
+                       specimen: "Cough swab", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 9, 5, 11), resultingLab: rchLab),
+            TestResult(id: "t2", name: "Fat-Soluble Vitamins",
                        date: Self.date(2026, 9, 3, 9), kind: .lab,
-                       orderingProvider: "Kevin Chang, Consultant", isUnread: true, summary: nil,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: true, summary: nil,
                        components: [
                         ResultComponent(id: "t2a", name: "25-OH Vitamin D", value: 48, unit: "nmol/L",
-                                        normalLow: 50, normalHigh: 150)
+                                        normalLow: 50, normalHigh: 150),
+                        ResultComponent(id: "t2b", name: "Vitamin A (retinol)", value: 1.2, unit: "µmol/L",
+                                        normalLow: 0.9, normalHigh: 2.5),
+                        ResultComponent(id: "t2c", name: "Vitamin E (alpha-tocopherol)", value: 19, unit: "µmol/L",
+                                        normalLow: 11, normalHigh: 38)
                        ],
-                       specimen: "Blood", authorisingClinician: "Joanne Harrison, Consultant",
+                       specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
                        resultDate: Self.date(2026, 9, 5, 11), resultingLab: rchLab),
-            TestResult(id: "t3", name: "Allergy IgE",
+            TestResult(id: "t3", name: "Faecal Elastase",
                        date: Self.date(2026, 8, 21, 12), kind: .lab,
-                       orderingProvider: "Nicola Byrne, Registrar", isUnread: false, summary: nil,
+                       orderingProvider: "Kevin Chang, Consultant", isUnread: false,
+                       summary: "Consistent with pancreatic insufficiency. Continue pancreatic enzymes with all meals and snacks.",
                        components: [
-                        ResultComponent(id: "t3a", name: "Total IgE", value: 20.8, unit: "kU/L",
-                                        normalLow: 0, normalHigh: 25)
+                        ResultComponent(id: "t3a", name: "Faecal elastase", value: 15, unit: "µg/g",
+                                        normalLow: 200, normalHigh: nil, valueText: "<15", qualifier: .lessThan)
                        ],
-                       documents: [ResultDocument(id: "t3d1", title: "Scan 1")],
-                       specimen: "Blood", authorisingClinician: "Joanne Harrison, Consultant",
-                       resultDate: Self.date(2026, 9, 7, 12), resultingLab: rchLab),
+                       specimen: "Faeces", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 8, 26, 10), resultingLab: rchLab),
             TestResult(id: "t4", name: "Full Blood Examination",
                        date: Self.date(2026, 8, 21, 12), kind: .lab,
-                       orderingProvider: "Nicola Byrne, Registrar", isUnread: false, summary: nil,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false, summary: nil,
                        components: [
                         ResultComponent(id: "t4a", name: "Haemoglobin", value: 128, unit: "g/L",
                                         normalLow: 115, normalHigh: 155),
@@ -241,55 +444,90 @@ struct MockPortalService: PortalService {
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
                        resultDate: Self.date(2026, 8, 21, 17), resultingLab: rchLab),
-            TestResult(id: "t5", name: "Iron Studies",
-                       date: Self.date(2026, 7, 12, 10), kind: .lab,
+            TestResult(id: "t5", name: "Liver Function",
+                       date: Self.date(2026, 8, 21, 12), kind: .lab,
                        orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
                        components: [
-                        ResultComponent(id: "t5a", name: "Ferritin", value: 22, unit: "µg/L",
+                        ResultComponent(id: "t5a", name: "ALT", value: 34, unit: "U/L",
+                                        normalLow: 5, normalHigh: 30),
+                        ResultComponent(id: "t5b", name: "GGT", value: 18, unit: "U/L",
+                                        normalLow: 5, normalHigh: 25),
+                        ResultComponent(id: "t5c", name: "Albumin", value: 41, unit: "g/L",
+                                        normalLow: 35, normalHigh: 50)
+                       ],
+                       specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 8, 21, 18), resultingLab: rchLab),
+            TestResult(id: "t6", name: "Lung Function (Spirometry)",
+                       date: Self.date(2026, 7, 2, 10), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Normal spirometry. FEV1 stable compared with last year.",
+                       components: [
+                        ResultComponent(id: "t6a", name: "FEV1 (% predicted)", value: 92, unit: "%",
+                                        normalLow: 80, normalHigh: 120),
+                        ResultComponent(id: "t6b", name: "FVC (% predicted)", value: 98, unit: "%",
+                                        normalLow: 80, normalHigh: 120)
+                       ],
+                       authorisingClinician: "Joanne Harrison, Consultant",
+                       resultDate: Self.date(2026, 7, 2, 12), resultingLab: "RCH Respiratory Laboratory"),
+            TestResult(id: "t7", name: "XR Chest 2 VW",
+                       date: Self.date(2026, 7, 2, 14), kind: .imaging,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Mild peribronchial thickening in both upper lobes, in keeping with known cystic fibrosis. No consolidation. Unchanged from last year.",
+                       documents: [ResultDocument(id: "t7d1", title: "Radiology report", pageCount: 2)],
+                       authorisingClinician: "Mark Tran, Radiologist",
+                       resultDate: Self.date(2026, 7, 2, 18), resultingLab: "RCH Medical Imaging"),
+            TestResult(id: "t8", name: "Iron Studies",
+                       date: Self.date(2026, 7, 2, 9), kind: .lab,
+                       orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
+                       components: [
+                        ResultComponent(id: "t8a", name: "Ferritin", value: 22, unit: "µg/L",
                                         normalLow: 15, normalHigh: 120),
-                        ResultComponent(id: "t5b", name: "Transferrin saturation", value: 18, unit: "%",
+                        ResultComponent(id: "t8b", name: "Transferrin saturation", value: 18, unit: "%",
                                         normalLow: 15, normalHigh: 45)
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2026, 7, 13, 9), resultingLab: rchLab),
-            TestResult(id: "t6", name: "XR Chest 2 VW",
-                       date: Self.date(2026, 7, 2, 14), kind: .imaging,
-                       orderingProvider: "Sarah Flynn, Registrar", isUnread: false,
-                       summary: "Lungs are clear. Heart size is normal. No acute cardiopulmonary abnormality.",
-                       documents: [ResultDocument(id: "t6d1", title: "Radiology report", pageCount: 2)],
-                       authorisingClinician: "Mark Tran, Radiologist",
-                       resultDate: Self.date(2026, 7, 2, 18), resultingLab: "RCH Medical Imaging"),
-            TestResult(id: "t7", name: "Renal Function",
-                       date: Self.date(2026, 6, 15, 8), kind: .lab,
-                       orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
+                       resultDate: Self.date(2026, 7, 3, 9), resultingLab: rchLab),
+            TestResult(id: "t9", name: "Allergy IgE",
+                       date: Self.date(2026, 7, 2, 9), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Annual screen for allergic bronchopulmonary aspergillosis (ABPA): no evidence.",
                        components: [
-                        ResultComponent(id: "t7a", name: "Creatinine", value: 52, unit: "µmol/L",
-                                        normalLow: 30, normalHigh: 70),
-                        ResultComponent(id: "t7b", name: "Urea", value: 4.1, unit: "mmol/L",
+                        ResultComponent(id: "t9a", name: "Total IgE", value: 20.8, unit: "kU/L",
+                                        normalLow: 0, normalHigh: 25)
+                       ],
+                       specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2026, 7, 6, 12), resultingLab: rchLab),
+            TestResult(id: "t10", name: "Renal Function",
+                       date: Self.date(2026, 6, 1, 8), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Checked after inhaled tobramycin: normal.",
+                       components: [
+                        ResultComponent(id: "t10a", name: "Creatinine", value: 41, unit: "µmol/L",
+                                        normalLow: 25, normalHigh: 60),
+                        ResultComponent(id: "t10b", name: "Urea", value: 4.1, unit: "mmol/L",
                                         normalLow: 2.5, normalHigh: 6.5)
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2026, 6, 15, 16), resultingLab: rchLab),
-            TestResult(id: "t8", name: "Duodenal Biopsy Disaccharidases",
-                       date: Self.date(2026, 5, 2, 11), kind: .pathology,
-                       orderingProvider: "Anatomical Pathology", isUnread: false,
-                       summary: "Disaccharidase activity within normal limits for age. No evidence of lactase deficiency.",
-                       documents: [
-                        ResultDocument(id: "t8d1", title: "Pathology report", pageCount: 3),
-                        ResultDocument(id: "t8d2", title: "Scan 1")
-                       ],
-                       specimen: "Tissue — duodenal biopsy",
-                       authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2026, 5, 16, 10), resultingLab: rchLab),
-            TestResult(id: "t9", name: "Trace Metals",
+                       resultDate: Self.date(2026, 6, 1, 16), resultingLab: rchLab),
+            TestResult(id: "t11", name: "Trace Metals",
                        date: Self.date(2025, 8, 15, 9), kind: .lab,
                        orderingProvider: "Kevin Chang, Consultant", isUnread: false, summary: nil,
                        components: [
-                        ResultComponent(id: "t9a", name: "Zinc", value: 9.2, unit: "µmol/L",
+                        ResultComponent(id: "t11a", name: "Zinc", value: 9.2, unit: "µmol/L",
                                         normalLow: 10, normalHigh: 18)
                        ],
                        specimen: "Blood", authorisingClinician: "Helen Savoia, Consultant",
-                       resultDate: Self.date(2025, 8, 20, 12), resultingLab: rchLab)
+                       resultDate: Self.date(2025, 8, 20, 12), resultingLab: rchLab),
+            TestResult(id: "t12", name: "Sweat Test",
+                       date: Self.date(2018, 4, 10, 10), kind: .lab,
+                       orderingProvider: "Joanne Harrison, Consultant", isUnread: false,
+                       summary: "Sweat chloride in the diagnostic range for cystic fibrosis, following newborn screening.",
+                       components: [
+                        ResultComponent(id: "t12a", name: "Sweat chloride", value: 102, unit: "mmol/L",
+                                        normalLow: nil, normalHigh: 29, rangeText: "<30")
+                       ],
+                       specimen: "Sweat", authorisingClinician: "Helen Savoia, Consultant",
+                       resultDate: Self.date(2018, 4, 10, 15), resultingLab: rchLab)
         ]
     }
 
@@ -356,6 +594,11 @@ struct MockPortalService: PortalService {
             instructions: "", prescriber: "", isActive: true,
             form: MyChartWebService.medicationForm(name: name, sig: nil),
             prescribedDate: startDate, isPatientReported: true, productForm: parts.form, sourceName: name))
+    }
+
+    func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        await delay()
+        await MockAddedMedications.shared.remove(id: medication.id)
     }
 
     /// Flat summaries used by the dashboard and notifications, derived from the
@@ -568,6 +811,40 @@ struct MockPortalService: PortalService {
     /// Demo mode keeps goals on the device only, so the portal list is empty.
     func patientGoals(for patientID: String) async throws -> [PortalGoal] { [] }
     func setPatientGoal(_ text: String, for patientID: String) async throws { await delay() }
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws { await delay() }
+
+    /// The portal's reschedule reasons, as RCH words them.
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions {
+        await delay()
+        let reasons = ["No Longer Need Service", "Patient/Child Unwell", "Time Unsuitable", "Other"]
+        return RescheduleOptions(reasons: reasons.enumerated().map { .init(id: "\($0.offset + 41)", title: $0.element) },
+                                 requiresReason: true, lastDay: EpicDay.number(for: .now) + 90,
+                                 rescheduleDat: appointmentID)
+    }
+
+    /// A few weekday times each week, a week per search, for 90 days.
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage {
+        await delay()
+        let today = EpicDay.number(for: .now)
+        let start = startDay ?? today + 3
+        let calendar = Calendar.current
+        let slots = (start..<start + 7).flatMap { day -> [AppointmentSlot] in
+            guard let date = calendar.date(byAdding: .day, value: day - today, to: calendar.startOfDay(for: .now)),
+                  !calendar.isDateInWeekend(date), day % 3 != 0 else { return [] }
+            return [(9, 30), (13, 0)].compactMap { hour, minute in
+                calendar.date(bySettingHour: hour, minute: minute, second: 0, of: date)
+                    .map { AppointmentSlot(id: "mock-\(day)-\(hour)", date: $0, lengthMinutes: 30) }
+            }
+        }
+        let next = start + 7
+        return AppointmentSlotPage(slots: slots, nextStartDay: next <= options.lastDay ? next : nil)
+    }
+
+    var booksReschedules: Bool { true }
+
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws { await delay() }
 
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
         func link(_ title: String, _ url: String) -> (title: String, url: URL)? {

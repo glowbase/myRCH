@@ -197,15 +197,37 @@ struct RangeStatusPill: View {
     }
 }
 
+extension TestResult {
+    /// What was tested, for the list and Home: the specimen ("Blood",
+    /// "Urine"), which arrives with the details, or "Imaging" for scans,
+    /// which have none.
+    var specimenLabel: String? {
+        if let specimen, !specimen.isEmpty { return specimen }
+        return kind == .imaging ? "Imaging" : nil
+    }
+}
+
+/// What was tested, in teal, where a list or card would otherwise say
+/// whether the result was in range: a value outside the range isn't
+/// necessarily a worry, so the family opens the result to see it in context.
+struct SpecimenPill: View {
+    let result: TestResult
+
+    var body: some View {
+        if let label = result.specimenLabel {
+            Pill(text: label, systemImage: result.kind.systemImage, tint: Theme.teal)
+                .lineLimit(1)
+        }
+    }
+}
+
 struct TestResultRow: View {
     @Environment(Session.self) private var session
     let result: TestResult
-    /// Values and ranges aren't in the list response, so each row fetches its
+    /// The specimen isn't in the list response, so each row fetches its
     /// details when it scrolls into view (the service caches them, so opening
     /// the result afterwards is instant).
     @State private var detailed: TestResult?
-
-    private var status: TestResult.RangeStatus? { (detailed ?? result).rangeStatus }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -221,10 +243,8 @@ struct TestResultRow: View {
                 Text(result.date.mediumDate)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                if let status {
-                    RangeStatusPill(status: status)
-                        .padding(.top, 2)
-                }
+                SpecimenPill(result: detailed ?? result)
+                    .padding(.top, 2)
             }
             Spacer()
             if result.isUnread {
@@ -233,7 +253,7 @@ struct TestResultRow: View {
             }
         }
         .padding(.vertical, 4)
-        .animation(.default, value: status)
+        .animation(.default, value: detailed?.specimen)
         .task(id: result.id) {
             detailed = try? await session.service.testResultDetails(result, for: session.patientID)
         }
@@ -248,6 +268,9 @@ struct TestResultDetailView: View {
     @State private var result: TestResult
     @State private var showsAdditionalInfo = true
     @State private var openDocument: ResultDocument?
+    @State private var showsExplanation = false
+    /// Past values of each component, shown in a dropdown under its card.
+    @State private var trends: [ComponentTrend] = []
 
     init(result: TestResult) {
         _result = State(initialValue: result)
@@ -258,7 +281,6 @@ struct TestResultDetailView: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 resultsSection
-                ResultTrendsSection(result: result)
                 if !result.comments.isEmpty { commentsSection }
                 if !result.documents.isEmpty { documentsSection }
                 additionalInfoSection
@@ -269,11 +291,16 @@ struct TestResultDetailView: View {
         .navigationTitle("Test Details")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(item: $openDocument) { DocumentPreviewSheet(document: $0, result: result) }
+        .sheet(isPresented: $showsExplanation) { ResultExplanationSheet(result: result) }
+        .toolbar {
+            AIExplainToolbarItem(title: "Explain Result") { showsExplanation = true }
+        }
         .task(id: result.id) {
             // Keep the summary on screen if the details can't be fetched.
             if let detailed = try? await session.service.testResultDetails(result, for: session.patientID) {
                 result = detailed
             }
+            trends = await ResultHistory.trends(for: result, service: session.service, patientID: session.patientID)
         }
     }
 
@@ -284,7 +311,7 @@ struct TestResultDetailView: View {
             Label(result.kind == .imaging ? "Imaging" : result.kind == .pathology ? "Pathology" : "Lab test",
                   systemImage: result.systemImage)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.testResults.accent)
                 .textCase(.uppercase)
             Text(result.name)
                 .font(.system(.title, design: .rounded).bold())
@@ -292,16 +319,27 @@ struct TestResultDetailView: View {
             Text("Collected \(result.date.dateAndTime)")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            statusChip
+            if result.rangeStatus != nil || result.specimenLabel != nil {
+                ChipRow {
+                    statusChip
+                    if let specimen = result.specimenLabel {
+                        CategoryChip(title: specimen, systemImage: result.kind.systemImage, color: Theme.teal)
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
     }
 
     /// Only for results with a normal range; a culture or X-ray has nothing
-    /// to be "within".
+    /// to be "within". Icon plus words, so it never relies on colour.
     @ViewBuilder
     private var statusChip: some View {
         if let status = result.rangeStatus {
-            RangeStatusPill(status: status)
+            let outside = status == .outside
+            CategoryChip(title: outside ? "Outside normal range" : "Within normal range",
+                         systemImage: outside ? "exclamationmark.triangle.fill" : "checkmark.circle.fill",
+                         color: outside ? Theme.orange : Theme.green)
         }
     }
 
@@ -367,7 +405,15 @@ struct TestResultDetailView: View {
                 ForEach(resultRows) { row in
                     switch row {
                     case .component(let component):
-                        card { ResultComponentView(component: component) }
+                        card {
+                            VStack(alignment: .leading, spacing: 14) {
+                                ResultComponentView(component: component)
+                                if let trend = trends.first(where: { $0.name == component.name }) {
+                                    Divider()
+                                    TrendDisclosure(trend: trend)
+                                }
+                            }
+                        }
                     case .culture(let organisms):
                         card { CultureView(organisms: organisms) }
                     }
@@ -387,7 +433,7 @@ struct TestResultDetailView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Label(comment.author, systemImage: "person.crop.circle.fill")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.brand)
+                                .foregroundStyle(Feature.testResults.accent)
                             Spacer()
                             if let date = comment.date {
                                 Text(date.mediumDate)
@@ -444,7 +490,7 @@ struct TestResultDetailView: View {
                     .font(.headline)
                     .foregroundStyle(Theme.ink)
             }
-            .tint(Theme.brand)
+            .tint(Feature.testResults.accent)
         }
     }
 
@@ -612,7 +658,7 @@ struct GrowthMeter: View {
             ForEach(CultureOrganism.Growth.allCases, id: \.self) { step in
                 RoundedRectangle(cornerRadius: 3)
                     .fill(step <= growth
-                          ? Theme.brand.opacity(Self.stepOpacity[step.rawValue - 1])
+                          ? Feature.testResults.accent.opacity(Self.stepOpacity[step.rawValue - 1])
                           : Color(.tertiarySystemFill))
                     .frame(width: 18, height: 8)
             }
@@ -731,9 +777,9 @@ private struct DocumentThumbnail: View {
         VStack(spacing: 10) {
             Image(systemName: "doc.text.fill")
                 .font(.system(size: 34))
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.testResults.accent)
                 .frame(width: 120, height: 92)
-                .background(Theme.brand.opacity(0.1), in: .rect(cornerRadius: 14))
+                .background(Feature.testResults.accent.opacity(0.1), in: .rect(cornerRadius: 14))
             VStack(spacing: 2) {
                 Text(document.title)
                     .font(.subheadline.weight(.medium))
@@ -864,7 +910,7 @@ private struct DocumentPreviewSheet: View {
 }
 
 /// SwiftUI has no PDF view, so host PDFKit's.
-private struct PDFKitView: UIViewRepresentable {
+struct PDFKitView: UIViewRepresentable {
     let document: PDFDocument
 
     func makeUIView(context: Context) -> PDFView {

@@ -1,7 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "rch-logo.jpeg",
+      "filename" : "rch_logo_light.png",
+      "idiom" : "universal"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "rch_logo_dark.png",
       "idiom" : "universal"
     }
   ],

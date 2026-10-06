@@ -17,9 +17,7 @@ struct PersonaSwitcherSheet: View {
                             dismiss()
                         } label: {
                             HStack(spacing: 14) {
-                                AvatarView(initials: account.initials,
-                                           tint: Theme.leaves[index % Theme.leaves.count],
-                                           size: 40)
+                                AccountAvatar(account: account, index: index, size: 40)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(account.name)
                                         .font(.headline)

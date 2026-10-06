@@ -22,6 +22,10 @@ protocol PortalService: Sendable {
     func letters(for patientID: String) async throws -> [Letter]
     /// A letter as a complete, self-contained HTML page.
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String
+    /// Referrals on the record, newest first.
+    func referrals(for patientID: String) async throws -> [Referral]
+    /// Where a referral is from and to, and what it's for.
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails
     func testResults(for patientID: String) async throws -> [TestResult]
     /// Fills in a result's values, ranges and report, which the list omits.
     func testResultDetails(_ result: TestResult, for patientID: String) async throws -> TestResult
@@ -33,6 +37,8 @@ protocol PortalService: Sendable {
     /// Adds a medication the family reports taking, from `startDate`. The
     /// care team reviews it at the next visit.
     func addMedication(named name: String, startDate: Date, for patientID: String) async throws
+    /// Removes a medication the family added (`isPatientReported`).
+    func removeMedication(_ medication: Medication, for patientID: String) async throws
     func messages(for patientID: String) async throws -> [Message]
 
     /// Message threads with the care team, in one of the Messages folders.
@@ -64,6 +70,9 @@ protocol PortalService: Sendable {
 
     func healthIssues(for patientID: String) async throws -> [HealthIssue]
     func allergies(for patientID: String) async throws -> [Allergy]
+    /// False while a backend can't read allergies yet, so screens say so
+    /// rather than showing its empty list as "no known allergies".
+    var readsAllergies: Bool { get }
     func immunisations(for patientID: String) async throws -> [Immunisation]
     /// Hospital announcements and links for the bottom of Home.
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed
@@ -72,8 +81,53 @@ protocol PortalService: Sendable {
     func patientGoals(for patientID: String) async throws -> [PortalGoal]
     /// Sets the shared goal, replacing any that's there.
     func setPatientGoal(_ text: String, for patientID: String) async throws
+    /// Adds an upcoming visit to the portal's wait list for earlier times,
+    /// or takes it off.
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws
+    /// Reasons and the details needed to look up new times for a visit.
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions
+    /// Free times from `startDay` (an Epic day number; nil for today).
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage
+    /// False until the portal's booking step has been mapped.
+    var booksReschedules: Bool { get }
+    /// Moves the visit to the chosen time.
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws
     /// Per-dose details (product, site, batch…) for one vaccine record.
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose]
+    /// Email, phone numbers and address from the Personal Information page.
+    func personalInformation(for patientID: String) async throws -> PersonalInformation
+    /// Saves the editable contact details and answers the portal's updated copy.
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation
+    /// Password, two-step verification and device settings from Account Settings.
+    func securitySettings(for patientID: String) async throws -> SecuritySettings
+    /// Turns the portal's preview features on or off.
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws
+    /// Turns "Remember logged-in devices" on or off.
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws
+    /// The account holder's passkeys from Passkey Management.
+    func passkeys(for patientID: String) async throws -> PasskeyInfo
+    /// Renames a passkey and answers it as saved.
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey
+    /// Removes a passkey from the account.
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws
+    /// Re-enters the password, which the portal asks for before passkey changes.
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck
+    /// Sets a linked account's nickname, colour (an index into
+    /// `Theme.accountColours`) and, when given, a new JPEG photo, as the
+    /// portal's Family Access page does. An empty nickname goes back to the
+    /// patient's own name. Answers the updated accounts.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount]
+    /// Each linked account's photo, by account ID, for those that have one.
+    func accountPhotos() async -> [String: Data]
+    /// Notification channels and contact details configured in the portal.
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences
+    /// Saves all editable communication channels in one atomic portal update.
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws
 }
 
 enum PortalError: LocalizedError {
@@ -91,6 +145,9 @@ enum PortalError: LocalizedError {
 }
 
 extension PortalService {
+    var readsAllergies: Bool { true }
+    var booksReschedules: Bool { false }
+
     /// The inbox, for the dashboard and notifications.
     func conversations(for patientID: String) async throws -> [Conversation] {
         try await conversations(in: .inbox, for: patientID)

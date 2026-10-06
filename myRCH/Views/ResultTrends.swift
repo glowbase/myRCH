@@ -65,29 +65,60 @@ enum ResultHistory {
     }
 }
 
-/// Health-style trend cards for a result's values, each with a time-range
-/// picker, the normal range shaded, and the latest value large.
-struct ResultTrendsSection: View {
-    let result: TestResult
-    @Environment(Session.self) private var session
-    @State private var trends: [ComponentTrend] = []
+/// Describes a component's history for the on-device model.
+enum TrendSummary {
+    static let instructions = """
+        You are describing how one of a child's test values has changed over \
+        time. Describe the direction (rising, falling, steady or up and \
+        down) and where the latest value sits against the normal range. \
+        Don't guess at causes.
+        """
 
-    var body: some View {
-        // A stack, not a Group, so `.task` runs while it's still empty.
-        VStack(alignment: .leading, spacing: 12) {
-            if !trends.isEmpty {
-                SummarySectionHeader<Feature>(title: "Trends")
-                ForEach(trends) { TrendCard(trend: $0) }
-            }
+    static func prompt(for trend: ComponentTrend, age: String?) -> String {
+        var lines: [String] = []
+        if let age { lines.append("Child's age now: \(age)") }
+        lines.append("Test value: \(trend.name)" + (trend.unit.isEmpty ? "" : " (\(trend.unit))"))
+        switch (trend.normalLow, trend.normalHigh) {
+        case let (low?, high?): lines.append("Normal range: \(low.formatted())–\(high.formatted())")
+        case let (nil, high?): lines.append("Normal: below \(high.formatted())")
+        case let (low?, nil): lines.append("Normal: above \(low.formatted())")
+        case (nil, nil): break
         }
-        .task(id: result.id) {
-            trends = await ResultHistory.trends(for: result, service: session.service, patientID: session.patientID)
+        lines.append("Values, oldest first:")
+        for point in trend.points {
+            var line = "- \(point.date.mediumDate): \(point.value.formatted(.number.precision(.fractionLength(0...2))))"
+            if let low = trend.normalLow, point.value < low { line += " (below range)" }
+            if let high = trend.normalHigh, point.value > high { line += " (above range)" }
+            lines.append(line)
         }
+        lines.append("")
+        lines.append("In two or three short sentences, describe how this value has changed over time and where the latest one sits compared with the normal range. Reply with only the description.")
+        return lines.joined(separator: "\n")
     }
 }
 
-private struct TrendCard: View {
+/// A collapsed "Trend" dropdown under a result value: a time-range picker,
+/// then the history as a chart (normal range shaded) and as a table.
+struct TrendDisclosure: View {
     let trend: ComponentTrend
+    @State private var isExpanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $isExpanded) {
+            TrendDetail(trend: trend)
+                .padding(.top, 12)
+        } label: {
+            Label("Trend (\(trend.points.count) results)", systemImage: "chart.xyaxis.line")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+        }
+        .tint(Theme.brand)
+    }
+}
+
+private struct TrendDetail: View {
+    let trend: ComponentTrend
+    @Environment(Session.self) private var session
 
     enum Span: String, CaseIterable, Identifiable {
         case sixMonths = "6M", year = "Y", all = "All"
@@ -117,41 +148,60 @@ private struct TrendCard: View {
             }
             .pickerStyle(.segmented)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(trend.name.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if let latest = trend.latest {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(latest.value.formatted(.number.precision(.fractionLength(0...2))))
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                        Text(trend.unit)
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text("Latest, \(latest.date.mediumDate)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
             if shown.count >= 1 {
                 chart.frame(height: 170)
+                if trend.normalLow != nil, trend.normalHigh != nil {
+                    Label("Shaded area is the normal range", systemImage: "rectangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Divider()
+                table
+                Divider()
+                AIInlineSummary(buttonTitle: "Summarise trend", instructions: TrendSummary.instructions) {
+                    TrendSummary.prompt(for: trend, age: await ChildContext.load(session).age)
+                }
             } else {
                 Text("No values in this period.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 80)
             }
+        }
+    }
 
-            if let low = trend.normalLow, let high = trend.normalHigh {
-                Label("Normal range \(low.formatted()) – \(high.formatted()) \(trend.unit)", systemImage: "rectangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    /// The same values as the chart, newest first, flagged when outside the
+    /// normal range with an icon as well as colour.
+    private var table: some View {
+        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+            GridRow {
+                Text("Date")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(trend.unit.isEmpty ? "Value" : "Value (\(trend.unit))")
+                    .gridColumnAlignment(.trailing)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            ForEach(shown.reversed()) { point in
+                let outside = isOutside(point.value)
+                GridRow {
+                    Text(point.date.mediumDate)
+                    HStack(spacing: 4) {
+                        if outside {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                        }
+                        Text(point.value.formatted(.number.precision(.fractionLength(0...2))))
+                            .monospacedDigit()
+                    }
+                    .foregroundStyle(outside ? Theme.orange : .primary)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(point.value.formatted()) \(trend.unit)")
+                    .accessibilityValue(outside ? "Outside normal range" : "")
+                }
+                .font(.subheadline)
             }
         }
-        .padding(16)
-        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
     }
 
     private var chart: some View {

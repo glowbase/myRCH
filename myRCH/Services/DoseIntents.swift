@@ -58,3 +58,14 @@ struct LogNextDoseIntent: LiveActivityIntent {
         return .result()
     }
 }
+
+/// Siri phrases and the app's page in Shortcuts (linked from Settings).
+struct MyRCHShortcuts: AppShortcutsProvider {
+    static var appShortcuts: [AppShortcut] {
+        AppShortcut(intent: LogNextDoseIntent(),
+                    phrases: ["Log next dose in \(.applicationName)",
+                              "Mark next medication as taken in \(.applicationName)"],
+                    shortTitle: "Log Next Dose",
+                    systemImageName: "pills.fill")
+    }
+}

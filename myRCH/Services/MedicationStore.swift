@@ -11,7 +11,7 @@ import UserNotifications
 /// Reminders work like the Health app's: one notification per child per dose
 /// time, covering every medication due then ("Time for Sam's 8:00 am
 /// medications: …"), with Mark All as Taken / Skip All / Snooze actions, and
-/// a follow-up 30 minutes later naming whatever still isn't logged. Tapping a
+/// a follow-up (30 minutes later by default) naming whatever still isn't logged. Tapping a
 /// reminder opens a sheet to log each medication. Each slot is its own
 /// one-off notification (not a repeating trigger), so a day's follow-up can
 /// be dropped once everything in it is logged.
@@ -99,8 +99,20 @@ final class MedicationStore {
     /// Every reminder's title. Fixed here, not read from saved entries, so
     /// reminders set up earlier (saved as "Medication reminder") update too.
     static let reminderTitle = "Medication Reminder"
-    static let followUpDelay: TimeInterval = 30 * 60
-    static let snoozeDelay: TimeInterval = 10 * 60
+    /// Settings > Medication Reminders, in minutes.
+    static let snoozeMinutesKey = "snoozeMinutes"
+    static let followUpMinutesKey = "followUpMinutes"
+    static let snoozeChoices = [5, 10, 15, 30]
+    /// 0 turns the follow-up off.
+    static let followUpChoices = [0, 15, 30, 60]
+
+    static var snoozeMinutes: Int {
+        UserDefaults.standard.object(forKey: snoozeMinutesKey) as? Int ?? 10
+    }
+    static var followUpMinutes: Int {
+        UserDefaults.standard.object(forKey: followUpMinutesKey) as? Int ?? 30
+    }
+    static var snoozeDelay: TimeInterval { TimeInterval(snoozeMinutes * 60) }
     static let categoryID = "MEDICATION_REMINDER"
     /// iOS keeps at most 64 pending notifications per app; leave headroom.
     private static let maxPending = 60
@@ -232,16 +244,23 @@ final class MedicationStore {
 
     // MARK: Dose log
 
-    /// Today's (or `day`'s) doses for a medication, earliest first.
+    /// Today's (or `day`'s) doses for a medication, earliest first. Doses
+    /// logged at a time that's no longer in the schedule (the reminder was
+    /// changed or removed, e.g. when a course finished) still appear, so the
+    /// history stays intact.
     func doses(on day: Date = .now, for key: String) -> [Dose] {
         let calendar = Calendar.current
-        let logs = entries[key]?.doses ?? []
-        return reminders(for: key).compactMap { reminder in
+        let logs = (entries[key]?.doses ?? []).filter { $0.isScheduled && calendar.isDate($0.scheduled, inSameDayAs: day) }
+        var doses = reminders(for: key).compactMap { reminder -> Dose? in
             guard let scheduled = calendar.date(bySettingHour: reminder.hour, minute: reminder.minute,
                                                 second: 0, of: day) else { return nil }
-            let log = logs.first { $0.isScheduled && abs($0.scheduled.timeIntervalSince(scheduled)) < 60 }
+            let log = logs.first { abs($0.scheduled.timeIntervalSince(scheduled)) < 60 }
             return Dose(scheduled: scheduled, status: log?.status, loggedAt: log?.loggedAt)
         }
+        for log in logs where !doses.contains(where: { abs($0.scheduled.timeIntervalSince(log.scheduled)) < 60 }) {
+            doses.append(Dose(scheduled: log.scheduled, status: log.status, loggedAt: log.loggedAt))
+        }
+        return doses.sorted { $0.scheduled < $1.scheduled }
     }
 
     func log(_ status: DoseLog.Status?, scheduled: Date, for key: String) {
@@ -301,7 +320,8 @@ final class MedicationStore {
         share(key, deleted: true) { (.asNeeded, Self.asNeededName($0, log)) }
     }
 
-    /// "Remind Me in 10 Minutes": a one-off repeat for what's still unlogged.
+    /// "Remind Me in 10 Minutes" (or as set in Settings): a one-off repeat
+    /// for what's still unlogged.
     func snooze(_ slot: Slot) {
         let names = items(in: slot).filter { $0.status == nil }.map(\.name)
         guard !names.isEmpty else { return }
@@ -361,8 +381,11 @@ final class MedicationStore {
         for (slot, names) in unlogged {
             let sortedNames = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             let child = children[slot.patientID]
-            let followUp = slot.scheduled.addingTimeInterval(Self.followUpDelay)
-            for (kind, fireDate) in [("main", slot.scheduled), ("followup", followUp)] where fireDate > now {
+            var fires = [("main", slot.scheduled)]
+            if Self.followUpMinutes > 0 {
+                fires.append(("followup", slot.scheduled.addingTimeInterval(TimeInterval(Self.followUpMinutes * 60))))
+            }
+            for (kind, fireDate) in fires where fireDate > now {
                 let request = Self.request(
                     slot: slot, fireDate: fireDate, kind: kind, title: Self.reminderTitle,
                     body: Self.body(names: sortedNames, child: child, at: slot.scheduled, followUp: kind == "followup"))
@@ -593,6 +616,9 @@ final class MedicationStore {
             record["med"] = ref.med
             fields["text"] = note.text
             fields["date"] = note.date
+        case .question:
+            // Visit questions are filled by AppointmentQuestionsStore.
+            return false
         }
         return true
     }
@@ -633,6 +659,8 @@ final class MedicationStore {
                 entry.notes.removeAll { $0.id == id }
                 entry.notes.append(MedicationNote(id: id, text: text, date: date))
             }
+        case .question:
+            return
         }
         save()
         saveSharing()
@@ -644,7 +672,7 @@ final class MedicationStore {
         let parts = recordName.split(separator: ".", maxSplits: 2).map(String.init)
         guard parts.count >= 2, let kind = CareSync.Kind(rawValue: parts[0]) else { return }
         switch kind {
-        case .schedule:
+        case .schedule, .question:
             return
         case .dose, .asNeeded:
             guard parts.count == 3, let stamp = Int(parts[2]) else { return }
@@ -697,9 +725,13 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
     /// Registers the notification buttons. Call once at launch.
     func register(store: MedicationStore) {
         self.store = store
-        let center = UNUserNotificationCenter.current()
-        center.delegate = self
-        center.setNotificationCategories([
+        UNUserNotificationCenter.current().delegate = self
+        registerCategories()
+    }
+
+    /// The buttons, again when the snooze length changes in Settings.
+    func registerCategories() {
+        UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(
                 identifier: MedicationStore.categoryID,
                 actions: [
@@ -707,7 +739,7 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
                                          icon: UNNotificationActionIcon(systemImageName: "checkmark.circle")),
                     UNNotificationAction(identifier: Action.skipped, title: "Skip All",
                                          icon: UNNotificationActionIcon(systemImageName: "xmark.circle")),
-                    UNNotificationAction(identifier: Action.snooze, title: "Remind Me in 10 Minutes",
+                    UNNotificationAction(identifier: Action.snooze, title: "Remind Me in \(MedicationStore.snoozeMinutes) Minutes",
                                          icon: UNNotificationActionIcon(systemImageName: "clock"))
                 ],
                 intentIdentifiers: [])
@@ -729,6 +761,20 @@ final class NotificationPresenter: NSObject, UNUserNotificationCenterDelegate {
                                             didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
+        // A Discover alert: open its post or fact sheet.
+        let post = info[DiscoverAlerts.postKey] as? Int
+        let sheet = (info[DiscoverAlerts.sheetKey] as? String).flatMap(URL.init(string:))
+        if post != nil || sheet != nil {
+            nonisolated(unsafe) let completionHandler = completionHandler
+            let open: @Sendable () -> Void = {
+                MainActor.assumeIsolated {
+                    RCHContentStore.shared.openLink = post.map { .post($0) } ?? sheet.map { .sheet($0) }
+                }
+                completionHandler()
+            }
+            if Thread.isMainThread { open() } else { DispatchQueue.main.async(execute: open) }
+            return
+        }
         // Reminders delivered before grouping carried a medication "key";
         // its patient is the part before the first "|".
         let patientID = (info["patientID"] as? String)

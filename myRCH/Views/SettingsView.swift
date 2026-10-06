@@ -25,29 +25,29 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
 /// Profile and settings, laid out like the Health app's profile: the person
 /// at the top, then grouped rows with coloured icons. Also where you switch
-/// between children.
+/// between children. Detailed settings live on their own pages (see
+/// AppSettingsViews.swift) so this one stays short.
 struct SettingsView: View {
     let profile: PatientProfile
     @Environment(Session.self) private var session
-    @Environment(\.openURL) private var openURL
 
     /// Explore More cards closed on Home (shared with the dashboard).
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
     @AppStorage(AppAppearance.storageKey) private var appearance = AppAppearance.system.rawValue
-    /// The Allergy Alert widget shows allergies without unlocking, so it's opt-in.
-    @AppStorage(WidgetPublisher.showsAllergiesKey) private var showsAllergiesOnLockScreen = false
-    @AppStorage(ActivityManager.enabledKey) private var liveActivitiesEnabled = true
+    @State private var appLock = AppLock.shared
+    /// From the portal's record header, for the profile row.
+    @State private var urNumber: String?
     @State private var showsEditHome = false
     @State private var confirmsSignOut = false
 
     var body: some View {
         List {
             profileHeader
+            recordsSection
             healthSection
-            accountsSection
-            homeSection
-            preferencesSection
-            dataSection
+            portalAccountSection
+            appSection
+            privacySection
             aboutSection
             signOutSection
         }
@@ -58,47 +58,51 @@ struct SettingsView: View {
 
     // MARK: - Profile
 
+    /// Like the top of iOS Settings: avatar on the left, then the child's
+    /// name, age and UR number.
     private var profileHeader: some View {
         Section {
-            VStack(spacing: 10) {
+            HStack(spacing: 14) {
                 AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                           tint: session.activeTint, size: 88)
-                Text(session.activeAccount?.name ?? profile.fullName)
-                    .font(.system(.title, design: .rounded).bold())
-                Text(session.useLivePortal ? "My RCH Portal" : "Demo mode")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                           tint: session.activeTint, size: 64,
+                           image: session.activeAccount.flatMap { session.accountPhotos[$0.id] })
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(session.activeAccount?.name ?? profile.fullName)
+                            .font(.title2.weight(.semibold))
+                            .lineLimit(2)
+                        // So sample records are never mistaken for real ones.
+                        if !session.useLivePortal {
+                            Pill(text: "Demo", tint: .orange)
+                                .fixedSize()
+                        }
+                    }
+                    if let birth = session.activeAccount?.dateOfBirth {
+                        Text("\(birth.ageDescription) · Born \(birth.formatted(date: .abbreviated, time: .omitted))")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    if let urNumber {
+                        Text("UR \(urNumber)")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .listRowBackground(Color.clear)
+            .accessibilityElement(children: .combine)
+        }
+        .task(id: session.patientID) {
+            // Never show one child's UR number under another's name.
+            urNumber = nil
+            urNumber = try? await session.service.recordHeader(for: session.patientID).urNumber
         }
     }
 
-    private var healthSection: some View {
-        Section {
-            NavigationLink {
-                MedicalIDView(patientID: session.patientID)
-            } label: {
-                SettingsRow("Medical ID", symbol: "staroflife.fill", color: .red)
-            }
-            NavigationLink {
-                HealthSummaryView(patientID: session.patientID)
-            } label: {
-                SettingsRow("Health Summary", symbol: "heart.text.clipboard.fill", color: .pink)
-            }
-            NavigationLink {
-                SharedRemindersView()
-            } label: {
-                SettingsRow("Share Medication Reminders", symbol: "person.2.fill", color: Theme.medication)
-            }
-        }
-    }
-
-    // MARK: - Accounts
+    // MARK: - Records
 
     @ViewBuilder
-    private var accountsSection: some View {
+    private var recordsSection: some View {
         if profile.linkedAccounts.count > 1 {
             Section {
                 ForEach(Array(profile.linkedAccounts.enumerated()), id: \.element.id) { index, account in
@@ -106,9 +110,7 @@ struct SettingsView: View {
                         session.activeAccountID = account.id
                     } label: {
                         HStack(spacing: 14) {
-                            AvatarView(initials: account.initials,
-                                       tint: Theme.leaves[index % Theme.leaves.count],
-                                       size: 34)
+                            AccountAvatar(account: account, index: index, size: 34)
                             Text(account.name).foregroundStyle(.primary)
                             Spacer()
                             if account.id == session.activeAccountID {
@@ -119,6 +121,11 @@ struct SettingsView: View {
                         }
                     }
                 }
+                NavigationLink {
+                    EditAccountsView()
+                } label: {
+                    SettingsRow("Nicknames and Photos", symbol: "person.crop.circle.badge.plus", color: Theme.proxy)
+                }
             } header: {
                 Text("Records")
             } footer: {
@@ -127,10 +134,56 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Home
+    // MARK: - Health
 
-    private var homeSection: some View {
-        Section("Home") {
+    /// For the selected child.
+    private var healthSection: some View {
+        Section("Health") {
+            NavigationLink {
+                MedicalIDView(patientID: session.patientID)
+            } label: {
+                SettingsRow("Medical ID", symbol: "staroflife.fill", color: .red)
+            }
+            NavigationLink {
+                SharedRemindersView()
+            } label: {
+                SettingsRow("Share Medication Reminders", symbol: "person.2.fill", color: Theme.medication)
+            }
+        }
+    }
+
+    // MARK: - Portal account
+
+    /// The signed-in adult's own details, whichever child is selected.
+    private var portalAccountSection: some View {
+        Section("Portal Account") {
+            NavigationLink {
+                PersonalInformationView()
+            } label: {
+                SettingsRow("Personal Information", symbol: "person.text.rectangle.fill", color: .teal)
+            }
+            NavigationLink {
+                SecuritySettingsView()
+            } label: {
+                SettingsRow("Login & Security", symbol: "lock.shield.fill", color: .gray)
+            }
+            NavigationLink {
+                CommunicationPreferencesView()
+            } label: {
+                SettingsRow("Communication Preferences", symbol: "message.badge.fill", color: .blue)
+            }
+        }
+    }
+
+    // MARK: - App
+
+    private var appSection: some View {
+        Section("App") {
+            Picker(selection: $appearance) {
+                ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
+            } label: {
+                SettingsRow("Appearance", symbol: "circle.lefthalf.filled", color: .indigo)
+            }
             Button {
                 showsEditHome = true
             } label: {
@@ -144,62 +197,48 @@ struct SettingsView: View {
             }
             .foregroundStyle(.primary)
             .disabled(dismissedExplore.isEmpty)
+            NavigationLink {
+                NotificationSettingsView()
+            } label: {
+                SettingsRow("Notifications", symbol: "bell.badge.fill", color: .red)
+            }
+            NavigationLink {
+                LockScreenSettingsView()
+            } label: {
+                SettingsRow("Lock Screen & Widgets", symbol: "platter.filled.bottom.iphone", color: .blue)
+            }
+            NavigationLink {
+                SiriSettingsView()
+            } label: {
+                SettingsRow("Siri & Shortcuts", symbol: "mic.fill", color: .purple)
+            }
         }
     }
 
-    // MARK: - Preferences
+    // MARK: - Privacy
 
     @ViewBuilder
-    private var preferencesSection: some View {
-        Section {
-            Picker(selection: $appearance) {
-                ForEach(AppAppearance.allCases) { Text($0.title).tag($0.rawValue) }
-            } label: {
-                SettingsRow("Appearance", symbol: "circle.lefthalf.filled", color: .indigo)
-            }
-            Button {
-                if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
-            } label: {
-                SettingsRow("Notifications", symbol: "bell.badge.fill", color: .red, showsChevron: true)
-            }
-            .foregroundStyle(.primary)
-        } header: {
-            Text("Preferences")
-        } footer: {
-            Text("Medication reminders use iOS notifications. Turn them on or off, or change how they appear, in Settings.")
-        }
-        Section {
-            Toggle(isOn: $liveActivitiesEnabled) {
-                SettingsRow("Live Activities", symbol: "platter.filled.bottom.iphone", color: Theme.medication)
-            }
-            .onChange(of: liveActivitiesEnabled) { WidgetPublisher.shared.settingsChanged() }
-        } footer: {
-            Text("Shows a dose that's due, with Taken and Skip, and the day of a visit, on the Lock Screen and in the Dynamic Island. They start when you open myRCH.")
-        }
-        Section {
-            Toggle(isOn: $showsAllergiesOnLockScreen) {
-                SettingsRow("Allergies on Lock Screen", symbol: "allergens.fill", color: .orange)
-            }
-            .onChange(of: showsAllergiesOnLockScreen) { WidgetPublisher.shared.settingsChanged() }
-        } header: {
-            Text("Widgets")
-        } footer: {
-            Text("Lets the Allergy Alert widget show allergies without unlocking your iPhone, like Medical ID, so a first responder can see them. Anyone who picks up your phone can too.")
-        }
-    }
-
-    // MARK: - Data & privacy
-
-    private var dataSection: some View {
+    private var privacySection: some View {
         @Bindable var session = session
-        return Section {
+        Section {
+            Toggle(isOn: Binding(get: { appLock.isEnabled },
+                                 set: { enabled in Task { await appLock.setEnabled(enabled) } })) {
+                SettingsRow("Require \(appLock.method)", symbol: appLock.symbol, color: .green)
+            }
+            .disabled(!appLock.isAvailable)
+        } header: {
+            Text("Privacy")
+        } footer: {
+            Text(appLock.isAvailable
+                 ? "Asks for \(appLock.method) each time you open myRCH, and hides your records in the app switcher. Your iPhone passcode works too."
+                 : "Set a passcode for your iPhone in Settings to lock myRCH.")
+        }
+        Section {
             Toggle(isOn: $session.cachesDataOnDevice) {
                 SettingsRow("Save Data on This iPhone", symbol: "internaldrive.fill", color: .gray)
             }
-        } header: {
-            Text("Data & Privacy")
         } footer: {
-            Text("Keeps a copy of your portal data on this iPhone for up to 5 minutes, so reopening the app is quicker. It's encrypted while your iPhone is locked, and deleted when you sign out, pull to refresh or turn this off. Applies to the live portal only.")
+            Text("Keeps a copy of your portal data on this iPhone for up to 5 minutes, so reopening the app is quicker. It's encrypted while your iPhone is locked, and deleted when you sign out, pull to refresh or turn this off.")
         }
     }
 
@@ -227,10 +266,24 @@ struct SettingsView: View {
                 }
                 .foregroundStyle(.primary)
             }
-            LabeledContent {
-                Text(version).foregroundStyle(.secondary)
+            NavigationLink {
+                PrivacyView()
             } label: {
-                SettingsRow("Version", symbol: "info.circle.fill", color: .gray)
+                SettingsRow("Privacy", symbol: "hand.raised.fill", color: .blue)
+            }
+            NavigationLink {
+                LicencesView()
+            } label: {
+                SettingsRow("Licences", symbol: "doc.text.fill", color: .gray)
+            }
+            NavigationLink {
+                ChangelogView()
+            } label: {
+                LabeledContent {
+                    Text(version)
+                } label: {
+                    SettingsRow("Version", symbol: "info.circle.fill", color: .gray)
+                }
             }
         } header: {
             Text("About")
@@ -299,4 +352,5 @@ struct SettingsRow: View {
             ]))
     }
     .environment(Session())
+    .environment(MedicationStore.shared)
 }

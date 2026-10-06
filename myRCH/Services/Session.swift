@@ -14,7 +14,19 @@ final class Session {
         case signedIn(PatientProfile)
     }
 
-    private(set) var phase: Phase = .signedOut
+    private(set) var phase: Phase = .signedOut {
+        didSet {
+            updateAppLock()
+            switch (oldValue, phase) {
+            case (.signedIn, .signedIn):
+                break
+            case (_, .signedIn):
+                Task { await loadAccountPhotos() }
+            default:
+                accountPhotos = [:]
+            }
+        }
+    }
     var signInError: String?
     var verificationError: String?
     /// True while a SendCode/Validate request is in flight.
@@ -26,13 +38,17 @@ final class Session {
     @ObservationIgnored private var pendingCredentials: (username: String, password: String)?
 
     /// When true, sign-in talks to the real RCH portal (unsanctioned web API).
-    /// When false, the app runs on local mock data.
-    var useLivePortal: Bool {
-        didSet {
-            UserDefaults.standard.set(useLivePortal, forKey: Self.liveKey)
-            // Demo and live data mustn't mix.
-            clearCache()
-        }
+    /// When false, the app runs on local mock data. Fixed by where the app
+    /// runs: the Simulator is the only way into demo mode, so a real iPhone
+    /// always uses the portal.
+    let useLivePortal = Session.runsOnDevice
+
+    private static var runsOnDevice: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
     }
 
     @ObservationIgnored private let mockService: PortalService = MockPortalService()
@@ -44,7 +60,6 @@ final class Session {
     @ObservationIgnored private lazy var cachedMock = CachedPortalService(base: mockService, cache: cache)
     @ObservationIgnored private lazy var cachedLive = CachedPortalService(base: liveService, cache: cache)
 
-    private static let liveKey = "useLivePortal"
     private static let accountKey = "activeAccountID"
 
     /// Settings → "Save data on this iPhone": keeps the portal's responses on
@@ -57,19 +72,44 @@ final class Session {
         }
     }
 
+    /// Signing in again with saved details at launch. The app shows its
+    /// loading screen meanwhile, rather than flashing the login form.
+    private(set) var isRestoring: Bool {
+        didSet { updateAppLock() }
+    }
+
     init() {
-        useLivePortal = UserDefaults.standard.bool(forKey: Self.liveKey)
         cachesDataOnDevice = UserDefaults.standard.bool(forKey: PortalDiskCache.enabledKey)
+        isRestoring = Self.runsOnDevice && Keychain.loadCredentials() != nil
+        updateAppLock()
+    }
+
+    /// The Face ID lock only applies with an account to protect: signed in,
+    /// or signing in again with saved details. Never at the login screen.
+    private func updateAppLock() {
+        if case .signedIn = phase {
+            AppLock.shared.hasAccount = true
+        } else {
+            AppLock.shared.hasAccount = isRestoring
+        }
     }
 
     /// Signs in again from the Keychain so the app opens straight into the
     /// dashboard. The portal has no long-lived session cookie we can reuse, so
     /// this replays the saved credentials; the remembered device ID normally
-    /// means no verification code is needed.
+    /// means no verification code is needed. The portal sometimes turns a
+    /// good sign-in away, so it's retried twice before giving up. The
+    /// loading screen stays up meanwhile.
     func restoreSession() async {
+        defer { isRestoring = false }
         guard useLivePortal, case .signedOut = phase,
               let credentials = Keychain.loadCredentials() else { return }
-        await signIn(username: credentials.username, password: credentials.password)
+        for attempt in 0...2 {
+            if attempt > 0 { try? await Task.sleep(for: .seconds(1)) }
+            await signIn(username: credentials.username, password: credentials.password)
+            // Signed in, or waiting for a verification code.
+            guard case .signedOut = phase else { break }
+        }
         // A stale password shouldn't leave an error on a screen the user
         // didn't ask for — just show the login form.
         if case .signedOut = phase { signInError = nil }
@@ -120,7 +160,38 @@ final class Session {
         guard let profile,
               let idx = profile.linkedAccounts.firstIndex(where: { $0.id == activeAccountID })
         else { return Theme.brand }
-        return Theme.leaves[idx % Theme.leaves.count]
+        return Theme.accountTint(profile.linkedAccounts[idx], at: idx)
+    }
+
+    /// Saves a linked account's nickname, colour and photo change on the
+    /// portal, then shows the portal's copy of that account.
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws {
+        let accounts = try await service.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
+        guard case var .signedIn(profile) = phase,
+              let updated = accounts.first(where: { $0.id == accountID }),
+              let index = profile.linkedAccounts.firstIndex(where: { $0.id == accountID }) else { return }
+        var account = profile.linkedAccounts[index]
+        account.name = updated.name
+        account.initials = updated.initials
+        account.tabColor = updated.tabColor ?? colour
+        account.photoPath = updated.photoPath
+        profile.linkedAccounts[index] = account
+        phase = .signedIn(profile)
+        switch photo {
+        case .keep: break
+        case let .replace(jpeg): accountPhotos[accountID] = UIImage(data: jpeg)
+        case .remove: accountPhotos[accountID] = nil
+        }
+    }
+
+    /// Account photos from the portal, by account ID. Held in memory only.
+    private(set) var accountPhotos: [String: UIImage] = [:]
+
+    private func loadAccountPhotos() async {
+        for (id, data) in await service.accountPhotos() {
+            if let image = UIImage(data: data) { accountPhotos[id] = image }
+        }
     }
 
     var isAuthenticating: Bool {

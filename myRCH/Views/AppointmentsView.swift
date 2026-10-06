@@ -3,6 +3,7 @@ import MapKit
 import EventKit
 import EventKitUI
 import WebKit
+import PDFKit
 
 // MARK: - Document styling
 
@@ -120,7 +121,7 @@ struct AppointmentRow: View {
                     .foregroundStyle(.secondary)
             }
             .frame(width: 44)
-            .foregroundStyle(Theme.brand)
+            .foregroundStyle(Feature.visits.accent)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -141,7 +142,7 @@ struct AppointmentRow: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 if !pillKinds.isEmpty {
-                    FlowLayout(spacing: 6) {
+                    ChipRow(spacing: 6, clipsToBounds: true) {
                         ForEach(pillKinds, id: \.self) { kind in
                             Pill(text: kind.pillTitle, systemImage: kind.systemImage, tint: kind.tint)
                         }
@@ -164,6 +165,278 @@ struct AppointmentRow: View {
     }
 }
 
+// MARK: - Visitor map
+
+/// The hospital's visitor directory map (a public PDF on rch.org.au), for
+/// finding the check-in desk.
+private struct VisitorMapSheet: View {
+    private static let url = URL(string: "https://www.rch.org.au/uploadedFiles/Main/Content/info/Visitor_Directory_Map.pdf")!
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var pdf: PDFDocument?
+    @State private var failed = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let pdf {
+                    PDFKitView(document: pdf)
+                        .ignoresSafeArea(edges: .bottom)
+                } else if failed {
+                    ContentUnavailableView {
+                        Label("Couldn't load the map", systemImage: "map")
+                    } description: {
+                        Text("Check your internet connection and try again.")
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView("Loading map…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Visitor Map")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareLink(item: Self.url)
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        failed = false
+        // The shared URL cache keeps it for next time, subject to the server's headers.
+        guard let (data, _) = try? await URLSession.shared.data(from: Self.url),
+              let document = PDFDocument(data: data) else {
+            failed = true
+            return
+        }
+        pdf = document
+    }
+}
+
+// MARK: - Rebook
+
+/// Rebook: choose a reason and one of the portal's free times, a week at a
+/// time, as on the portal's Reschedule page.
+private struct RescheduleSheet: View {
+    let appointment: Appointment
+    let onRescheduled: (Date) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(Session.self) private var session
+
+    @State private var options: RescheduleOptions?
+    @State private var slots: [AppointmentSlot] = []
+    @State private var reason: RescheduleOptions.Reason?
+    @State private var selected: AppointmentSlot?
+    @State private var loadError: String?
+    @State private var isLoadingMore = false
+    @State private var isBooking = false
+    @State private var bookingError: String?
+
+    private var canBook: Bool {
+        guard session.service.booksReschedules, selected != nil, !isBooking else { return false }
+        return reason != nil || !(options?.requiresReason ?? false)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let options {
+                    form(options)
+                } else if let loadError {
+                    ContentUnavailableView {
+                        Label("Couldn't find times", systemImage: "calendar.badge.exclamationmark")
+                    } description: {
+                        Text(loadError)
+                    } actions: {
+                        Button("Try Again") { Task { await load() } }
+                    }
+                } else {
+                    ProgressView("Finding times…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle("Rebook")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isBooking {
+                        ProgressView()
+                    } else {
+                        Button("Rebook") { Task { await book() } }
+                            .disabled(!canBook)
+                    }
+                }
+            }
+        }
+        .task { await load() }
+        .alert("Couldn't rebook", isPresented: Binding(
+            get: { bookingError != nil },
+            set: { if !$0 { bookingError = nil } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(bookingError ?? "")
+        }
+    }
+
+    /// The current booking and each free time as upcoming visit cards, like Home's.
+    private func form(_ options: RescheduleOptions) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                header("Current booking")
+                UpcomingAppointmentCard(appointment: appointment, showsChevron: false)
+
+                if !options.reasons.isEmpty {
+                    reasonPicker(options)
+                }
+
+                header("Other times")
+                    .padding(.top, 8)
+                if slots.isEmpty, !isLoadingMore {
+                    Text("There are no other times in the next \(options.lastDay - EpicDay.number(for: .now)) days.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(slots) { slotCard($0) }
+
+                // Weeks arrive one search at a time; the cards fill in as they do.
+                if isLoadingMore {
+                    ProgressView(slots.isEmpty ? "Finding times…" : "Finding more times…")
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+
+                if !session.service.booksReschedules {
+                    Text("Booking a new time from the app isn't connected yet. To move this visit, call the clinic\(appointment.phone.map { " on \($0)" } ?? "") or use My RCH Portal.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
+            }
+            .padding()
+        }
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private func header(_ title: String) -> some View {
+        Text(title)
+            .font(.title3.bold())
+            .foregroundStyle(Theme.ink)
+    }
+
+    private func reasonPicker(_ options: RescheduleOptions) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Reason")
+                Spacer()
+                Picker("Reason", selection: $reason) {
+                    Text("Choose").tag(RescheduleOptions.Reason?.none)
+                    ForEach(options.reasons) { reason in
+                        Text(reason.title).tag(Optional(reason))
+                    }
+                }
+                .labelsHidden()
+                .tint(Feature.visits.accent)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+            if options.requiresReason {
+                Text("The clinic needs a reason to move the visit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    /// The visit as it would be at this time, outlined when chosen.
+    private func slotCard(_ slot: AppointmentSlot) -> some View {
+        var moved = appointment
+        moved.date = slot.date
+        moved.durationMinutes = slot.lengthMinutes
+        let isSelected = selected == slot
+        return Button {
+            selected = slot
+        } label: {
+            UpcomingAppointmentCard(appointment: moved, showsChevron: false)
+                .overlay {
+                    RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
+                        .strokeBorder(Feature.visits.accent, lineWidth: isSelected ? 3 : 0)
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white, Feature.visits.accent)
+                            .padding(14)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func load() async {
+        loadError = nil
+        do {
+            options = try await session.service.rescheduleOptions(appointmentID: appointment.id, for: session.patientID)
+            await loadAllSlots()
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    /// Each search covers about a week, so keep searching until the portal
+    /// says there's nothing more (or the booking window ends).
+    private func loadAllSlots() async {
+        guard let options else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        var startDay: Int?
+        var searched = Set<Int>()
+        repeat {
+            do {
+                let page = try await session.service.rescheduleSlots(options, appointmentID: appointment.id,
+                                                                      startDay: startDay, for: session.patientID)
+                slots += page.slots.filter { new in !slots.contains { $0.id == new.id } }
+                startDay = page.nextStartDay
+            } catch {
+                // Keep the times already found; only a first failure replaces the sheet.
+                if slots.isEmpty { loadError = error.localizedDescription; self.options = nil }
+                return
+            }
+            // Guard against a search that doesn't move forward.
+            if let day = startDay, !searched.insert(day).inserted { break }
+        } while startDay != nil && !Task.isCancelled
+    }
+
+    private func book() async {
+        guard let options, let selected else { return }
+        isBooking = true
+        defer { isBooking = false }
+        do {
+            try await session.service.reschedule(appointmentID: appointment.id, to: selected, reason: reason,
+                                                 options: options, for: session.patientID)
+            onRescheduled(selected.date)
+            dismiss()
+        } catch {
+            bookingError = error.localizedDescription
+        }
+    }
+}
+
 // MARK: - Detail
 
 struct AppointmentDetailView: View {
@@ -172,7 +445,9 @@ struct AppointmentDetailView: View {
     @Environment(Session.self) private var session
 
     @State private var isCancelled = false
-    @State private var wantsEarlierOffers = false
+    @State private var wantsEarlierOffers: Bool
+    @State private var isSavingEarlierOffers = false
+    @State private var earlierOffersError: String?
     @State private var completedSteps: Set<Int> = []
     @State private var showsChangeOptions = false
     @State private var showsCancelConfirmation = false
@@ -180,6 +455,14 @@ struct AppointmentDetailView: View {
     @State private var confirmation: String?
     /// Notes and After Visit Summary, fetched when a past visit opens.
     @State private var documents: [VisitDocument] = []
+    @State private var showsRecap = false
+    @State private var showsVisitorMap = false
+
+    init(appointment: Appointment) {
+        self.appointment = appointment
+        // Starts from the portal's setting; off when it couldn't be read.
+        _wantsEarlierOffers = State(initialValue: appointment.isOnWaitList ?? false)
+    }
 
     private var isUpcoming: Bool { appointment.status == .scheduled && !isCancelled }
 
@@ -192,6 +475,7 @@ struct AppointmentDetailView: View {
                     if appointment.isTelehealth { telehealthCard }
                     earlierOffersCard
                     if !appointment.instructions.isEmpty { preparationCard }
+                    AppointmentQuestionsCard(appointment: appointment)
                 }
                 if appointment.status == .missed { missedCard }
                 documentsSections
@@ -204,15 +488,14 @@ struct AppointmentDetailView: View {
             }
             .padding()
         }
+        // For swipe-to-delete on the questions to ask.
+        .swipeActionsContainerIfAvailable()
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Appointment")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog("Change this appointment?", isPresented: $showsChangeOptions, titleVisibility: .visible) {
-            Button("Request a new time") {
-                confirmation = "The clinic will contact you to arrange a new time."
-            }
-            Button("Cancel appointment", role: .destructive) {
-                showsCancelConfirmation = true
+        .sheet(isPresented: $showsChangeOptions) {
+            RescheduleSheet(appointment: appointment) { newDate in
+                confirmation = "Your visit is now on \(newDate.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute()))."
             }
         }
         .alert("Cancel this appointment?", isPresented: $showsCancelConfirmation) {
@@ -235,6 +518,13 @@ struct AppointmentDetailView: View {
             AddToCalendarSheet(appointment: appointment)
                 .ignoresSafeArea()
         }
+        .toolbar {
+            if appointment.status == .completed {
+                AIExplainToolbarItem(title: "Visit Recap") { showsRecap = true }
+            }
+        }
+        .sheet(isPresented: $showsRecap) { VisitRecapSheet(appointment: appointment, documents: documents) }
+        .sheet(isPresented: $showsVisitorMap) { VisitorMapSheet() }
         .task(id: appointment.id) { await loadDocuments() }
     }
 
@@ -242,17 +532,22 @@ struct AppointmentDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            statusChip
             Text(appointment.title)
                 .font(.system(.largeTitle, design: .rounded).bold())
                 .foregroundStyle(Theme.ink)
+            ChipRow {
+                statusChip
+                if let desk = appointment.deskName {
+                    CategoryChip(title: desk, systemImage: "mappin.circle.fill", color: Theme.red)
+                }
+            }
             Text(appointment.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year()))
                 .font(.headline)
                 .foregroundStyle(.secondary)
             if isUpcoming {
                 Text(appointment.date.formatted(.relative(presentation: .named)).capitalized)
                     .font(.subheadline)
-                    .foregroundStyle(Theme.brand)
+                    .foregroundStyle(Feature.visits.accent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -264,14 +559,14 @@ struct AppointmentDetailView: View {
             switch appointment.status {
             case .scheduled:
                 return appointment.isTelehealth
-                    ? ("Phone appointment", "phone.fill", Theme.brand)
-                    : ("In person", "building.2.fill", Theme.brand)
+                    ? ("Phone appointment", "phone.fill", Feature.visits.accent)
+                    : ("In person", "building.2.fill", Feature.visits.accent)
             case .completed: return ("Completed", "checkmark.circle.fill", Theme.green)
             case .missed: return ("Missed", "exclamationmark.circle.fill", Theme.orange)
             case .cancelled: return ("Cancelled", "xmark.circle.fill", Theme.red)
             }
         }()
-        return Pill(text: text, systemImage: icon, tint: tint)
+        return CategoryChip(title: text, systemImage: icon, color: tint)
     }
 
     // MARK: Time + actions
@@ -287,19 +582,15 @@ struct AppointmentDetailView: View {
                 timeline
 
                 if isUpcoming {
-                    HStack(spacing: 10) {
-                        actionButton("Add to Calendar", systemImage: "calendar.badge.plus") {
+                    HStack(alignment: .top, spacing: 10) {
+                        actionButton("Add to Calendar", systemImage: "calendar.badge.plus", tint: Theme.blue) {
                             showsAddToCalendar = true
                         }
-                        actionButton("Reschedule or Cancel", systemImage: "calendar.badge.clock") {
+                        actionButton("Rebook", systemImage: "calendar.badge.clock", tint: Theme.orange) {
                             showsChangeOptions = true
                         }
-                        if let url = directionsURL {
-                            actionButton("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill") {
-                                openURL(url)
-                            }
-                        } else if let url = phoneURL {
-                            actionButton("Call Clinic", systemImage: "phone.fill") { openURL(url) }
+                        actionButton("Cancel", systemImage: "xmark", tint: Theme.red) {
+                            showsCancelConfirmation = true
                         }
                     }
                 }
@@ -314,29 +605,28 @@ struct AppointmentDetailView: View {
         let shortDuration = Duration.seconds(appointment.durationMinutes * 60)
             .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))
         return HStack(alignment: .center, spacing: 12) {
-            timePoint(isUpcoming ? "Starts" : "Started", time: start, systemImage: "clock", alignment: .leading)
+            timePoint(isUpcoming ? "Starts" : "Started", time: start, alignment: .leading)
             VStack(spacing: 6) {
                 Label(shortDuration, systemImage: "hourglass")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Capsule()
-                    .fill(Theme.brand.opacity(0.35))
+                    .fill(Feature.visits.accent.opacity(0.35))
                     .frame(height: 3)
             }
             .frame(maxWidth: .infinity)
-            timePoint(isUpcoming ? "Ends" : "Ended", time: end, systemImage: "flag.checkered", alignment: .trailing)
+            timePoint(isUpcoming ? "Ends" : "Ended", time: end, alignment: .trailing)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(isUpcoming ? "Starts" : "Started") at \(start), \(durationText), \(isUpcoming ? "ends" : "ended") at \(end)")
     }
 
-    private func timePoint(_ label: String, time: String, systemImage: String,
-                           alignment: HorizontalAlignment) -> some View {
+    private func timePoint(_ label: String, time: String, alignment: HorizontalAlignment) -> some View {
         VStack(alignment: alignment, spacing: 2) {
-            Label(label, systemImage: systemImage)
+            Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.visits.accent)
                 .textCase(.uppercase)
             Text(time)
                 .font(.title2.bold().monospacedDigit())
@@ -344,20 +634,24 @@ struct AppointmentDetailView: View {
         }
     }
 
-    private func actionButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+    /// A tinted circle with its title underneath, like the Phone app's call buttons.
+    private func actionButton(_ title: String, systemImage: String, tint: Color,
+                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.title3)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 56, height: 56)
+                    .background(tint.opacity(0.14), in: .circle)
                 Text(title)
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .foregroundStyle(Theme.brand)
-            .frame(maxWidth: .infinity, minHeight: 76)
-            .background(Theme.brand.opacity(0.1), in: .rect(cornerRadius: 16))
+            .frame(maxWidth: .infinity)
         }
         .buttonStyle(.plain)
     }
@@ -384,10 +678,36 @@ struct AppointmentDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 8)
-                Toggle("Notify me of earlier times", isOn: $wantsEarlierOffers)
+                if isSavingEarlierOffers {
+                    ProgressView()
+                }
+                Toggle("Notify me of earlier times", isOn: Binding(
+                    get: { wantsEarlierOffers },
+                    set: { isOn in Task { await setEarlierOffers(isOn) } }))
                     .labelsHidden()
-                    .tint(Theme.brand)
+                    .tint(Feature.visits.accent)
+                    .disabled(isSavingEarlierOffers)
             }
+        }
+        .alert("Couldn't update the wait list", isPresented: Binding(
+            get: { earlierOffersError != nil },
+            set: { if !$0 { earlierOffersError = nil } })) {
+            Button("OK") { earlierOffersError = nil }
+        } message: {
+            Text(earlierOffersError ?? "")
+        }
+    }
+
+    /// Flips the switch straight away, and back again if the portal refuses.
+    private func setEarlierOffers(_ isOn: Bool) async {
+        wantsEarlierOffers = isOn
+        isSavingEarlierOffers = true
+        defer { isSavingEarlierOffers = false }
+        do {
+            try await session.service.setEarlierVisitAlerts(isOn, appointmentID: appointment.id, for: session.patientID)
+        } catch {
+            wantsEarlierOffers = !isOn
+            earlierOffersError = error.localizedDescription
         }
     }
 
@@ -439,7 +759,7 @@ struct AppointmentDetailView: View {
                     Button("Call to rebook", systemImage: "phone.fill") { openURL(url) }
                         .buttonStyle(.borderedProminent)
                         .buttonBorderShape(.capsule)
-                        .tint(Theme.brand)
+                        .tint(Feature.visits.accent)
                 }
             }
         }
@@ -456,7 +776,7 @@ struct AppointmentDetailView: View {
                         Label("Share summary", systemImage: "square.and.arrow.up")
                             .font(.subheadline.weight(.semibold))
                     }
-                    .tint(Theme.brand)
+                    .tint(Feature.visits.accent)
                 }
             }
         }
@@ -550,7 +870,9 @@ struct AppointmentDetailView: View {
                 }
                 if let checkIn = appointment.checkInLocation {
                     Divider().padding(.leading, 52)
-                    detailRow(systemImage: "person.badge.clock.fill", title: "Check in at", value: checkIn)
+                    detailRow(systemImage: "person.badge.clock.fill", title: "Check in at", value: checkIn) {
+                        showsVisitorMap = true
+                    }
                 }
                 if let phone = appointment.phone {
                     Divider().padding(.leading, 52)
@@ -583,7 +905,7 @@ struct AppointmentDetailView: View {
                            action: (() -> Void)? = nil) -> some View {
         let content = HStack(spacing: 14) {
             Image(systemName: systemImage)
-                .foregroundStyle(Theme.brand)
+                .foregroundStyle(Feature.visits.accent)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -723,7 +1045,7 @@ struct VisitDocumentView: View {
     @Environment(Session.self) private var session
 
     var body: some View {
-        PortalDocumentView(title: document.title, id: document.id) {
+        PortalDocumentView(title: document.title, id: document.id, explains: .visitDocument(document)) {
             try await session.service.visitDocumentHTML(document, for: patientID)
         }
     }
@@ -738,6 +1060,8 @@ struct PortalDocumentView: View {
     let id: String
     /// Names the shared PDF, e.g. "Referral Letter – 22 Sep 2026". Defaults to the title.
     var shareName: String? = nil
+    /// Offers an on-device explanation of the document when set.
+    var explains: ExplainableDocument? = nil
     let loadHTML: () async throws -> String
     @Environment(\.openURL) private var openURL
 
@@ -746,6 +1070,9 @@ struct PortalDocumentView: View {
     /// The document as a paginated PDF, ready for the share sheet (which
     /// includes Print, AirDrop, Mail, Messages and Save to Files).
     @State private var pdfURL: URL?
+    /// Kept for the explanation, which reads the document's text.
+    @State private var html: String?
+    @State private var showsExplanation = false
 
     var body: some View {
         Group {
@@ -779,6 +1106,14 @@ struct PortalDocumentView: View {
                     }
                 }
             }
+            if let explains, html != nil {
+                AIExplainToolbarItem(title: explains.buttonTitle) { showsExplanation = true }
+            }
+        }
+        .sheet(isPresented: $showsExplanation) {
+            if let explains, let html {
+                DocumentExplanationSheet(document: explains, html: html)
+            }
         }
         .task(id: id) { await load() }
         // The PDF is a copy of health data, so don't leave it behind.
@@ -791,6 +1126,7 @@ struct PortalDocumentView: View {
         failure = nil
         do {
             let html = try await loadHTML()
+            self.html = html
             pdfURL = DocumentPDF.write(html: html, named: shareName ?? title)
             var configuration = WebPage.Configuration()
             configuration.defaultNavigationPreferences.allowsContentJavaScript = false

@@ -5,18 +5,99 @@ struct AvatarView: View {
     var initials: String
     var tint: Color = Theme.brand
     var size: CGFloat = 32
+    /// Shown in place of the initials, e.g. the account's portal photo.
+    var image: UIImage? = nil
 
     var body: some View {
-        Text(initials)
-            .font(.system(size: size * 0.45, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: size, height: size)
-            .background(tint, in: .circle)
-            .accessibilityHidden(true)
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: size, height: size)
+                    .clipShape(.circle)
+            } else {
+                Text(initials)
+                    .font(.system(size: size * 0.45, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: size, height: size)
+                    .background(tint, in: .circle)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// A linked account's avatar: its portal photo, or initials in its colour.
+struct AccountAvatar: View {
+    let account: LinkedAccount
+    /// Position in the account list, for the fallback colour.
+    let index: Int
+    var size: CGFloat = 32
+    @Environment(Session.self) private var session
+
+    var body: some View {
+        AvatarView(initials: account.initials, tint: Theme.accountTint(account, at: index),
+                   size: size, image: session.accountPhotos[account.id])
+    }
+}
+
+// MARK: - Allergies
+
+/// What to say when a child's allergies aren't known: never "no known
+/// allergies", which a parent or staff member could act on.
+enum AllergyNotice {
+    /// The backend can't read allergies yet (`PortalService.readsAllergies`).
+    static let unavailable = "Allergies aren't available in the app yet. Check with the care team."
+    /// They should load but didn't.
+    static let failed = "Couldn't load allergies. Check with the care team."
+
+    static func text(readsAllergies: Bool) -> String {
+        readsAllergies ? failed : unavailable
     }
 }
 
 // MARK: - Pills
+
+/// A capsule with a coloured icon, like Health's category buttons: Discover's
+/// categories and Home's diagnoses and allergies. In the grouped card colour,
+/// so it shows up on the screens' grouped grey.
+struct CategoryChip: View {
+    let title: String
+    let systemImage: String
+    let color: Color
+    var background = Color(.secondarySystemGroupedBackground)
+
+    var body: some View {
+        Label {
+            Text(title).foregroundStyle(.primary)
+        } icon: {
+            Image(systemName: systemImage).foregroundStyle(color)
+        }
+        .font(.body.weight(.medium))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(background, in: .capsule)
+    }
+}
+
+/// A row of chips or pills that scrolls sideways rather than wrapping, like
+/// Home's and Discover's. On a page the chips scroll out to the screen
+/// edges; in a list row, pass `clipsToBounds: true` to keep them inside it.
+struct ChipRow<Content: View>: View {
+    var spacing: CGFloat = 8
+    var clipsToBounds = false
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: spacing) {
+                content()
+            }
+        }
+        .scrollClipDisabled(!clipsToBounds)
+    }
+}
 
 /// A small tinted capsule label, e.g. for diagnoses and allergies.
 struct Pill: View {
@@ -178,6 +259,8 @@ struct SummaryCard<Content: View>: View {
     let systemImage: String
     let color: Color
     var detail: String? = nil
+    /// Off where tapping the card doesn't open another page.
+    var showsChevron = true
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -192,9 +275,11 @@ struct SummaryCard<Content: View>: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
             content
                 .frame(maxWidth: .infinity, alignment: .leading)

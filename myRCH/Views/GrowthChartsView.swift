@@ -20,6 +20,7 @@ struct GrowthChartsView: View {
     @State private var unit: GrowthUnit = .metric
     @State private var zoomToData = true
     @State private var showsOptions = false
+    @State private var showsExplanation = false
 
     private var dataset: GrowthDataset? {
         datasets.first { $0.id == datasetID } ?? datasets.first
@@ -67,8 +68,14 @@ struct GrowthChartsView: View {
                 Button("Chart Options", systemImage: "gearshape") { showsOptions = true }
                     .disabled(datasets.isEmpty)
             }
+            if !visibleCharts.isEmpty {
+                AIExplainToolbarItem(title: "Explain Growth") { showsExplanation = true }
+            }
         }
         .sheet(isPresented: $showsOptions) { optionsSheet }
+        .sheet(isPresented: $showsExplanation) {
+            if let dataset { GrowthExplanationSheet(dataset: dataset, charts: visibleCharts) }
+        }
         .task { await load() }
         .refreshable {
             await session.refreshData()
@@ -134,7 +141,7 @@ struct GrowthChartsView: View {
                     Text("Shows just the ages and values that have measurements, instead of the whole reference range.")
                 }
             }
-            .tint(Theme.brand)
+            .tint(Feature.growthCharts.accent)
             .navigationTitle("Chart Options")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -372,7 +379,7 @@ private struct GrowthChartCard: View {
             Text("Data table")
                 .font(.subheadline.weight(.semibold))
         }
-        .tint(Theme.brand)
+        .tint(Feature.growthCharts.accent)
     }
 
     private var header: some View {

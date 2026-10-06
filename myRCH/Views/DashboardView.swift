@@ -3,8 +3,8 @@ import SwiftUI
 /// Sections of the app, reachable from Browse and the dashboard.
 enum Feature: String, Identifiable, CaseIterable {
     case visits, testResults, medication, immunisations, allergies
-    case growthCharts, trackHealth, implants, letters
-    case healthSummary, messages, sharing, medicalID
+    case growthCharts, trackHealth, implants, letters, referrals
+    case messages, sharing, medicalID
 
     var id: String { rawValue }
 
@@ -13,8 +13,8 @@ enum Feature: String, Identifiable, CaseIterable {
     /// needed, with the not-yet-available ones last.
     static let browsable: [Feature] = [
         .visits, .testResults, .medication, .messages,
-        .letters, .medicalID, .immunisations, .allergies,
-        .growthCharts, .healthSummary, .sharing,
+        .letters, .referrals, .medicalID, .immunisations, .allergies,
+        .growthCharts, .sharing,
         .trackHealth, .implants
     ]
 
@@ -29,69 +29,59 @@ enum Feature: String, Identifiable, CaseIterable {
         case .trackHealth: "Track My Health"
         case .implants: "Implants"
         case .letters: "Letters"
-        case .healthSummary: "Health Summary"
+        case .referrals: "Referrals"
         case .messages: "Messages"
         case .sharing: "Share My Record"
         case .medicalID: "Medical ID"
         }
     }
 
+    /// The section's one icon, matching what its screen shows (a syringe for
+    /// immunisations, a chart for growth charts), used on Browse tiles, cards,
+    /// search results and the section's own screens alike.
     var systemImage: String {
         switch self {
-        case .visits: "calendar"
+        case .visits: "calendar.badge.clock"
         case .testResults: "testtube.2"
         case .medication: "pills.fill"
         case .immunisations: "syringe.fill"
-        case .allergies: "allergens"
+        case .allergies: "allergens.fill"
         case .growthCharts: "chart.line.uptrend.xyaxis"
         case .trackHealth: "waveform.path.ecg"
         case .implants: "cross.case.fill"
-        case .letters: "doc.text.fill"
-        case .healthSummary: "heart.text.square.fill"
-        case .messages: "envelope.fill"
-        case .sharing: "folder.badge.person.crop"
+        case .letters: "envelope.open.fill"
+        case .referrals: "arrowshape.turn.up.right.fill"
+        case .messages: "bubble.left.and.bubble.right.fill"
+        case .sharing: "person.2.wave.2.fill"
         case .medicalID: "staroflife.fill"
         }
     }
 
-    /// Browse's icon and its colour, one per section like the Health app's
-    /// categories, in softer shades (`Theme.Section`). Separate from
-    /// `systemImage`/`accent`, which the section screens use.
+    /// Browse's icon and its colour, one colour per section like the Health
+    /// app's categories (`Theme.Section`). The icon is always `systemImage`,
+    /// so a tile never shows something different from its screen.
     var tileArt: (symbol: String, color: Color) {
-        switch self {
-        case .visits: ("calendar.badge.clock", Theme.Section.visits)
-        case .testResults: ("cross.vial.fill", Theme.Section.testResults)
-        case .medication: ("pills.fill", Theme.Section.medication)
-        case .immunisations: ("bandage.fill", Theme.Section.immunisations)
-        case .allergies: ("allergens.fill", Theme.Section.allergies)
-        case .growthCharts: ("figure.and.child.holdinghands", Theme.Section.growthCharts)
-        case .trackHealth: ("figure.walk.motion", Theme.Section.trackHealth)
-        case .implants: ("cross.case.fill", Theme.Section.implants)
-        case .letters: ("envelope.open.fill", Theme.Section.letters)
-        case .healthSummary: ("heart.text.clipboard.fill", Theme.Section.healthSummary)
-        case .messages: ("bubble.left.and.bubble.right.fill", Theme.Section.messages)
-        case .sharing: ("person.2.fill", Theme.Section.sharing)
-        case .medicalID: ("staroflife.fill", Theme.Section.medicalID)
+        let color: Color = switch self {
+        case .visits: Theme.Section.visits
+        case .testResults: Theme.Section.testResults
+        case .medication: Theme.Section.medication
+        case .immunisations: Theme.Section.immunisations
+        case .allergies: Theme.Section.allergies
+        case .growthCharts: Theme.Section.growthCharts
+        case .trackHealth: Theme.Section.trackHealth
+        case .implants: Theme.Section.implants
+        case .letters: Theme.Section.letters
+        case .referrals: Theme.Section.referrals
+        case .messages: Theme.Section.messages
+        case .sharing: Theme.Section.sharing
+        case .medicalID: Theme.Section.medicalID
         }
+        return (systemImage, color)
     }
 
-    var accent: Color {
-        switch self {
-        case .visits, .growthCharts: Theme.teal
-        // Not green: green means "within normal range" on results.
-        case .testResults: Theme.blue
-        case .trackHealth: Theme.green
-        case .medication: Theme.medication
-        case .immunisations: .purple
-        case .allergies, .healthSummary: Theme.red
-        case .implants: Theme.yellow
-        // Navy, not yellow: yellow icons are too faint on white for a screen
-        // of letter rows.
-        case .letters: Theme.ink
-        case .messages, .sharing: Theme.brand
-        case .medicalID: Theme.red
-        }
-    }
+    /// The section's colour on its own screens: the same as its Browse
+    /// tile, so a section looks the same wherever it's opened.
+    var accent: Color { tileArt.color }
 }
 
 struct DashboardView: View {
@@ -105,6 +95,9 @@ struct DashboardView: View {
     @State private var medications: [Medication] = []
     @State private var issues: [HealthIssue] = []
     @State private var allergies: [Allergy] = []
+    /// False until they've loaded from a backend that can read them, so
+    /// an empty list is never shown as "no known allergies" by mistake.
+    @State private var allergiesKnown = false
     @State private var immunisations: [ImmunisationGroup] = []
     @State private var unreadCount = 0
     @State private var unreadMessages = 0
@@ -114,9 +107,6 @@ struct DashboardView: View {
     /// From the record's print header; the account switcher has first names
     /// only. Shown on the UR sheet, where staff need the full name.
     @State private var fullName: String?
-    /// The first name, a little larger than a large title (34pt).
-    @ScaledMetric(relativeTo: .largeTitle) private var nameSize: CGFloat = 40
-
     @State private var explore: ExploreMoreFeed?
     /// Explore More cards closed with ✕, remembered across launches.
     @AppStorage("dismissedExploreItems") private var dismissedExplore = ""
@@ -124,31 +114,115 @@ struct DashboardView: View {
 
     /// Pinned sections, in order (see `HomeLayout`).
     @AppStorage(HomeLayout.storageKey) private var homeSections = ""
-    @State private var showsEditHome = false
+
+    /// Home's search: everything from test results to fact sheets.
+    @State private var searchText = ""
+    /// The child's records to search, loaded when a search starts (cached
+    /// by the service).
+    @State private var searchIndex: SearchIndex?
+    /// The search field is active, keyboard up.
+    @State private var isSearching = false
+    /// Scrolled far enough that the title has moved into the bar and the
+    /// search bar has slid away, so the toolbar shows a search button.
+    @State private var isScrolledPastTitle = false
 
     var body: some View {
+        chrome(
+            Group {
+                if searchText.isEmpty {
+                    dashboard
+                } else {
+                    SearchResultsList(query: searchText,
+                                      features: Feature.browsable.filter { $0.title.localizedCaseInsensitiveContains(searchText) },
+                                      index: searchIndex)
+                }
+            }
+            // Under the large title, sliding away as the page scrolls; the
+            // toolbar's magnifying glass takes over from there.
+            .searchable(text: $searchText, isPresented: $isSearching,
+                        placement: .navigationBarDrawer(displayMode: .automatic),
+                        prompt: "Search records and health info")
+            .task(id: searchText.isEmpty) {
+                guard !searchText.isEmpty, searchIndex == nil else { return }
+                searchIndex = await SearchIndex.load(service: session.service, patientID: session.patientID)
+            }
+            .onChange(of: session.patientID) { searchIndex = nil }
+        )
+    }
+
+    private var dashboard: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                header
+                // No spacing, so an absent digest leaves no gap; the card
+                // pads itself when shown.
+                VStack(alignment: .leading, spacing: 0) {
+                    header
+                    if !isLoading {
+                        HomeDigestCard(results: results, upcoming: upcoming, unreadMessages: unreadMessages)
+                    }
+                }
+                // Rearranged from Settings › Edit Home.
                 ForEach(HomeLayout(stored: homeSections).pinned) { section in
                     self.section(section)
                 }
-                editHomeButton
+                // Always last, like Articles in the Health app.
+                HomeArticlesSection()
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.bottom)
+            // Less than the usual 16 above the chips, so they sit close
+            // under the search bar.
+            .padding(.top, 4)
+        }
+        // How far the page has scrolled from rest before the search button
+        // takes over from the search bar.
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > 10
+        } action: { _, isPast in
+            withAnimation { isScrolledPastTitle = isPast }
         }
         // Grouped background, like the app's other screens: grey under white
         // cards in light mode, black under dark-grey cards in dark mode.
         // (`.background.secondary` matched the cards' grey in dark mode.)
         .background(Color(.systemGroupedBackground))
-        .navigationBarTitleDisplayMode(.inline)
+        // The pull-to-refresh spinner is the progress indicator, so keep the
+        // current cards on screen instead of swapping in skeletons.
+        .refreshable {
+            await session.refreshData()
+            await load(showsPlaceholders: false)
+        }
+    }
+
+    /// Toolbar, links and loading, kept while searching too.
+    private func chrome(_ content: some View) -> some View {
+        content
+        // The child's name as a large title, shrinking into the bar on scroll.
+        .navigationTitle(session.activeAccount?.name ?? profile.preferredName)
+        // Under the small title once collapsed (the large title uses the
+        // tappable `factsLine` below instead).
+        .navigationSubtitle(factsText)
+        .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            // Age and UR number under the large title; the UR stays tappable.
+            ToolbarItem(placement: .largeSubtitle) {
+                factsLine
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Opposite the bell and avatar once the search bar has scrolled
+            // away; brings it back, focused.
+            if isScrolledPastTitle, !isSearching {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Search", systemImage: "magnifyingglass") { isSearching = true }
+                        .foregroundStyle(Theme.brand)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink {
                     NotificationsView(patientID: session.patientID)
                 } label: {
                     Image(systemName: unreadCount > 0 ? "bell.badge" : "bell")
-                        .symbolRenderingMode(.multicolor)
+                        .foregroundStyle(Theme.brand)
                         // Rings when something new arrives.
                         .symbolEffect(.wiggle, value: unreadCount)
                 }
@@ -160,25 +234,19 @@ struct DashboardView: View {
                     SettingsView(profile: profile)
                 } label: {
                     AvatarView(initials: session.activeAccount?.initials ?? profile.initials,
-                               tint: session.activeTint, size: 32)
+                               tint: session.activeTint, size: 32,
+                               image: session.activeAccount.flatMap { session.accountPhotos[$0.id] })
                 }
                 .accessibilityLabel("Profile and settings")
             }
         }
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
-        .sheet(isPresented: $showsEditHome) { EditHomeSheet() }
         .sheet(isPresented: $showsMRN) {
             if let mrn {
                 MRNSheet(mrn: mrn, name: displayName)
             }
         }
         .task(id: session.patientID) { await load() }
-        // The pull-to-refresh spinner is the progress indicator, so keep the
-        // current cards on screen instead of swapping in skeletons.
-        .refreshable {
-            await session.refreshData()
-            await load(showsPlaceholders: false)
-        }
         // Back from the background: reload quietly. The cache answers if the
         // data is under five minutes old; otherwise this fetches fresh data.
         .onChange(of: scenePhase) { _, phase in
@@ -191,7 +259,6 @@ struct DashboardView: View {
     @ViewBuilder
     private func section(_ section: HomeSection) -> some View {
         switch section {
-        case .highlights: highlightsSection
         case .upcoming: upcomingSection
         case .results: resultsSection
         case .medication: medicationSection
@@ -203,104 +270,64 @@ struct DashboardView: View {
         }
     }
 
-    /// Like the Health app's "Edit" for Pinned: choose and order sections.
-    private var editHomeButton: some View {
-        Button {
-            showsEditHome = true
-        } label: {
-            Label("Edit Home", systemImage: "slider.horizontal.3")
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(Theme.brandText)
-    }
-
-    private var highlights: [Highlight] {
-        let keys = medications.map { MedicationStore.key(patientID: session.patientID, medicationID: $0.id) }
-        let doses = keys.flatMap { medicationStore.doses(for: $0) }
-        return Highlight.make(upcoming: upcoming, results: results, unreadMessages: unreadMessages,
-                              medicationDoses: (doses.count, doses.filter { $0.status != nil }.count))
-    }
-
-    @ViewBuilder
-    private var highlightsSection: some View {
-        let items = highlights
-        if !isLoading, !items.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                SummarySectionHeader<Feature>(title: "Highlights")
-                ForEach(items.prefix(4)) { highlight in
-                    if let feature = highlight.feature {
-                        NavigationLink(value: feature) { HighlightCard(highlight: highlight) }
-                            .buttonStyle(.plain)
-                    } else {
-                        HighlightCard(highlight: highlight)
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Header (greeting, key facts, diagnosis + allergy pills)
+    // MARK: - Header (diagnosis + allergy pills)
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(greeting)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Text(session.activeAccount?.name ?? profile.preferredName)
-                    .font(.system(size: nameSize, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.ink)
-                factsLine
-            }
-
             if isLoading {
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     ForEach(["Placeholder", "Placeholder issue", "Allergy"], id: \.self) { text in
-                        Pill(text: text, systemImage: "heart.text.square.fill", tint: Theme.brand)
+                        healthChip(text, systemImage: "heart.text.square.fill", color: Theme.brand)
                     }
                 }
                 .redacted(reason: .placeholder)
             } else {
-                NavigationLink(value: Feature.healthSummary) {
-                    FlowLayout(spacing: 8) {
-                        ForEach(issues) { issue in
-                            // Neutral, so the allergy pills are the ones that stand out.
-                            Pill(text: issue.name, systemImage: "heart.text.square.fill", tint: .primary)
-                        }
-                        if allergies.isEmpty {
-                            Pill(text: "No known allergies", systemImage: "checkmark", tint: Theme.green)
-                        } else {
-                            ForEach(allergies) { allergy in
-                                Pill(text: allergy.substance, systemImage: "allergens", tint: Theme.red)
+                NavigationLink(value: Feature.medicalID) {
+                    // A scrolling row, like Discover's category chips.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(issues) { issue in
+                                // Grey icon, so the allergy chips are the ones that stand out.
+                                healthChip(issue.name, systemImage: "heart.text.square.fill", color: .secondary)
+                            }
+                            if !allergiesKnown {
+                                // Unknown isn't "none": orange, not the green tick.
+                                healthChip("Allergies not available", systemImage: "questionmark", color: Theme.orange)
+                            } else if allergies.isEmpty {
+                                healthChip("No known allergies", systemImage: "checkmark", color: Theme.green)
+                            } else {
+                                ForEach(allergies) { allergy in
+                                    healthChip(allergy.substance, systemImage: "allergens", color: Theme.red)
+                                }
                             }
                         }
                     }
+                    // Chips scroll out to the screen edges, not the card padding.
+                    .scrollClipDisabled()
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(pillsAccessibilityLabel)
-                .accessibilityHint("Opens the health summary")
+                .accessibilityHint("Opens the medical ID")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var greeting: String {
-        let hour = Calendar.current.component(.hour, from: .now)
-        let part = switch hour {
-        case 5..<12: "Good morning"
-        case 12..<17: "Good afternoon"
-        default: "Good evening"
-        }
-        return part + ","
+    /// A diagnosis or allergy, styled like Discover's categories.
+    private func healthChip(_ title: String, systemImage: String, color: Color) -> some View {
+        CategoryChip(title: title, systemImage: systemImage, color: color)
     }
 
     /// Full name for the UR sheet.
     private var displayName: String {
         fullName ?? session.activeAccount?.name ?? profile.fullName
+    }
+
+    /// `factsLine` as plain text, for the collapsed title's subtitle.
+    private var factsText: String {
+        [session.activeAccount?.dateOfBirth?.ageDescription, mrn.map { "UR \($0)" }]
+            .compactMap(\.self)
+            .joined(separator: " · ")
     }
 
     /// e.g. "8 years · UR 12345678". Tapping the UR number shows it full size.
@@ -331,7 +358,9 @@ struct DashboardView: View {
 
     private var pillsAccessibilityLabel: String {
         let issueText = issues.isEmpty ? "No health issues" : "Health issues: " + issues.map(\.name).formatted(.list(type: .and))
-        let allergyText = allergies.isEmpty ? "No known allergies" : "Allergies: " + allergies.map(\.substance).formatted(.list(type: .and))
+        let allergyText = !allergiesKnown
+            ? AllergyNotice.text(readsAllergies: session.service.readsAllergies)
+            : allergies.isEmpty ? "No known allergies" : "Allergies: " + allergies.map(\.substance).formatted(.list(type: .and))
         return "\(issueText). \(allergyText)."
     }
 
@@ -369,13 +398,6 @@ struct DashboardView: View {
                 emptyCard("No test results yet", systemImage: "testtube.2",
                           detail: "Results appear here once the lab releases them to the portal. Some take a few days.")
             } else {
-                // Only once there's enough for a breakdown to mean something.
-                if results.filter({ $0.date >= Calendar.current.date(byAdding: .month, value: -3, to: .now) ?? .now }).count >= 3 {
-                    NavigationLink(value: Feature.testResults) {
-                        ResultsOverviewCard(results: results)
-                    }
-                    .buttonStyle(.plain)
-                }
                 ForEach(results.prefix(3)) { result in
                     NavigationLink {
                         TestResultDetailView(result: result)
@@ -564,7 +586,10 @@ struct DashboardView: View {
             medicationStore.linkForSharing(patientID: id, urNumber: ur,
                                            medications: allMedications.map { ($0.id, $0.sharingName) })
         }
-        allergies = await allergiesTask ?? []
+        // Still fetched when unreadable, so the response's shape is logged.
+        let loadedAllergies = await allergiesTask
+        allergiesKnown = service.readsAllergies && loadedAllergies != nil
+        allergies = allergiesKnown ? (loadedAllergies ?? []) : []
         immunisations = ImmunisationGroup.group(await immunisationsTask ?? [])
         explore = await exploreTask
 
@@ -583,19 +608,23 @@ struct DashboardView: View {
     /// Hands the widgets, controls and Live Activities this child's portal
     /// details. Doses come from the medication store directly.
     private func updateWidgets() {
-        let visit = upcoming.first.map {
+        // Enough for the Upcoming Visits widget's largest size.
+        let visits = upcoming.prefix(5).map {
             WidgetSnapshot.Visit(id: $0.id, title: $0.title, department: $0.department, date: $0.date,
-                                 isTelehealth: $0.isTelehealth, location: $0.checkInLocation ?? $0.address)
+                                 isTelehealth: $0.isTelehealth, location: $0.checkInLocation ?? $0.address,
+                                 desk: $0.deskName)
         }
         WidgetPublisher.shared.updateChild(
             id: session.patientID, name: session.activeAccount?.name ?? profile.preferredName,
-            urNumber: mrn, nextVisit: visit,
+            urNumber: mrn, upcomingVisits: Array(visits),
             allergies: allergies.map { WidgetSnapshot.Allergy(substance: $0.substance, reaction: $0.reaction) },
+            allergiesKnown: allergiesKnown,
             unreadMessages: unreadMessages, newResults: results.filter(\.isUnread).count)
     }
 }
 
 // MARK: - Subviews
+
 
 /// The UR number in large monospaced digits, for reading out or showing to
 /// staff. Like a Wallet pass, it turns the screen up to full brightness while
@@ -646,9 +675,11 @@ private struct MRNSheet: View {
 }
 
 /// The next visit, Health-style: "Visit" in the Visits colour with the day
-/// at the top, then what it is, where, and when.
+/// at the top, then what it is, where, and when. A desk to check in at
+/// (e.g. "A1") gets its own box on the left, like a gate on a boarding pass.
 struct UpcomingAppointmentCard: View {
     let appointment: Appointment
+    var showsChevron = true
 
     private var dayText: String {
         let calendar = Calendar.current
@@ -661,19 +692,68 @@ struct UpcomingAppointmentCard: View {
         let art = Feature.visits.tileArt
         SummaryCard(category: appointment.isTelehealth ? "Telehealth" : "Visit",
                     systemImage: appointment.isTelehealth ? "video.fill" : art.symbol,
-                    color: art.color, detail: dayText) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(appointment.date.formatted(date: .omitted, time: .shortened))
-                    .font(.system(.title, design: .rounded).bold())
+                    color: art.color, detail: dayText, showsChevron: showsChevron) {
+            HStack(alignment: .center, spacing: 14) {
+                if let desk = appointment.deskCode {
+                    deskBox(desk, color: art.color)
+                }
+                // Same order as the visits list: what, which clinic, then when.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(appointment.title)
+                        .font(.system(.title3, design: .rounded).bold())
+                        .foregroundStyle(.primary)
+                    if !appointment.department.isEmpty {
+                        Text(appointment.department)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 14) {
+                        Label {
+                            Text(appointment.date.formatted(date: .omitted, time: .shortened))
+                        } icon: {
+                            Image(systemName: "clock").foregroundStyle(art.color)
+                        }
+                        // Just the name: the portal adds the role, e.g. "Joanne Harrison, Consultant".
+                        if let provider = appointment.provider?.split(separator: ",").first {
+                            Label {
+                                Text(provider.trimmingCharacters(in: .whitespaces))
+                            } icon: {
+                                Image(systemName: "stethoscope").foregroundStyle(art.color)
+                            }
+                            .lineLimit(1)
+                        }
+                    }
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
-                Text(appointment.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(appointment.department)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+                    // The desk box already says where; otherwise show the check-in text.
+                    if appointment.deskCode == nil, !appointment.isTelehealth,
+                       let location = appointment.checkInLocation {
+                        Label(location, systemImage: "mappin.and.ellipse")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                            .padding(.top, 2)
+                    }
+                }
             }
         }
+    }
+
+    private func deskBox(_ desk: String, color: Color) -> some View {
+        VStack(spacing: 0) {
+            Text("Desk")
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+            Text(desk)
+                .font(.system(.title2, design: .rounded).bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+        .foregroundStyle(color)
+        .frame(width: 60, height: 60)
+        .background(color.opacity(0.14), in: .rect(cornerRadius: 14))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -719,10 +799,7 @@ private struct ResultSummaryCard: View {
                         // What was tested rather than whether it was in range:
                         // a value outside the range isn't necessarily a worry,
                         // so the family opens the result to see it in context.
-                        if let label = specimenLabel {
-                            Pill(text: label, systemImage: result.kind.systemImage, tint: Theme.teal)
-                                .lineLimit(1)
-                        }
+                        SpecimenPill(result: detailed ?? result)
                         Spacer(minLength: 8)
                         TrendSparkline(result: result)
                     }
@@ -733,13 +810,6 @@ private struct ResultSummaryCard: View {
         .task(id: result.id) {
             detailed = try? await session.service.testResultDetails(result, for: session.patientID)
         }
-    }
-
-    /// The specimen ("Blood", "Urine"), which arrives with the details.
-    /// Imaging has none, so it says "Imaging".
-    private var specimenLabel: String? {
-        if let specimen = (detailed ?? result).specimen, !specimen.isEmpty { return specimen }
-        return result.kind == .imaging ? "Imaging" : nil
     }
 }
 

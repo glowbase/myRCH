@@ -26,7 +26,7 @@ struct BrowseView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Browse")
-        .searchable(text: $searchText, prompt: "Search sections and records")
+        .searchable(text: $searchText, prompt: "Search records and health info")
         .navigationDestination(for: Feature.self) { FeatureDestination(feature: $0) }
         .task(id: searchText.isEmpty) {
             guard !searchText.isEmpty, index == nil else { return }
@@ -49,9 +49,38 @@ struct BrowseView: View {
                         .buttonStyle(.plain)
                     }
                 }
+                if OnDeviceAI.isSupported {
+                    NavigationLink { MedicalWordsView() } label: { medicalWordsCard }
+                        .buttonStyle(.plain)
+                        .padding(.top, 8)
+                }
             }
             .padding()
         }
+    }
+
+    private var medicalWordsCard: some View {
+        HStack(spacing: 14) {
+            Image(systemName: "character.book.closed.fill")
+                .font(.title2)
+                .foregroundStyle(Theme.brand)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Medical Words")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text("Look up a word or abbreviation from a letter or result.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: Theme.cardRadius))
+        .contentShape(.rect(cornerRadius: Theme.cardRadius))
     }
 }
 
@@ -78,11 +107,14 @@ struct SearchIndex {
 }
 
 /// Matches grouped by kind, each opening the record itself.
-private struct SearchResultsList: View {
+/// Shared by Browse and Home's search: the child's records, then the
+/// hospital's health info (fact sheets and news, from Discover's saved copy).
+struct SearchResultsList: View {
     let query: String
     let features: [Feature]
     let index: SearchIndex?
     @Environment(Session.self) private var session
+    @State private var content = RCHContentStore.shared
 
     private func has(_ fields: String?...) -> Bool {
         fields.contains { $0?.localizedCaseInsensitiveContains(query) ?? false }
@@ -94,8 +126,18 @@ private struct SearchResultsList: View {
         let medications = index?.medications.filter { has($0.name, $0.commonName) } ?? []
         let visits = index?.appointments.filter { has($0.title, $0.department, $0.provider) } ?? []
         let immunisations = index?.immunisations.filter { has($0.name) } ?? []
+        // By name or another name it's listed under ("Acne" for "Pimples and
+        // skin health"); titles that start with the search first.
+        let factSheets = FactSheet.Library.allCases.flatMap { content.factSheets[$0] ?? [] }
+            .filter { sheet in has(sheet.title) || sheet.aliases.contains { has($0) } }
+            .sorted { first, second in
+                let a = first.title.lowercased().hasPrefix(query.lowercased())
+                let b = second.title.lowercased().hasPrefix(query.lowercased())
+                return a != b ? a : first.title.localizedStandardCompare(second.title) == .orderedAscending
+            }
+        let news = content.latestNews.filter { has($0.title, $0.summary) }
         let nothing = features.isEmpty && results.isEmpty && letters.isEmpty && medications.isEmpty
-            && visits.isEmpty && immunisations.isEmpty
+            && visits.isEmpty && immunisations.isEmpty && factSheets.isEmpty && news.isEmpty
 
         List {
             if !features.isEmpty {
@@ -121,7 +163,8 @@ private struct SearchResultsList: View {
                     ForEach(letters.prefix(8)) { letter in
                         NavigationLink {
                             PortalDocumentView(title: letter.title, id: letter.id,
-                                               shareName: "\(letter.title) – \(letter.date.mediumDate)") {
+                                               shareName: "\(letter.title) – \(letter.date.mediumDate)",
+                                               explains: .letter(letter)) {
                                 try await session.service.letterHTML(letter, for: session.patientID)
                             }
                         } label: {
@@ -158,7 +201,7 @@ private struct SearchResultsList: View {
                             ImmunisationDetailView(group: group, patientID: session.patientID)
                         } label: {
                             row(group.name, detail: group.dates.first?.mediumDate,
-                                art: ("syringe.fill", Feature.immunisations.tileArt.color))
+                                art: Feature.immunisations.tileArt)
                         }
                     }
                 }
@@ -171,9 +214,36 @@ private struct SearchResultsList: View {
                     }
                 }
             }
+            if !factSheets.isEmpty {
+                Section("Health Info") {
+                    ForEach(factSheets.prefix(8)) { sheet in
+                        NavigationLink { FactSheetArticleView(sheet: sheet) } label: {
+                            FactSheetRow(sheet: sheet)
+                        }
+                    }
+                }
+            }
+            if !news.isEmpty {
+                Section("RCH News") {
+                    ForEach(news.prefix(5)) { post in
+                        NavigationLink { NewsArticleView(post: post) } label: {
+                            row(post.title, detail: post.date.mediumDate,
+                                art: (NewsCategory.news.systemImage, NewsCategory.news.color))
+                        }
+                    }
+                }
+            }
+            // Searching for a word often means not knowing what it is.
+            if OnDeviceAI.isSupported {
+                Section("Medical Words") {
+                    NavigationLink { MedicalWordsView(initialTerm: query) } label: {
+                        Label("Explain “\(query)”", systemImage: "character.book.closed")
+                    }
+                }
+            }
         }
         .overlay {
-            if nothing, index != nil {
+            if nothing, index != nil, !OnDeviceAI.isSupported {
                 ContentUnavailableView.search(text: query)
             }
         }
@@ -232,16 +302,22 @@ struct FeatureDestination: View {
     }
 
     var body: some View {
+        // Buttons, switches and links take the section's Browse colour.
+        screen.tint(feature.accent)
+    }
+
+    @ViewBuilder
+    private var screen: some View {
         switch feature {
         case .visits: AppointmentsView(patientID: session.patientID)
         case .testResults: TestResultsView(patientID: session.patientID)
         case .medication: MedicationsView(patientID: session.patientID)
         case .immunisations: ImmunisationsView(patientID: session.patientID)
         case .allergies: AllergiesView(patientID: session.patientID)
-        case .healthSummary: HealthSummaryView(patientID: session.patientID)
         case .messages: MessagesView(patientID: session.patientID)
         case .growthCharts: GrowthChartsView(patientID: session.patientID)
         case .letters: LettersView(patientID: session.patientID)
+        case .referrals: ReferralsView(patientID: session.patientID)
         case .medicalID: MedicalIDView(patientID: session.patientID)
         case .sharing: ShareSummaryView(patientID: session.patientID)
         case .trackHealth, .implants:

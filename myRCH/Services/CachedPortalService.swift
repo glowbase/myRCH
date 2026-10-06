@@ -101,6 +101,14 @@ struct CachedPortalService: PortalService {
         try await cached("letters|\(patientID)") { try await base.letters(for: patientID) }
     }
 
+    func referrals(for patientID: String) async throws -> [Referral] {
+        try await cached("referrals|\(patientID)") { try await base.referrals(for: patientID) }
+    }
+
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails {
+        try await cached("referral|\(patientID)|\(referral.id)") { try await base.referralDetails(referral, for: patientID) }
+    }
+
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String {
         try await cached("letterHTML|\(patientID)|\(letter.id)") { try await base.letterHTML(letter, for: patientID) }
     }
@@ -132,6 +140,16 @@ struct CachedPortalService: PortalService {
     func addMedication(named name: String, startDate: Date, for patientID: String) async throws {
         do {
             try await base.addMedication(named: name, startDate: startDate, for: patientID)
+        } catch {
+            await cache.remove(prefixes: ["medications|\(patientID)"])
+            throw error
+        }
+        await cache.remove(prefixes: ["medications|\(patientID)"])
+    }
+
+    func removeMedication(_ medication: Medication, for patientID: String) async throws {
+        do {
+            try await base.removeMedication(medication, for: patientID)
         } catch {
             await cache.remove(prefixes: ["medications|\(patientID)"])
             throw error
@@ -225,6 +243,8 @@ struct CachedPortalService: PortalService {
         try await cached("allergies|\(patientID)") { try await base.allergies(for: patientID) }
     }
 
+    var readsAllergies: Bool { base.readsAllergies }
+
     func immunisations(for patientID: String) async throws -> [Immunisation] {
         try await cached("immunisations|\(patientID)") { try await base.immunisations(for: patientID) }
     }
@@ -243,6 +263,30 @@ struct CachedPortalService: PortalService {
         await cache.remove(prefixes: ["goals|\(patientID)"])
     }
 
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws {
+        try await base.setEarlierVisitAlerts(isOn, appointmentID: appointmentID, for: patientID)
+        // Reopening the visit should show the new setting.
+        await cache.remove(prefixes: ["appointments|\(patientID)"])
+    }
+
+    // Free times change by the minute, so none of this is cached.
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions {
+        try await base.rescheduleOptions(appointmentID: appointmentID, for: patientID)
+    }
+
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage {
+        try await base.rescheduleSlots(options, appointmentID: appointmentID, startDay: startDay, for: patientID)
+    }
+
+    var booksReschedules: Bool { base.booksReschedules }
+
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws {
+        try await base.reschedule(appointmentID: appointmentID, to: slot, reason: reason, options: options, for: patientID)
+        await cache.remove(prefixes: ["appointments|\(patientID)"])
+    }
+
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed {
         try await cached("exploreMore|\(patientID)") { try await base.exploreMore(for: patientID) }
     }
@@ -251,5 +295,64 @@ struct CachedPortalService: PortalService {
         try await cached("immunisationDoses|\(patientID)|\(vaccineID)") {
             try await base.immunisationDoses(vaccineID: vaccineID, for: patientID)
         }
+    }
+
+    /// Not cached, so edits made on the portal show straight away.
+    func personalInformation(for patientID: String) async throws -> PersonalInformation {
+        try await base.personalInformation(for: patientID)
+    }
+
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation {
+        try await base.updateContactInformation(update, for: patientID)
+    }
+
+    /// Not cached, so changes made on the portal show straight away.
+    func securitySettings(for patientID: String) async throws -> SecuritySettings {
+        try await base.securitySettings(for: patientID)
+    }
+
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws {
+        try await base.setPreviewFeatures(isOn, for: patientID)
+    }
+
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws {
+        try await base.setRemembersDevices(isOn, for: patientID)
+    }
+
+    /// Not cached, so a passkey added in Safari shows straight away.
+    func passkeys(for patientID: String) async throws -> PasskeyInfo {
+        try await base.passkeys(for: patientID)
+    }
+
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey {
+        try await base.renamePasskey(passkeyID, to: name, for: patientID)
+    }
+
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws {
+        try await base.removePasskey(passkeyID, for: patientID)
+    }
+
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck {
+        try await base.verifyPassword(password, for: patientID)
+    }
+
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] {
+        try await base.customiseAccount(accountID, nickname: nickname, colour: colour, photo: photo)
+    }
+
+    /// `Session` keeps the photos it loads.
+    func accountPhotos() async -> [String: Data] {
+        await base.accountPhotos()
+    }
+
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences {
+        try await base.communicationPreferences(for: patientID)
+    }
+
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws {
+        try await base.updateCommunicationPreferences(preferences, for: patientID)
     }
 }

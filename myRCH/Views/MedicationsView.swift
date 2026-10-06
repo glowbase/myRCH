@@ -60,9 +60,14 @@ struct MedicationsView: View {
     let patientID: String
     @Environment(Session.self) private var session
 
+    @Environment(MedicationStore.self) private var store
+
     @State private var isAdding = false
-    /// Changed after adding a medication, so the list loads afresh.
+    /// Changed after adding or removing a medication, so the list loads afresh.
     @State private var listID = UUID()
+    /// A family-added medication swiped to remove, awaiting confirmation.
+    @State private var pendingRemoval: Medication?
+    @State private var removalError: String?
 
     var body: some View {
         AsyncSection {
@@ -92,6 +97,19 @@ struct MedicationsView: View {
         .sheet(isPresented: $isAdding) {
             AddMedicationView(patientID: patientID) { listID = UUID() }
         }
+        .confirmationDialog("Remove \(pendingRemoval?.reminderName ?? "medication")?",
+                            isPresented: Binding(get: { pendingRemoval != nil },
+                                                 set: { if !$0 { pendingRemoval = nil } }),
+                            titleVisibility: .visible, presenting: pendingRemoval) { medication in
+            Button("Remove Medication", role: .destructive) { Task { await remove(medication) } }
+        } message: { _ in
+            Text("It comes off the medication list on the portal, and its reminders on this iPhone stop.")
+        }
+        .alert("Couldn't remove the medication", isPresented: .constant(removalError != nil)) {
+            Button("OK") { removalError = nil }
+        } message: {
+            Text(removalError ?? "")
+        }
         .toolbar {
             // Pinned on iOS 27 so Add never moves into the overflow menu.
             if #available(iOS 27, *) {
@@ -106,6 +124,21 @@ struct MedicationsView: View {
 
     private var addButton: some View {
         Button("Add Medication", systemImage: "plus") { isAdding = true }
+    }
+
+    private func remove(_ medication: Medication) async {
+        do {
+            try await session.service.removeMedication(medication, for: patientID)
+            // No reminders for a medicine that's no longer on the list.
+            let key = MedicationStore.key(patientID: patientID, medicationID: medication.id)
+            if !store.reminders(for: key).isEmpty {
+                store.setReminders([], for: key, medicineName: medication.reminderName,
+                                   childName: session.activeFirstName)
+            }
+            listID = UUID()
+        } catch {
+            removalError = error.localizedDescription
+        }
     }
 
     private var shareButton: some View {
@@ -123,6 +156,12 @@ struct MedicationsView: View {
             MedicationDetailView(medication: medication)
         } label: {
             MedicationRow(medication: medication)
+        }
+        // Swipe to remove, for medications the family added.
+        .swipeActions {
+            if medication.isPatientReported {
+                Button("Remove", systemImage: "trash", role: .destructive) { pendingRemoval = medication }
+            }
         }
     }
 }
@@ -188,6 +227,7 @@ struct MedicationDetailView: View {
     @State private var notificationsDenied = false
     /// The day shown in the History section.
     @State private var historyDay = Calendar.current.startOfDay(for: .now)
+    @State private var showsExplanation = false
     @FocusState private var isWritingNote: Bool
 
     private var storeKey: String {
@@ -219,7 +259,7 @@ struct MedicationDetailView: View {
                 if medication.isPatientReported {
                     section("Good to Know") {
                         note("person.fill.checkmark",
-                             "You added this medication. The care team will review it at the next visit.")
+                             "You added this medication. The care team will review it at the next visit. To remove it, swipe left on it in the medication list.")
                     }
                 }
             }
@@ -229,6 +269,10 @@ struct MedicationDetailView: View {
         .navigationTitle("Medication")
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            AIExplainToolbarItem(title: "Explain Medication") { showsExplanation = true }
+        }
+        .sheet(isPresented: $showsExplanation) { MedicationExplanationSheet(medication: medication) }
     }
 
     // MARK: AKA
@@ -268,8 +312,8 @@ struct MedicationDetailView: View {
                 .textCase(.uppercase)
             Text(medication.titleName)
                 .font(.system(.title, design: .rounded).bold())
-            // Wraps at large text sizes, with up to three pills.
-            FlowLayout(spacing: 8) {
+            // Scrolls sideways at large text sizes, with up to three pills.
+            ChipRow {
                 if !medication.dose.isEmpty {
                     Pill(text: medication.dose, systemImage: "scalemass.fill",
                          tint: medication.isActive ? Feature.medication.accent : .secondary)
@@ -462,9 +506,11 @@ struct MedicationDetailView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                Text("If a dose isn't logged, you'll get a follow-up reminder 30 minutes later.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if MedicationStore.followUpMinutes > 0 {
+                    Text("If a dose isn't logged, you'll get a follow-up reminder \(MedicationStore.followUpMinutes) minutes later.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

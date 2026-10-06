@@ -4,9 +4,11 @@ import WidgetKit
 @main
 struct myRCHWidgetsBundle: WidgetBundle {
     var body: some Widget {
+        TodayWidget()
         NextDoseWidget()
         MedicationWidget()
         NextVisitWidget()
+        UpcomingVisitsWidget()
         URNumberWidget()
         AllergyWidget()
         WhatsNewWidget()

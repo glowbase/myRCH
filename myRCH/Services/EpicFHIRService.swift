@@ -51,6 +51,8 @@ struct EpicFHIRService: PortalService {
     func visitDocuments(appointmentID: String, for patientID: String) async throws -> [VisitDocument] { try notImplemented() }
     func letters(for patientID: String) async throws -> [Letter] { try notImplemented() }
     func letterHTML(_ letter: Letter, for patientID: String) async throws -> String { try notImplemented() }
+    func referrals(for patientID: String) async throws -> [Referral] { try notImplemented() }
+    func referralDetails(_ referral: Referral, for patientID: String) async throws -> ReferralDetails { try notImplemented() }
     func visitDocumentHTML(_ document: VisitDocument, for patientID: String) async throws -> String { try notImplemented() }
     func testResults(for patientID: String) async throws -> [TestResult] { try notImplemented() }
     func testResultDetails(_ result: TestResult, for patientID: String) async throws -> TestResult { try notImplemented() }
@@ -58,6 +60,7 @@ struct EpicFHIRService: PortalService {
     func medications(for patientID: String) async throws -> [Medication] { try notImplemented() }
     func searchMedications(_ text: String, for patientID: String) async throws -> [MedicationSearchResult] { try notImplemented() }
     func addMedication(named name: String, startDate: Date, for patientID: String) async throws { try notImplemented() }
+    func removeMedication(_ medication: Medication, for patientID: String) async throws { try notImplemented() }
     func messages(for patientID: String) async throws -> [Message] { try notImplemented() }
     func conversations(in folder: MessageFolder, for patientID: String) async throws -> [Conversation] { try notImplemented() }
     func conversation(id: String, for patientID: String) async throws -> Conversation { try notImplemented() }
@@ -77,5 +80,27 @@ struct EpicFHIRService: PortalService {
     func exploreMore(for patientID: String) async throws -> ExploreMoreFeed { try notImplemented() }
     func patientGoals(for patientID: String) async throws -> [PortalGoal] { try notImplemented() }
     func setPatientGoal(_ text: String, for patientID: String) async throws { try notImplemented() }
+    func setEarlierVisitAlerts(_ isOn: Bool, appointmentID: String, for patientID: String) async throws { try notImplemented() }
+    func rescheduleOptions(appointmentID: String, for patientID: String) async throws -> RescheduleOptions { try notImplemented() }
+    func rescheduleSlots(_ options: RescheduleOptions, appointmentID: String, startDay: Int?,
+                         for patientID: String) async throws -> AppointmentSlotPage { try notImplemented() }
+    func reschedule(appointmentID: String, to slot: AppointmentSlot, reason: RescheduleOptions.Reason?,
+                    options: RescheduleOptions, for patientID: String) async throws { try notImplemented() }
     func immunisationDoses(vaccineID: String, for patientID: String) async throws -> [ImmunisationDose] { try notImplemented() }
+    func personalInformation(for patientID: String) async throws -> PersonalInformation { try notImplemented() }
+    func updateContactInformation(_ update: ContactInformationUpdate,
+                                  for patientID: String) async throws -> PersonalInformation { try notImplemented() }
+    func securitySettings(for patientID: String) async throws -> SecuritySettings { try notImplemented() }
+    func setPreviewFeatures(_ isOn: Bool, for patientID: String) async throws { try notImplemented() }
+    func setRemembersDevices(_ isOn: Bool, for patientID: String) async throws { try notImplemented() }
+    func passkeys(for patientID: String) async throws -> PasskeyInfo { try notImplemented() }
+    func renamePasskey(_ passkeyID: String, to name: String, for patientID: String) async throws -> Passkey { try notImplemented() }
+    func removePasskey(_ passkeyID: String, for patientID: String) async throws { try notImplemented() }
+    func verifyPassword(_ password: String, for patientID: String) async throws -> PasswordCheck { try notImplemented() }
+    func customiseAccount(_ accountID: String, nickname: String, colour: Int,
+                          photo: AccountPhotoChange) async throws -> [LinkedAccount] { try notImplemented() }
+    func accountPhotos() async -> [String: Data] { [:] }
+    func communicationPreferences(for patientID: String) async throws -> CommunicationPreferences { try notImplemented() }
+    func updateCommunicationPreferences(_ preferences: CommunicationPreferences,
+                                        for patientID: String) async throws { try notImplemented() }
 }

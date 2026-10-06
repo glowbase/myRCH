@@ -2,12 +2,13 @@ import SwiftUI
 
 struct LoginView: View {
     @Environment(Session.self) private var session
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var username = ""
     @State private var password = ""
     @State private var rememberUsername = true
     @State private var showPassword = false
+    @State private var showsHelp = false
+    @State private var showsSignUp = false
     @FocusState private var focus: Field?
 
     private enum Field { case username, password }
@@ -27,14 +28,18 @@ struct LoginView: View {
                 .padding(.bottom, 8)
                 .frame(minHeight: geo.size.height)
                 .frame(maxWidth: .infinity)
+                // A tap on empty space closes the keyboard. Behind the
+                // content, so the fields and buttons still get their taps.
+                .background {
+                    Color.clear
+                        .contentShape(.rect)
+                        .onTapGesture { focus = nil }
+                }
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background {
-            Theme.welcomeBackground.ignoresSafeArea()
-            DecorativeBlobs().ignoresSafeArea()
-        }
+        .background(Theme.welcomeBackground.ignoresSafeArea())
         .tint(Theme.brand)
     }
 
@@ -42,17 +47,11 @@ struct LoginView: View {
 
     private var hero: some View {
         VStack(spacing: 20) {
-            // The logo is a JPEG with a white background. Multiply hides the
-            // white on the light wash; on a dark background it would blacken
-            // the whole logo, so there it sits on a white tile instead.
+            // Transparent, with a white figure and wordmark in dark mode.
             Image("RCHLogo")
                 .resizable()
                 .scaledToFit()
                 .frame(maxWidth: 130)
-                .blendMode(colorScheme == .dark ? .normal : .multiply)
-                .padding(colorScheme == .dark ? 12 : 0)
-                .background(colorScheme == .dark ? Color.white : .clear,
-                            in: .rect(cornerRadius: 20, style: .continuous))
                 .accessibilityLabel("The Royal Children's Hospital Melbourne")
 
             Text("Your child’s care, together in one place.")
@@ -101,26 +100,10 @@ struct LoginView: View {
                     .transition(.opacity)
             }
 
-            #if DEBUG
-            liveToggle
-            #endif
-
             signInButton
                 .padding(.top, 12)
         }
     }
-
-    #if DEBUG
-    /// Developer switch between mock data and the real portal.
-    private var liveToggle: some View {
-        @Bindable var session = session
-        return Toggle(isOn: $session.useLivePortal) {
-            Label("Connect to live RCH portal", systemImage: "antenna.radiowaves.left.and.right")
-                .font(.subheadline)
-        }
-        .toggleStyle(.switch)
-    }
-    #endif
 
     private var passwordField: some View {
         HStack {
@@ -215,13 +198,15 @@ struct LoginView: View {
 
     private var footer: some View {
         HStack(spacing: 28) {
-            footerLink("Need help?", systemImage: "questionmark.circle")
-            footerLink("Sign up", systemImage: "person.badge.plus")
+            footerButton("Need help?", systemImage: "questionmark.circle") { showsHelp = true }
+            footerButton("Sign up", systemImage: "person.badge.plus") { showsSignUp = true }
         }
+        .sheet(isPresented: $showsHelp) { PortalHelpView() }
+        .sheet(isPresented: $showsSignUp) { SignUpFormView() }
     }
 
-    private func footerLink(_ title: String, systemImage: String) -> some View {
-        Link(destination: URL(string: "https://myrchportal.rch.org.au")!) {
+    private func footerButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.brandText)
@@ -237,44 +222,66 @@ struct LoginView: View {
     }
 }
 
-/// Soft, blurred accent shapes that drift slowly around the screen, adding a
-/// playful children's-hospital warmth behind entry screens without distracting
-/// from the form.
-private struct DecorativeBlobs: View {
-    private struct Blob {
-        var color: Color
-        var size: CGFloat
-        var base: CGPoint      // fractional home position (0...1)
-        var phase: Double      // offsets each blob's motion so they don't sync
-    }
+/// The launch screen's icon, the same size and place, on the same plain
+/// white (black in dark mode), with anything else (a spinner, an unlock
+/// button) below it so the icon never moves. Used while signing in at launch
+/// and for the lock.
+struct LaunchArtwork<Accessory: View>: View {
+    /// Matches the 480px @3x `LaunchIcon` the launch screen shows.
+    static var iconSize: CGFloat { 160 }
+    /// Pulses the leaves' colours on and off, as a loading animation.
+    var pulsesLeaves = false
+    @ViewBuilder var accessory: Accessory
 
-    private let blobs: [Blob] = [
-        Blob(color: Theme.yellow, size: 200, base: CGPoint(x: 0.15, y: 0.12), phase: 0.0),
-        Blob(color: Theme.teal,   size: 240, base: CGPoint(x: 0.88, y: 0.18), phase: 1.3),
-        Blob(color: Theme.red,    size: 190, base: CGPoint(x: 0.90, y: 0.80), phase: 2.6),
-        Blob(color: Theme.orange, size: 180, base: CGPoint(x: 0.22, y: 0.68), phase: 3.9),
-        Blob(color: Theme.green,  size: 220, base: CGPoint(x: 0.10, y: 0.90), phase: 5.2)
-    ]
+    @State private var start = Date.now
 
     var body: some View {
-        TimelineView(.animation) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            GeometryReader { geo in
-                let w = geo.size.width
-                let h = geo.size.height
-                ZStack {
-                    ForEach(Array(blobs.enumerated()), id: \.offset) { _, blob in
-                        let x = blob.base.x * w + CGFloat(sin(t * 0.45 + blob.phase)) * w * 0.22
-                        let y = blob.base.y * h + CGFloat(cos(t * 0.35 + blob.phase * 1.2)) * h * 0.16
-                        Circle()
-                            .fill(blob.color.opacity(0.55))
-                            .frame(width: blob.size, height: blob.size)
-                            .blur(radius: 36)
-                            .position(x: x, y: y)
-                    }
-                }
+        icon
+            .frame(width: Self.iconSize, height: Self.iconSize)
+            .accessibilityHidden(true)
+            .overlay(alignment: .top) {
+                accessory
+                    .fixedSize()
+                    .offset(y: Self.iconSize + 28)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // The asset the launch screen uses, so the two match exactly.
+            .background(Color("LaunchBackground").ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private var icon: some View {
+        let image = Image("LaunchIcon").resizable().scaledToFit()
+        if pulsesLeaves {
+            TimelineView(.animation) { context in
+                let elapsed = Float(context.date.timeIntervalSince(start))
+                image.colorEffect(ShaderLibrary.leafPulse(
+                    .float(elapsed),
+                    .float(2.4),            // seconds for the colour to go round
+                    .float(elapsed / 0.8)   // eased in over the first 0.8s
+                ))
+            }
+        } else {
+            image
+        }
+    }
+}
+
+/// Shown while saved details sign in again at launch: the logo's leaves
+/// pulse their colours on and off. With Reduce Motion, a still logo and a
+/// spinner instead.
+struct LaunchView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        LaunchArtwork(pulsesLeaves: !reduceMotion) {
+            if reduceMotion {
+                ProgressView()
+                    .controlSize(.large)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Signing in")
     }
 }
 

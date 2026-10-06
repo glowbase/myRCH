@@ -1,15 +1,15 @@
 import SwiftUI
 
 /// The sections Home can show. The order and which are pinned are chosen in
-/// `EditHomeSheet`, like the Health app's Pinned list.
+/// `EditHomeSheet`, like the Health app's Pinned list. (Highlights was
+/// removed in favour of Notices; saved layouts that name it just skip it.)
 enum HomeSection: String, CaseIterable, Identifiable {
-    case highlights, upcoming, results, medication, immunisations, growth, goals, sharing, explore
+    case upcoming, results, medication, immunisations, growth, goals, sharing, explore
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .highlights: "Highlights"
         case .upcoming: "Upcoming Visits"
         case .results: "Recent Results"
         case .medication: "Medication"
@@ -23,15 +23,16 @@ enum HomeSection: String, CaseIterable, Identifiable {
 
     var art: (symbol: String, color: Color) {
         switch self {
-        case .highlights: ("sparkles", .orange)
+        // Sections without a Browse tile use the matching Theme.Section shade
+        // (gold, not bright yellow, for Explore More).
         case .upcoming: Feature.visits.tileArt
         case .results: Feature.testResults.tileArt
         case .medication: Feature.medication.tileArt
-        case .immunisations: ("syringe.fill", Feature.immunisations.tileArt.color)
+        case .immunisations: Feature.immunisations.tileArt
         case .growth: Feature.growthCharts.tileArt
-        case .goals: ("target", .green)
+        case .goals: ("target", Theme.Section.growthCharts)
         case .sharing: Feature.sharing.tileArt
-        case .explore: ("lightbulb.max.fill", .yellow)
+        case .explore: ("lightbulb.max.fill", Theme.Section.letters)
         }
     }
 

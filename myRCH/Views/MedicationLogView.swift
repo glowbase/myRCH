@@ -48,7 +48,7 @@ struct MedicationLogSections: View {
             ForEach(asNeeded(on: selectedDay)) { entry in
                 HStack {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.green)
-                    Text(entry.medication.commonName ?? entry.medication.displayName)
+                    Text(entry.medication.reminderName)
                     Spacer()
                     Text(entry.log.scheduled.formatted(date: .omitted, time: .shortened))
                         .font(.subheadline.monospacedDigit())
@@ -120,10 +120,14 @@ struct MedicationLogSections: View {
         var id: String { "\(key)|\(dose.scheduled.timeIntervalSince1970)" }
     }
 
-    /// Every current medication's doses on `day`, in time order.
+    /// Every medication's doses on `day`, in time order. Medications no
+    /// longer taken only show the doses that were logged, so a finished
+    /// course stays in the history without asking for more doses.
     private func scheduled(on day: Date) -> [Item] {
-        current.flatMap { medication in
-            store.doses(on: day, for: key(medication)).map { Item(medication: medication, dose: $0, key: key(medication)) }
+        medications.flatMap { medication in
+            store.doses(on: day, for: key(medication))
+                .filter { medication.isActive || $0.status != nil }
+                .map { Item(medication: medication, dose: $0, key: key(medication)) }
         }
         .sorted { $0.dose.scheduled < $1.dose.scheduled }
     }
@@ -377,16 +381,11 @@ private struct ScheduledDoseRow: View {
             Text(item.dose.scheduled.formatted(date: .omitted, time: .shortened))
                 .font(.subheadline.weight(.semibold).monospacedDigit())
                 .frame(minWidth: 64, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.medication.commonName ?? item.medication.displayName)
-                    .font(.headline)
-                if item.medication.commonName != nil {
-                    Text(item.medication.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
+            // The short name, as in the medication list: the brand name when
+            // the portal gives one, else the name without its strength
+            // ("Amoxicillin-Clavulanic Acid", not "… 400 mg-57 mg/5 mL").
+            Text(item.medication.reminderName)
+                .font(.headline)
             Spacer()
             status
                 // A little bounce and tap when a dose is logged, like Health.
