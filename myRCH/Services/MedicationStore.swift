@@ -244,16 +244,23 @@ final class MedicationStore {
 
     // MARK: Dose log
 
-    /// Today's (or `day`'s) doses for a medication, earliest first.
+    /// Today's (or `day`'s) doses for a medication, earliest first. Doses
+    /// logged at a time that's no longer in the schedule (the reminder was
+    /// changed or removed, e.g. when a course finished) still appear, so the
+    /// history stays intact.
     func doses(on day: Date = .now, for key: String) -> [Dose] {
         let calendar = Calendar.current
-        let logs = entries[key]?.doses ?? []
-        return reminders(for: key).compactMap { reminder in
+        let logs = (entries[key]?.doses ?? []).filter { $0.isScheduled && calendar.isDate($0.scheduled, inSameDayAs: day) }
+        var doses = reminders(for: key).compactMap { reminder -> Dose? in
             guard let scheduled = calendar.date(bySettingHour: reminder.hour, minute: reminder.minute,
                                                 second: 0, of: day) else { return nil }
-            let log = logs.first { $0.isScheduled && abs($0.scheduled.timeIntervalSince(scheduled)) < 60 }
+            let log = logs.first { abs($0.scheduled.timeIntervalSince(scheduled)) < 60 }
             return Dose(scheduled: scheduled, status: log?.status, loggedAt: log?.loggedAt)
         }
+        for log in logs where !doses.contains(where: { abs($0.scheduled.timeIntervalSince(log.scheduled)) < 60 }) {
+            doses.append(Dose(scheduled: log.scheduled, status: log.status, loggedAt: log.loggedAt))
+        }
+        return doses.sorted { $0.scheduled < $1.scheduled }
     }
 
     func log(_ status: DoseLog.Status?, scheduled: Date, for key: String) {

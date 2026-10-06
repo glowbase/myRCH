@@ -28,6 +28,7 @@ The app shows this file under Settings > Version, so keep each entry to one line
 - While the app signs in at launch, the leaves on the RCH tree pulse their colours on and off instead of showing a spinner.
 
 ### Fixed
+- Doses you logged stay in the medication history after their reminders are removed or the medication is no longer current.
 - Saving a child's nickname, colour or photo no longer fails after the portal signs you out in the background, or while another child's record is refreshing.
 
 ## [1.0.0] - 2026-10-04
