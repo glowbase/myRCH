@@ -69,7 +69,17 @@ actor MyChartWebService: PortalService {
     /// Set while the portal is waiting for a verification code.
     private var twoFactor: TwoFactorContext?
 
-    init(config: MyChartConfig = .init(), debugLogResponses: Bool = true) {
+    /// Logging is on for Debug builds only, so TestFlight and release builds
+    /// never write portal responses to the console.
+    private static let logsByDefault: Bool = {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }()
+
+    init(config: MyChartConfig = .init(), debugLogResponses: Bool = MyChartWebService.logsByDefault) {
         self.config = config
         self.debugLogResponses = debugLogResponses
         // Ephemeral gives a private, in-memory cookie jar that URLSession
