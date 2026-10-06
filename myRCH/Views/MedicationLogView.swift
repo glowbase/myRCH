@@ -120,10 +120,14 @@ struct MedicationLogSections: View {
         var id: String { "\(key)|\(dose.scheduled.timeIntervalSince1970)" }
     }
 
-    /// Every current medication's doses on `day`, in time order.
+    /// Every medication's doses on `day`, in time order. Medications no
+    /// longer taken only show the doses that were logged, so a finished
+    /// course stays in the history without asking for more doses.
     private func scheduled(on day: Date) -> [Item] {
-        current.flatMap { medication in
-            store.doses(on: day, for: key(medication)).map { Item(medication: medication, dose: $0, key: key(medication)) }
+        medications.flatMap { medication in
+            store.doses(on: day, for: key(medication))
+                .filter { medication.isActive || $0.status != nil }
+                .map { Item(medication: medication, dose: $0, key: key(medication)) }
         }
         .sorted { $0.dose.scheduled < $1.dose.scheduled }
     }
